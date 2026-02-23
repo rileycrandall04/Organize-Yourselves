@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useOrgTree, useCallingSlots } from '../hooks/useDb';
 import { useVisibility } from '../hooks/useVisibility';
-import { initializeOrgChart } from '../db';
+// initializeOrgChart no longer needed here — auto-triggered from Settings
 import { CALLING_STAGES } from '../utils/constants';
 import { ORGANIZATIONS } from '../data/callings';
 import {
@@ -10,24 +10,13 @@ import {
   Play, Eye,
 } from 'lucide-react';
 
-export default function OrgChart({ onEditSlot, onAddChild, onAddCandidate, onBeginRelease, onAdvance }) {
+export default function OrgChart({ onEditSlot, onAddChild, onAddCandidate, onBeginRelease, onAdvance, onNavigateSettings }) {
   const { tree, loading } = useOrgTree();
   const { slots } = useCallingSlots();
   const { filterTree, getExpandState, hiddenOrgs, toggleHideOrg } = useVisibility();
-  const [initializing, setInitializing] = useState(false);
 
   const filteredTree = useMemo(() => filterTree(tree), [tree, filterTree]);
   const expandState = useMemo(() => getExpandState(filteredTree), [filteredTree, getExpandState]);
-
-  async function handleInitialize() {
-    if (initializing) return;
-    setInitializing(true);
-    try {
-      await initializeOrgChart();
-    } finally {
-      setInitializing(false);
-    }
-  }
 
   if (loading) {
     return (
@@ -42,16 +31,17 @@ export default function OrgChart({ onEditSlot, onAddChild, onAddCandidate, onBeg
     return (
       <div className="card text-center text-gray-400 py-12">
         <Users size={40} className="mx-auto mb-3 text-gray-300" />
-        <p className="text-sm font-medium text-gray-600">No organization chart set up</p>
-        <p className="text-xs text-gray-400 mt-1">Initialize the org chart with the default stake and ward structure.</p>
-        <button
-          onClick={handleInitialize}
-          disabled={initializing}
-          className="btn-primary mt-4 text-sm"
-        >
-          <GitBranch size={14} className="inline mr-1" />
-          {initializing ? 'Setting up...' : 'Initialize Org Chart'}
-        </button>
+        <p className="text-sm font-medium text-gray-600">No organization chart yet</p>
+        <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">Add your calling in Settings to automatically set up your organization chart with the right positions for your role.</p>
+        {onNavigateSettings && (
+          <button
+            onClick={onNavigateSettings}
+            className="btn-primary mt-4 text-sm"
+          >
+            <GitBranch size={14} className="inline mr-1" />
+            Go to Settings
+          </button>
+        )}
       </div>
     );
   }

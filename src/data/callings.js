@@ -480,33 +480,71 @@ export const ORG_HIERARCHY = [
       { callingKey: 'bishopric_2nd', roleName: '2nd Counselor', organization: 'bishopric', tier: 3 },
       { callingKey: 'exec_secretary', roleName: 'Executive Secretary', organization: 'bishopric', tier: 3 },
       { callingKey: 'ward_clerk', roleName: 'Ward Clerk', organization: 'bishopric', tier: 3 },
+      // ── Elders Quorum ──
       { callingKey: 'eq_president', roleName: 'EQ President', organization: 'elders_quorum', tier: 4, children: [
         { roleName: 'EQ 1st Counselor', organization: 'elders_quorum', tier: 5 },
         { roleName: 'EQ 2nd Counselor', organization: 'elders_quorum', tier: 5 },
         { roleName: 'EQ Secretary', organization: 'elders_quorum', tier: 5 },
+        { roleName: 'Ministering Coordinator', organization: 'elders_quorum', tier: 6, expectedCount: 2 },
+        { roleName: 'EQ Instructor', organization: 'elders_quorum', tier: 6, expectedCount: 2 },
       ]},
+      // ── Relief Society ──
       { callingKey: 'rs_president', roleName: 'RS President', organization: 'relief_society', tier: 4, children: [
         { roleName: 'RS 1st Counselor', organization: 'relief_society', tier: 5 },
         { roleName: 'RS 2nd Counselor', organization: 'relief_society', tier: 5 },
         { roleName: 'RS Secretary', organization: 'relief_society', tier: 5 },
+        { roleName: 'Ministering Coordinator', organization: 'relief_society', tier: 6, expectedCount: 2 },
+        { roleName: 'RS Instructor', organization: 'relief_society', tier: 6, expectedCount: 2 },
+        { roleName: 'RS Activity Coordinator', organization: 'relief_society', tier: 6, expectedCount: 2 },
       ]},
+      // ── Young Women ──
       { callingKey: 'yw_president', roleName: 'YW President', organization: 'young_women', tier: 4, children: [
         { roleName: 'YW 1st Counselor', organization: 'young_women', tier: 5 },
         { roleName: 'YW 2nd Counselor', organization: 'young_women', tier: 5 },
+        { roleName: 'YW Secretary', organization: 'young_women', tier: 5 },
+        { roleName: 'YW Class Advisor', organization: 'young_women', tier: 6, expectedCount: 3 },
       ]},
+      // ── Young Men / Aaronic Priesthood ──
+      { roleName: 'YM President', organization: 'young_men', tier: 4, children: [
+        { roleName: 'YM 1st Counselor', organization: 'young_men', tier: 5 },
+        { roleName: 'YM 2nd Counselor', organization: 'young_men', tier: 5 },
+        { roleName: 'YM Secretary', organization: 'young_men', tier: 5 },
+        { roleName: 'Deacons Quorum Advisor', organization: 'young_men', tier: 6, expectedCount: 2 },
+        { roleName: 'Teachers Quorum Advisor', organization: 'young_men', tier: 6, expectedCount: 2 },
+        { roleName: 'Priests Quorum Advisor', organization: 'young_men', tier: 6, expectedCount: 2 },
+      ]},
+      // ── Primary ──
       { callingKey: 'primary_president', roleName: 'Primary President', organization: 'primary', tier: 4, children: [
         { roleName: 'Primary 1st Counselor', organization: 'primary', tier: 5 },
         { roleName: 'Primary 2nd Counselor', organization: 'primary', tier: 5 },
         { roleName: 'Primary Secretary', organization: 'primary', tier: 5 },
         { roleName: 'Primary Music Leader', organization: 'primary', tier: 5 },
+        { roleName: 'Nursery Leader', organization: 'primary', tier: 6, expectedCount: 2 },
+        { roleName: 'Sunbeam Teacher', organization: 'primary', tier: 6, expectedCount: 2 },
+        { roleName: 'CTR Teacher', organization: 'primary', tier: 6, expectedCount: 4 },
+        { roleName: 'Valiant Teacher', organization: 'primary', tier: 6, expectedCount: 4 },
       ]},
+      // ── Sunday School ──
       { callingKey: 'ss_president', roleName: 'SS President', organization: 'sunday_school', tier: 4, children: [
         { roleName: 'SS 1st Counselor', organization: 'sunday_school', tier: 5 },
         { roleName: 'SS Secretary', organization: 'sunday_school', tier: 5 },
+        { roleName: 'Gospel Doctrine Teacher', organization: 'sunday_school', tier: 6, expectedCount: 2 },
+        { roleName: 'Gospel Essentials Teacher', organization: 'sunday_school', tier: 6 },
+        { roleName: 'Youth SS Teacher', organization: 'sunday_school', tier: 6, expectedCount: 2 },
       ]},
-      { callingKey: 'ward_mission_leader', roleName: 'Ward Mission Leader', organization: 'missionary', tier: 4 },
-      { callingKey: 'temple_fh_leader', roleName: 'Temple & FH Leader', organization: 'temple_fh', tier: 4 },
-      { roleName: 'Music Coordinator', organization: 'music', tier: 4 },
+      // ── Missionary ──
+      { callingKey: 'ward_mission_leader', roleName: 'Ward Mission Leader', organization: 'missionary', tier: 4, children: [
+        { roleName: 'Ward Missionary', organization: 'missionary', tier: 6, expectedCount: 4 },
+      ]},
+      // ── Temple & Family History ──
+      { callingKey: 'temple_fh_leader', roleName: 'Temple & FH Leader', organization: 'temple_fh', tier: 4, children: [
+        { roleName: 'Temple & FH Consultant', organization: 'temple_fh', tier: 6, expectedCount: 3 },
+      ]},
+      // ── Music ──
+      { roleName: 'Music Coordinator', organization: 'music', tier: 4, children: [
+        { roleName: 'Choir Director', organization: 'music', tier: 5 },
+        { roleName: 'Organist/Pianist', organization: 'music', tier: 5, expectedCount: 2 },
+      ]},
     ]},
   ]},
 ];

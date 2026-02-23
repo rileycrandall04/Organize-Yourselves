@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useCallingSlots, usePeople } from '../hooks/useDb';
 import { transitionCallingSlot, startRelease } from '../db';
 import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES } from '../utils/constants';
@@ -14,6 +15,7 @@ import NeedsDashboard from './NeedsDashboard';
 import CandidateManager from './CandidateManager';
 
 export default function CallingPipeline({ onBack }) {
+  const navigate = useNavigate();
   const { slots, loading, add, update, remove } = useCallingSlots();
   const [view, setView] = useState('list'); // 'list' | 'kanban' | 'orgchart'
   const [pipelineTab, setPipelineTab] = useState('call'); // 'call' | 'release'
@@ -218,6 +220,7 @@ export default function CallingPipeline({ onBack }) {
           onAddCandidate={(node) => setCandidateSlot(node)}
           onBeginRelease={handleBeginRelease}
           onAdvance={openAdvanceModal}
+          onNavigateSettings={() => navigate('/settings')}
         />
       ) : view === 'kanban' ? (
         <KanbanView

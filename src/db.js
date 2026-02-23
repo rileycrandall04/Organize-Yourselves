@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import { getCallingConfig, getPresidentForOrg, ORG_HIERARCHY, ORG_TEMPLATES } from './data/callings';
+import { getCallingConfig, getPresidentForOrg, ORG_HIERARCHY, ORG_TEMPLATES, JURISDICTION_MAP } from './data/callings';
 
 const db = new Dexie('CallingOrganizer');
 
@@ -682,37 +682,109 @@ export async function buildOrgTree() {
 }
 
 export async function initializeOrgChart() {
+  return initializeOrgChartForRole('stake_president');
+}
+
+// ── Role-Scoped Org Chart Initialization ─────────────────────
+// Creates calling slots appropriate to the user's role/jurisdiction.
+// Bishop → full ward tree, EQ President → EQ subtree only, etc.
+
+export async function initializeOrgChartForRole(callingKey) {
   const existing = await db.callingSlots.count();
   if (existing > 0) return false;
 
-  async function createNode(node, parentId, sortOrder) {
-    const id = await db.callingSlots.add({
-      organization: node.organization,
-      roleName: node.roleName,
-      callingKey: node.callingKey || null,
-      tier: node.tier,
-      sortOrder,
-      parentSlotId: parentId || null,
-      isCustomPosition: false,
-      stage: 'identified',
-      candidateName: '',
-      history: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+  const jurisdiction = JURISDICTION_MAP[callingKey];
+  if (!jurisdiction) return false;
 
-    if (node.children) {
-      for (let i = 0; i < node.children.length; i++) {
-        await createNode(node.children[i], id, i);
+  // Extract the relevant subtree from ORG_HIERARCHY based on scope
+  const subtree = extractSubtreeForScope(jurisdiction);
+  if (!subtree || subtree.length === 0) return false;
+
+  async function createNode(node, parentId, sortOrder) {
+    const count = node.expectedCount || 1;
+    let lastId = null;
+
+    for (let n = 0; n < count; n++) {
+      const roleName = count > 1 ? `${node.roleName} ${n + 1}` : node.roleName;
+      const id = await db.callingSlots.add({
+        organization: node.organization,
+        roleName,
+        callingKey: node.callingKey || null,
+        tier: node.tier,
+        sortOrder: count > 1 ? sortOrder * 100 + n : sortOrder,
+        parentSlotId: parentId || null,
+        isCustomPosition: false,
+        stage: 'identified',
+        candidateName: '',
+        isOpen: true,
+        expectedCount: 1,
+        currentCount: 0,
+        candidates: [],
+        priorSubmissions: [],
+        history: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Only attach children to the first instance (or the single instance)
+      if (n === 0 && node.children) {
+        for (let i = 0; i < node.children.length; i++) {
+          await createNode(node.children[i], id, i);
+        }
       }
+      lastId = id;
     }
-    return id;
+    return lastId;
   }
 
-  for (let i = 0; i < ORG_HIERARCHY.length; i++) {
-    await createNode(ORG_HIERARCHY[i], null, i);
+  for (let i = 0; i < subtree.length; i++) {
+    await createNode(subtree[i], null, i);
   }
   return true;
+}
+
+// Helper: extract the relevant portion of ORG_HIERARCHY for a jurisdiction
+function extractSubtreeForScope(jurisdiction) {
+  const { scope, orgs } = jurisdiction;
+
+  if (scope === 'stake') {
+    // Full hierarchy
+    return ORG_HIERARCHY;
+  }
+
+  // Find the Bishop node inside the hierarchy
+  function findBishopNode(nodes) {
+    for (const node of nodes) {
+      if (node.callingKey === 'bishop') return node;
+      if (node.children) {
+        const found = findBishopNode(node.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  if (scope === 'ward' || scope === 'assigned_wards') {
+    // Ward-level: Bishop node as root with all ward children
+    const bishop = findBishopNode(ORG_HIERARCHY);
+    return bishop ? [bishop] : [];
+  }
+
+  if (scope === 'org') {
+    // Org-level: only the org president nodes matching visible orgs
+    const bishop = findBishopNode(ORG_HIERARCHY);
+    if (!bishop || !bishop.children) return [];
+
+    const matchingNodes = [];
+    for (const child of bishop.children) {
+      if (orgs.includes(child.organization)) {
+        matchingNodes.push(child);
+      }
+    }
+    return matchingNodes;
+  }
+
+  return [];
 }
 
 // ── Open Positions ──────────────────────────────────────────
