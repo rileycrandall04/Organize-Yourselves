@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply min-h-screen;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-700 text-white px-4 py-2 rounded-lg font-medium 
+           hover:bg-primary-800 active:bg-primary-900 transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply bg-white text-primary-700 px-4 py-2 rounded-lg font-medium 
+           border border-primary-200 hover:bg-primary-50 transition-colors;
+  }
+  .btn-ghost {
+    @apply text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors;
+  }
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-4;
+  }
+  .input-field {
+    @apply w-full rounded-lg border-gray-300 shadow-sm 
+           focus:border-primary-500 focus:ring-primary-500 text-sm;
+  }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-high { @apply bg-red-100 text-red-800; }
+  .badge-medium { @apply bg-yellow-100 text-yellow-800; }
+  .badge-low { @apply bg-green-100 text-green-800; }
+
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+}
