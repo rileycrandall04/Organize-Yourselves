@@ -62,6 +62,7 @@ export const ACTION_VIEWS = [
 
 // ── Calling Pipeline Stages ─────────────────────────────────
 export const CALLING_STAGES = {
+  // Call track
   identified: { key: 'identified', label: 'Identified', color: 'gray' },
   prayed_about: { key: 'prayed_about', label: 'Prayed About', color: 'blue' },
   discussed: { key: 'discussed', label: 'Discussed', color: 'indigo' },
@@ -70,14 +71,37 @@ export const CALLING_STAGES = {
   declined: { key: 'declined', label: 'Declined', color: 'red' },
   sustained: { key: 'sustained', label: 'Sustained', color: 'teal' },
   set_apart: { key: 'set_apart', label: 'Set Apart', color: 'green' },
+  serving: { key: 'serving', label: 'Serving', color: 'green' },
+  // Release track
+  release_planned: { key: 'release_planned', label: 'Release Planned', color: 'amber' },
+  release_meeting: { key: 'release_meeting', label: 'Release Meeting', color: 'orange' },
+  released: { key: 'released', label: 'Released', color: 'gray' },
 };
 
-export const STAGE_ORDER = [
+// Call track stages (identified → serving)
+export const CALL_STAGE_ORDER = [
   'identified', 'prayed_about', 'discussed', 'extended',
-  'accepted', 'sustained', 'set_apart',
+  'accepted', 'sustained', 'set_apart', 'serving',
 ];
 
+// Release track stages (serving → released)
+export const RELEASE_STAGE_ORDER = [
+  'serving', 'release_planned', 'release_meeting', 'released',
+];
+
+// Backward-compatible alias
+export const STAGE_ORDER = CALL_STAGE_ORDER;
+
 export const STAGE_LIST = Object.values(CALLING_STAGES);
+
+// ── Calling Priorities ──────────────────────────────────────
+export const CALLING_PRIORITIES = {
+  high: { key: 'high', label: 'High', color: 'red', badge: 'bg-red-50 text-red-700' },
+  medium: { key: 'medium', label: 'Medium', color: 'yellow', badge: 'bg-yellow-50 text-yellow-700' },
+  low: { key: 'low', label: 'Low', color: 'green', badge: 'bg-green-50 text-green-700' },
+};
+
+export const CALLING_PRIORITY_LIST = Object.values(CALLING_PRIORITIES);
 
 // ── Note Tag Sources (for auto-agenda items) ────────────────
 export const NOTE_TAG_SOURCES = {

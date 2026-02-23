@@ -1,8 +1,14 @@
 import { useNavigate } from 'react-router-dom';
-import { Settings, BookOpen, Users, ClipboardList, ChevronRight, GitBranch } from 'lucide-react';
+import { useUserCallings } from '../hooks/useDb';
+import { Settings, BookOpen, Users, ClipboardList, ChevronRight, GitBranch, Heart } from 'lucide-react';
 
 export default function MoreMenu() {
   const navigate = useNavigate();
+  const { callings } = useUserCallings();
+
+  // Show ministering link for EQ pres, RS pres, and bishopric callings
+  const ministeringCallings = ['eq_president', 'rs_president', 'bishop', 'bishopric_1st', 'bishopric_2nd'];
+  const showMinistering = callings.some(c => ministeringCallings.includes(c.callingKey));
 
   return (
     <div className="px-4 pt-6 pb-4 max-w-lg mx-auto">
@@ -11,6 +17,9 @@ export default function MoreMenu() {
       <div className="space-y-2">
         <MenuItem icon={ClipboardList} label="Responsibilities" subtitle="View and manage responsibilities" onPress={() => navigate('/responsibilities')} />
         <MenuItem icon={GitBranch} label="Calling Pipeline" subtitle="Track calling changes" onPress={() => navigate('/pipeline')} />
+        {showMinistering && (
+          <MenuItem icon={Heart} label="Ministering" subtitle="Manage ministering assignments" onPress={() => navigate('/ministering')} />
+        )}
         <MenuItem icon={BookOpen} label="Journal" subtitle="Spiritual impressions" onPress={() => navigate('/journal')} />
         <MenuItem icon={Users} label="People" subtitle="Manage contacts" onPress={() => navigate('/people')} />
         <MenuItem icon={Settings} label="Settings" subtitle="Backup, restore, and manage data" onPress={() => navigate('/settings')} />

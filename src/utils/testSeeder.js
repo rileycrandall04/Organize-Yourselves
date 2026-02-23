@@ -3,7 +3,7 @@
  * Generates a full year of realistic data across multiple callings.
  * Run via Settings page "Seed Test Data" button (dev only).
  */
-import db from '../db';
+import db, { initializeOrgChart } from '../db';
 import { getCallingConfig } from '../data/callings';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -137,16 +137,139 @@ const INBOX_ITEMS = [
 // ── Calling Pipeline Data ────────────────────────────────────
 
 const PIPELINE_SLOTS = [
+  // ── Call Pipeline slots ──
   { organization: 'elders_quorum', roleName: 'EQ 2nd Counselor', candidateName: 'James Wilson', stage: 'extended' },
   { organization: 'relief_society', roleName: 'RS Activities Committee Chair', candidateName: 'Rachel Allen', stage: 'accepted' },
   { organization: 'primary', roleName: 'CTR 7 Teacher', candidateName: 'Amanda Taylor', stage: 'prayed_about' },
   { organization: 'young_women', roleName: 'Beehive Advisor', candidateName: 'Megan Green', stage: 'discussed' },
   { organization: 'sunday_school', roleName: 'Gospel Doctrine Teacher', candidateName: 'Daniel Lewis', stage: 'sustained' },
-  { organization: 'primary', roleName: 'Nursery Leader', candidateName: 'Christina Baker', stage: 'identified' },
   { organization: 'music', roleName: 'Ward Choir Director', candidateName: 'Nicole Scott', stage: 'set_apart' },
-  { organization: 'elders_quorum', roleName: 'EQ Secretary', candidateName: '', stage: 'identified' },
   { organization: 'missionary', roleName: 'Ward Mission Leader', candidateName: 'Kevin Adams', stage: 'declined' },
   { organization: 'temple_fh', roleName: 'Temple & Family History Consultant', candidateName: 'Tyler Nelson', stage: 'prayed_about' },
+
+  // ── Open / Vacant positions (with candidates) ──
+  {
+    organization: 'primary', roleName: 'Nursery Leader', candidateName: '', stage: 'identified',
+    priority: 'high', isOpen: true,
+    candidates: [
+      { name: 'Christina Baker', submittedBy: 'Primary President', notes: 'Has experience with nursery-age children.', status: 'pending' },
+      { name: 'Lauren King', submittedBy: 'Bishop Taylor', notes: 'New to the ward, very willing.', status: 'pending' },
+    ],
+  },
+  {
+    organization: 'elders_quorum', roleName: 'EQ Secretary', candidateName: '', stage: 'identified',
+    priority: 'medium', isOpen: true,
+    candidates: [
+      { name: 'Brandon Hill', submittedBy: 'EQ President', notes: 'Detail-oriented, good with records.', status: 'pending' },
+    ],
+    priorSubmissions: [
+      { name: 'Ryan Wright', submittedBy: 'EQ President', notes: 'Initially considered but declined.', status: 'declined', declinedAt: new Date(Date.now() - 30 * 86400000).toISOString() },
+    ],
+  },
+  {
+    organization: 'sunday_school', roleName: 'Youth Sunday School Teacher', candidateName: '', stage: 'identified',
+    priority: 'high', isOpen: true,
+    candidates: [
+      { name: 'Joshua Young', submittedBy: 'SS President', notes: 'Great with youth.', status: 'pending' },
+      { name: 'Andrew Hall', submittedBy: 'Bishopric 1st Counselor', notes: 'Experienced teacher.', status: 'pending' },
+      { name: 'Stephanie Walker', submittedBy: 'Bishop Taylor', notes: 'Has a strong testimony.', status: 'pending' },
+    ],
+  },
+
+  // ── Serving slots (with service tracking) ──
+  {
+    organization: 'elders_quorum', roleName: 'EQ President', candidateName: '', stage: 'serving',
+    servedBy: 'Michael Anderson', servingSince: monthsAgoISO(18), recommendedServiceMonths: 60,
+    isOpen: false, currentCount: 1,
+  },
+  {
+    organization: 'elders_quorum', roleName: 'EQ 1st Counselor', candidateName: '', stage: 'serving',
+    servedBy: 'David Thompson', servingSince: monthsAgoISO(14), recommendedServiceMonths: 36,
+    isOpen: false, currentCount: 1,
+  },
+  {
+    organization: 'relief_society', roleName: 'RS President', candidateName: '', stage: 'serving',
+    servedBy: 'Sarah Williams', servingSince: monthsAgoISO(22), recommendedServiceMonths: 24,
+    isOpen: false, currentCount: 1,
+  },
+  {
+    organization: 'relief_society', roleName: 'RS 1st Counselor', candidateName: '', stage: 'serving',
+    servedBy: 'Jennifer Martinez', servingSince: monthsAgoISO(22), recommendedServiceMonths: 24,
+    isOpen: false, currentCount: 1,
+  },
+  {
+    organization: 'primary', roleName: 'Primary President', candidateName: '', stage: 'serving',
+    servedBy: 'Emily Davis', servingSince: monthsAgoISO(36), recommendedServiceMonths: 36,
+    isOpen: false, currentCount: 1,
+  },
+  {
+    organization: 'young_women', roleName: 'YW President', candidateName: '', stage: 'serving',
+    servedBy: 'Ashley Clark', servingSince: monthsAgoISO(10), recommendedServiceMonths: null,
+    isOpen: false, currentCount: 1,
+  },
+  {
+    organization: 'sunday_school', roleName: 'SS President', candidateName: '', stage: 'serving',
+    servedBy: 'Matthew Harris', servingSince: monthsAgoISO(28), recommendedServiceMonths: 36,
+    isOpen: false, currentCount: 1,
+  },
+
+  // ── Multi-position role (3 ministering coordinators, 2 filled) ──
+  {
+    organization: 'elders_quorum', roleName: 'Ministering Coordinator', candidateName: '', stage: 'serving',
+    servedBy: 'Christopher Lee', servingSince: monthsAgoISO(8),
+    expectedCount: 3, currentCount: 2, isOpen: true, priority: 'low',
+  },
+
+  // ── Release-track slots ──
+  {
+    organization: 'relief_society', roleName: 'RS Secretary', candidateName: '', stage: 'release_planned',
+    servedBy: 'Jessica Brown', servingSince: monthsAgoISO(30),
+    releaseTarget: 'Sacrament Meeting March 9', isOpen: false,
+  },
+  {
+    organization: 'primary', roleName: 'Primary Music Leader', candidateName: '', stage: 'release_meeting',
+    servedBy: 'Stephanie Walker', servingSince: monthsAgoISO(24),
+    releaseTarget: 'Ward Conference Feb 23', isOpen: false,
+  },
+
+  // ── Released slot ──
+  {
+    organization: 'young_women', roleName: 'Laurel Advisor', candidateName: '', stage: 'released',
+    isOpen: true, priority: 'medium',
+  },
+];
+
+// Helper: ISO string for N months ago
+function monthsAgoISO(months) {
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString();
+}
+
+// ── Ministering Test Data ──────────────────────────────────
+
+const MINISTERING_BROTHERS = [
+  // Companionship 1
+  { minister1: 'Michael Anderson', minister2: 'David Thompson', families: ['Robert Johnson', 'Brandon Hill'], district: 'District 1' },
+  // Companionship 2
+  { minister1: 'James Wilson', minister2: 'Christopher Lee', families: ['Kevin Adams', 'Tyler Nelson', 'Daniel Lewis'], district: 'District 1' },
+  // Companionship 3
+  { minister1: 'Andrew Hall', minister2: 'Joshua Young', families: ['Ryan Wright', 'Matthew Harris'], district: 'District 2' },
+  // Companionship 4
+  { minister1: 'Brandon Hill', minister2: 'Kevin Adams', families: ['Christopher Lee'], district: 'District 2' },
+  // Companionship 5 (solo minister)
+  { minister1: 'Tyler Nelson', minister2: '', families: ['Joshua Young'], district: 'District 2' },
+];
+
+const MINISTERING_SISTERS = [
+  // Companionship 1
+  { minister1: 'Sarah Williams', minister2: 'Jennifer Martinez', families: ['Emily Davis', 'Ashley Clark'], district: 'District A' },
+  // Companionship 2
+  { minister1: 'Amanda Taylor', minister2: 'Megan Green', families: ['Jessica Brown', 'Christina Baker'], district: 'District A' },
+  // Companionship 3
+  { minister1: 'Rachel Allen', minister2: 'Nicole Scott', families: ['Lauren King', 'Stephanie Walker'], district: 'District B' },
+  // Companionship 4
+  { minister1: 'Christina Baker', minister2: 'Lauren King', families: ['Rachel Allen'], district: 'District B' },
 ];
 
 // ── Meeting Notes Templates ──────────────────────────────────
@@ -422,19 +545,49 @@ export async function seedTestData() {
 
   for (const slot of PIPELINE_SLOTS) {
     const history = buildSlotHistory(slot.stage);
-    await db.callingSlots.add({
+    const record = {
       organization: slot.organization,
       roleName: slot.roleName,
-      candidateName: slot.candidateName,
+      candidateName: slot.candidateName || '',
       stage: slot.stage,
-      notes: slot.candidateName
-        ? `Considering ${slot.candidateName} for this role.`
-        : 'Need to identify a candidate.',
+      notes: slot.servedBy
+        ? `${slot.servedBy} serving as ${slot.roleName}.`
+        : slot.candidateName
+          ? `Considering ${slot.candidateName} for this role.`
+          : 'Need to identify a candidate.',
       history,
       createdAt: isoStr(randomDate(6, 2)),
       updatedAt: isoStr(randomDate(2, 0)),
-    });
+      // New fields with defaults
+      priority: slot.priority || 'medium',
+      isOpen: slot.isOpen ?? (slot.stage === 'identified' && !slot.candidateName),
+      expectedCount: slot.expectedCount || 1,
+      currentCount: slot.currentCount || 0,
+      candidates: (slot.candidates || []).map(c => ({
+        ...c,
+        submittedAt: c.submittedAt || isoStr(randomDate(2, 0)),
+      })),
+      priorSubmissions: slot.priorSubmissions || [],
+      recommendedServiceMonths: slot.recommendedServiceMonths ?? null,
+      presidingOfficer: null,
+    };
+
+    // Serving-specific fields
+    if (slot.servedBy) {
+      record.servedBy = slot.servedBy;
+      record.servingSince = slot.servingSince || isoStr(randomDate(24, 6));
+    }
+
+    // Release-track fields
+    if (slot.releaseTarget) {
+      record.releaseTarget = slot.releaseTarget;
+    }
+
+    await db.callingSlots.add(record);
   }
+
+  // ── 7b. Initialize Org Chart ──────────────────────────
+  await initializeOrgChart();
 
   // ── 8. Meeting Note Tags ───────────────────────────────
 
@@ -467,14 +620,131 @@ export async function seedTestData() {
     }
   }
 
+  // ── 9. People Enhancements (ministering eligibility, new members) ──
+
+  // Update existing people with ministering-related fields
+  const allPeople = await db.people.toArray();
+  for (const p of allPeople) {
+    const updates = {
+      isMinisterEligible: true,
+      memberType: Math.random() > 0.5 ? 'eq_member' : 'rs_member',
+    };
+
+    // Make some people "new members" (moved in within last 60 days)
+    if (p.name === 'Tyler Nelson' || p.name === 'Lauren King') {
+      const moveIn = new Date();
+      moveIn.setDate(moveIn.getDate() - Math.floor(Math.random() * 30 + 5));
+      updates.moveInDate = isoStr(moveIn);
+      updates.householdName = `The ${p.name.split(' ')[1]} Family`;
+    } else {
+      updates.householdName = `The ${p.name.split(' ')[1]} Family`;
+    }
+
+    await db.people.update(p.id, updates);
+  }
+
+  // Add a departed member for demonstration
+  await db.people.add({
+    name: 'Mark Patterson',
+    phone: '801-555-0130',
+    email: 'mpatterson@email.com',
+    householdName: 'The Patterson Family',
+    isMinisterEligible: true,
+    memberType: 'eq_member',
+    moveOutDate: isoStr(randomDate(1, 0)),
+  });
+
+  // ── 10. Ministering Companionships & Interviews ──────
+
+  // Seed brothers companionships
+  const brotherCompIds = [];
+  for (const comp of MINISTERING_BROTHERS) {
+    const id = await db.ministeringCompanionships.add({
+      type: 'brothers',
+      minister1Name: comp.minister1,
+      minister1Id: allPeople.find(p => p.name === comp.minister1)?.id || null,
+      minister2Name: comp.minister2,
+      minister2Id: comp.minister2 ? (allPeople.find(p => p.name === comp.minister2)?.id || null) : null,
+      assignedFamilyNames: comp.families,
+      assignedFamilyIds: comp.families.map(f => allPeople.find(p => p.name === f)?.id).filter(Boolean),
+      district: comp.district,
+      status: 'active',
+      notes: '',
+      createdAt: isoStr(randomDate(6, 2)),
+      updatedAt: isoStr(randomDate(1, 0)),
+    });
+    brotherCompIds.push(id);
+  }
+
+  // Seed sisters companionships
+  const sisterCompIds = [];
+  for (const comp of MINISTERING_SISTERS) {
+    const id = await db.ministeringCompanionships.add({
+      type: 'sisters',
+      minister1Name: comp.minister1,
+      minister1Id: allPeople.find(p => p.name === comp.minister1)?.id || null,
+      minister2Name: comp.minister2,
+      minister2Id: comp.minister2 ? (allPeople.find(p => p.name === comp.minister2)?.id || null) : null,
+      assignedFamilyNames: comp.families,
+      assignedFamilyIds: comp.families.map(f => allPeople.find(p => p.name === f)?.id).filter(Boolean),
+      district: comp.district,
+      status: 'active',
+      notes: '',
+      createdAt: isoStr(randomDate(6, 2)),
+      updatedAt: isoStr(randomDate(1, 0)),
+    });
+    sisterCompIds.push(id);
+  }
+
+  // Seed interviews (some recent, some overdue)
+  const allCompIds = [...brotherCompIds, ...sisterCompIds];
+  for (let i = 0; i < allCompIds.length; i++) {
+    const compId = allCompIds[i];
+
+    if (i < 3) {
+      // Recent interview (within 90 days)
+      await db.ministeringInterviews.add({
+        companionshipId: compId,
+        date: isoStr(randomDate(2, 0)),
+        conductedBy: i < MINISTERING_BROTHERS.length ? 'Michael Anderson' : 'Sarah Williams',
+        notes: pick([
+          'Family is doing well. No concerns.',
+          'One family could use meals this week.',
+          'Great visit. Families appreciate the contact.',
+          'Discussed how to better support the Johnson family.',
+        ]),
+        attendees: [],
+      });
+      // Older interview too
+      await db.ministeringInterviews.add({
+        companionshipId: compId,
+        date: isoStr(randomDate(6, 3)),
+        conductedBy: i < MINISTERING_BROTHERS.length ? 'Michael Anderson' : 'Sarah Williams',
+        notes: 'Quarterly check-in. All assignments current.',
+        attendees: [],
+      });
+    } else if (i < 6) {
+      // Overdue interview (> 90 days ago)
+      await db.ministeringInterviews.add({
+        companionshipId: compId,
+        date: isoStr(randomDate(6, 4)),
+        conductedBy: i < MINISTERING_BROTHERS.length ? 'David Thompson' : 'Jennifer Martinez',
+        notes: 'Need to schedule a follow-up soon.',
+        attendees: [],
+      });
+    }
+    // Last 3 companionships have no interviews at all (also overdue)
+  }
+
   return {
-    people: PEOPLE_DATA.length,
+    people: PEOPLE_DATA.length + 1,
     callings: callingKeys.length,
     actionItems: ACTION_TEMPLATES.length,
     inbox: INBOX_ITEMS.length + 4,
     journal: JOURNAL_ENTRIES.length,
     pipeline: PIPELINE_SLOTS.length,
     tags: Math.min(4, completedInstances.length),
+    ministeringCompanionships: MINISTERING_BROTHERS.length + MINISTERING_SISTERS.length,
   };
 }
 
@@ -523,12 +793,11 @@ function getMeetingDate(cadence, index) {
 // ── Helper: Build transition history for a slot ──────────────
 
 function buildSlotHistory(currentStage) {
-  const STAGE_ORDER = ['identified', 'prayed_about', 'discussed', 'extended', 'accepted', 'sustained', 'set_apart'];
+  const CALL_STAGES = ['identified', 'prayed_about', 'discussed', 'extended', 'accepted', 'sustained', 'set_apart', 'serving'];
+  const RELEASE_STAGES = ['serving', 'release_planned', 'release_meeting', 'released'];
   const history = [];
-  const stageIdx = STAGE_ORDER.indexOf(currentStage);
 
   if (currentStage === 'declined') {
-    // Went through identified -> prayed_about -> discussed -> extended -> declined
     const stages = ['identified', 'prayed_about', 'discussed', 'extended', 'declined'];
     for (let i = 1; i < stages.length; i++) {
       const date = new Date();
@@ -543,14 +812,34 @@ function buildSlotHistory(currentStage) {
     return history;
   }
 
+  // Check release track
+  const releaseIdx = RELEASE_STAGES.indexOf(currentStage);
+  if (releaseIdx > 0) {
+    // Build full call track first (all the way to serving)
+    for (let i = 1; i < CALL_STAGES.length; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - (CALL_STAGES.length - i + releaseIdx) * 10);
+      history.push({ from: CALL_STAGES[i - 1], to: CALL_STAGES[i], date: isoStr(date), note: '' });
+    }
+    // Then add release track transitions
+    for (let i = 1; i <= releaseIdx; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - (releaseIdx - i + 1) * 7);
+      history.push({ from: RELEASE_STAGES[i - 1], to: RELEASE_STAGES[i], date: isoStr(date), note: '' });
+    }
+    return history;
+  }
+
+  // Call track
+  const stageIdx = CALL_STAGES.indexOf(currentStage);
   if (stageIdx <= 0) return history;
 
   for (let i = 1; i <= stageIdx; i++) {
     const date = new Date();
     date.setDate(date.getDate() - (stageIdx - i + 1) * 10);
     history.push({
-      from: STAGE_ORDER[i - 1],
-      to: STAGE_ORDER[i],
+      from: CALL_STAGES[i - 1],
+      to: CALL_STAGES[i],
       date: isoStr(date),
       note: '',
     });

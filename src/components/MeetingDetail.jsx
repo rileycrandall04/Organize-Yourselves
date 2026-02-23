@@ -1,21 +1,24 @@
 import { useState } from 'react';
 import { useMeetingInstances, useMeetingNoteTags } from '../hooks/useDb';
-import { buildAutoAgenda, getUnresolvedActionItems } from '../db';
+import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, deleteMeetingWithInstances } from '../db';
 import { MEETING_CADENCES } from '../data/callings';
 import { todayStr, formatMeetingDate } from '../utils/dates';
 import { MEETING_STATUSES } from '../utils/constants';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ArrowLeft, Calendar, Plus, Clock, CheckCircle2, ListChecks, FileText,
-  ArrowUpRight, RotateCw,
+  ArrowUpRight, RotateCw, Pencil, Trash2,
 } from 'lucide-react';
 import MeetingNotes from './MeetingNotes';
+import AddMeetingForm from './AddMeetingForm';
 
-export default function MeetingDetail({ meeting, onBack }) {
+export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const { instances, loading, add: addInstance } = useMeetingInstances(meeting.id);
   const { tags: pendingTags } = useMeetingNoteTags(meeting.id);
   const [activeInstance, setActiveInstance] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Get unresolved action items from last instance (for pending count)
   const unresolvedItems = useLiveQuery(
@@ -26,6 +29,7 @@ export default function MeetingDetail({ meeting, onBack }) {
   const cadenceLabel = MEETING_CADENCES[meeting.cadence] || meeting.cadence;
   const agendaTemplate = meeting.agendaTemplate || [];
   const pendingCount = pendingTags.length + unresolvedItems.length;
+  const isCustom = meeting.source === 'custom';
 
   const isSacrament = meeting.name === 'Sacrament Meeting';
 
@@ -76,6 +80,18 @@ export default function MeetingDetail({ meeting, onBack }) {
     }
   }
 
+  async function handleEditSave(meetingData) {
+    const { id, ...changes } = meetingData;
+    await updateMeeting(meeting.id, changes);
+    // Update the local meeting object so the UI reflects changes
+    Object.assign(meeting, changes);
+  }
+
+  async function handleDelete() {
+    await deleteMeetingWithInstances(meeting.id);
+    onMeetingDeleted?.();
+  }
+
   if (activeInstance) {
     return (
       <MeetingNotes
@@ -94,10 +110,61 @@ export default function MeetingDetail({ meeting, onBack }) {
         Back to Meetings
       </button>
 
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-gray-900">{meeting.name}</h1>
-        <p className="text-sm text-gray-500 mt-1">{cadenceLabel}</p>
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-gray-900">{meeting.name}</h1>
+            {isCustom && (
+              <span className="text-[10px] font-medium text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full">
+                Custom
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 mt-1">{cadenceLabel}</p>
+        </div>
+        {isCustom && (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowEditForm(true)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+              title="Edit meeting"
+            >
+              <Pencil size={16} />
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"
+              title="Delete meeting"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
+        <div className="card bg-red-50 border-red-200 mb-5 p-4">
+          <p className="text-sm font-medium text-red-800 mb-1">Delete this meeting?</p>
+          <p className="text-xs text-red-600 mb-3">
+            This will permanently delete the meeting and all {instances.length} recorded instance{instances.length !== 1 ? 's' : ''}.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDelete}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+            >
+              Delete Meeting
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Pending items for next meeting */}
       {pendingCount > 0 && (
@@ -200,6 +267,15 @@ export default function MeetingDetail({ meeting, onBack }) {
           </div>
         )}
       </div>
+
+      {/* Edit form modal */}
+      {showEditForm && (
+        <AddMeetingForm
+          editMeeting={meeting}
+          onSave={handleEditSave}
+          onClose={() => setShowEditForm(false)}
+        />
+      )}
     </div>
   );
 }

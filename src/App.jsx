@@ -12,6 +12,7 @@ import Journal from './components/Journal';
 import Settings from './components/Settings';
 import People from './components/People';
 import CallingPipeline from './components/CallingPipeline';
+import Ministering from './components/Ministering';
 
 export default function App() {
   const { ready, loading } = useOnboardingComplete();
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/settings" element={<Settings onBack={() => window.history.back()} />} />
         <Route path="/people" element={<People onBack={() => window.history.back()} />} />
         <Route path="/pipeline" element={<CallingPipeline onBack={() => window.history.back()} />} />
+        <Route path="/ministering" element={<Ministering onBack={() => window.history.back()} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <BottomNav />

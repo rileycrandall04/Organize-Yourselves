@@ -18,6 +18,7 @@ import db, {
   addMeeting,
   updateMeeting,
   deleteMeeting,
+  deleteMeetingWithInstances,
   getMeetingInstances,
   addMeetingInstance,
   updateMeetingInstance,
@@ -43,6 +44,24 @@ import db, {
   deleteCallingSlot,
   transitionCallingSlot,
   getPipelineSummary,
+  buildOrgTree,
+  // Phase 4
+  getOpenPositions,
+  addCandidate,
+  declineCandidate,
+  acceptCandidate,
+  startRelease,
+  getServiceAlerts,
+  initializeOrgFromTemplate,
+  updateHiddenOrgs,
+  getMinisteringCompanionships,
+  addMinisteringCompanionship,
+  updateMinisteringCompanionship,
+  deleteMinisteringCompanionship,
+  getMinisteringInterviews,
+  addMinisteringInterview,
+  updateMinisteringInterview,
+  getMinisteringSummary,
 } from '../db';
 
 // ── Profile ─────────────────────────────────────────────────
@@ -247,7 +266,80 @@ export function useCallingSlots(filters = {}) {
 export function usePipelineSummary() {
   const summary = useLiveQuery(() => getPipelineSummary());
   return {
-    summary: summary ?? { total: 0, active: 0, needsAction: 0 },
+    summary: summary ?? { total: 0, active: 0, needsAction: 0, openPositions: 0, releasesInProgress: 0, candidatesPending: 0 },
+    loading: summary === undefined,
+  };
+}
+
+// ── Phase 3: Org Chart ───────────────────────────────────────
+
+export function useOrgTree() {
+  const tree = useLiveQuery(() => buildOrgTree());
+  return {
+    tree: tree ?? [],
+    loading: tree === undefined,
+  };
+}
+
+// ── Phase 4: Open Positions & Service Alerts ────────────────
+
+export function useOpenPositions(orgFilter) {
+  const positions = useLiveQuery(
+    () => getOpenPositions(orgFilter),
+    [orgFilter]
+  );
+  return {
+    positions: positions ?? [],
+    loading: positions === undefined,
+    addCandidate,
+    declineCandidate,
+    acceptCandidate,
+  };
+}
+
+export function useServiceAlerts() {
+  const alerts = useLiveQuery(() => getServiceAlerts());
+  return {
+    alerts: alerts ?? [],
+    loading: alerts === undefined,
+  };
+}
+
+// ── Phase 4: Ministering ────────────────────────────────────
+
+export function useMinisteringCompanionships(type) {
+  const comps = useLiveQuery(
+    () => getMinisteringCompanionships(type),
+    [type]
+  );
+  return {
+    companionships: comps ?? [],
+    loading: comps === undefined,
+    add: addMinisteringCompanionship,
+    update: updateMinisteringCompanionship,
+    remove: deleteMinisteringCompanionship,
+  };
+}
+
+export function useMinisteringInterviews(companionshipId) {
+  const interviews = useLiveQuery(
+    () => (companionshipId ? getMinisteringInterviews(companionshipId) : Promise.resolve([])),
+    [companionshipId]
+  );
+  return {
+    interviews: interviews ?? [],
+    loading: interviews === undefined,
+    add: addMinisteringInterview,
+    update: updateMinisteringInterview,
+  };
+}
+
+// ── Ministering Summary (for Dashboard) ──────────────────────
+
+export function useMinisteringSummary() {
+  const summary = useLiveQuery(() => getMinisteringSummary());
+  return {
+    summary: summary ?? { totalCompanionships: 0, unassignedFamilies: 0, overdueInterviews: 0 },
     loading: summary === undefined,
   };
 }

@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useProfile, useUserCallings } from '../hooks/useDb';
 import { useDataStats, useLastExportDate } from '../hooks/useDataPortability';
 import { getCallingConfig, getCallingList, ORGANIZATIONS, ORG_PRESIDENT_MAP, getOrgLabel } from '../data/callings';
-import { addMeeting, addResponsibility, updateLastExportDate, syncAssignmentMeetings, updateCallingAssignments } from '../db';
+import { addMeeting, addResponsibility, updateLastExportDate, syncAssignmentMeetings, updateCallingAssignments, saveProfile as saveProfileDb } from '../db';
 import db from '../db';
 import {
   exportAllData, downloadJsonFile, getExportFilename,
@@ -14,8 +14,9 @@ import Modal from './shared/Modal';
 import {
   ArrowLeft, Settings as SettingsIcon, UserCircle, Church, Trash2, Plus,
   AlertTriangle, Download, Upload, BarChart3, Share2, Info,
-  ChevronRight, ChevronDown, CheckCircle2, Database,
+  ChevronRight, ChevronDown, CheckCircle2, Database, Sparkles, Eye, EyeOff,
 } from 'lucide-react';
+import { getAiConfig, saveAiConfig, clearAiConfig, PROVIDERS } from '../utils/ai';
 import { formatRelative } from '../utils/dates';
 
 export default function Settings({ onBack }) {
@@ -364,6 +365,14 @@ export default function Settings({ onBack }) {
         </div>
       </div>
 
+      {/* ── High Councilor Ward Assignments ────────────────── */}
+      {callings.some(c => c.callingKey === 'high_councilor') && (
+        <HighCouncilorSettings profile={profile} saveProfile={saveProfile} />
+      )}
+
+      {/* ── AI Configuration ──────────────────────────────── */}
+      <AiSettings />
+
       {/* ── Data Management ───────────────────────────────── */}
       <div className="mb-6">
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Data Management</h2>
@@ -693,6 +702,219 @@ export default function Settings({ onBack }) {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+// ── AI Settings ─────────────────────────────────────────────
+
+function AiSettings() {
+  const existing = getAiConfig() || {};
+  const [provider, setProvider] = useState(existing.provider || '');
+  const [apiKey, setApiKey] = useState(existing.apiKey || '');
+  const [model, setModel] = useState(existing.model || '');
+  const [showKey, setShowKey] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const providerConfig = PROVIDERS[provider];
+  const models = providerConfig?.models || [];
+
+  function handleProviderChange(newProvider) {
+    setProvider(newProvider);
+    setModel(PROVIDERS[newProvider]?.defaultModel || '');
+  }
+
+  function handleSave() {
+    if (!provider || !apiKey.trim()) return;
+    saveAiConfig({
+      provider,
+      apiKey: apiKey.trim(),
+      model: model || PROVIDERS[provider]?.defaultModel,
+    });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  function handleClear() {
+    clearAiConfig();
+    setProvider('');
+    setApiKey('');
+    setModel('');
+  }
+
+  const isConfigured = !!(existing.provider && existing.apiKey);
+
+  return (
+    <div className="mb-6">
+      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        AI Assistant
+      </h2>
+      <div className="card space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="p-2 rounded-lg bg-violet-50">
+            <Sparkles size={18} className="text-violet-600" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-gray-900">AI-Powered Features</p>
+            <p className="text-xs text-gray-500">
+              {isConfigured
+                ? `Connected to ${PROVIDERS[existing.provider]?.label || existing.provider}`
+                : 'Add an API key to enable meeting summaries and action suggestions'
+              }
+            </p>
+          </div>
+          {isConfigured && (
+            <span className="text-[10px] font-medium bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full">
+              Active
+            </span>
+          )}
+        </div>
+
+        {/* Provider selection */}
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Provider</label>
+          <select
+            value={provider}
+            onChange={e => handleProviderChange(e.target.value)}
+            className="input-field text-sm"
+          >
+            <option value="">Select a provider...</option>
+            {Object.entries(PROVIDERS).map(([key, p]) => (
+              <option key={key} value={key}>{p.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* API Key */}
+        {provider && (
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">API Key</label>
+            <div className="relative">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder={provider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                className="input-field text-sm pr-10"
+              />
+              <button
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">
+              Your API key is stored locally in your browser. It is never sent to our servers.
+            </p>
+          </div>
+        )}
+
+        {/* Model selection */}
+        {provider && models.length > 0 && (
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Model</label>
+            <select
+              value={model}
+              onChange={e => setModel(e.target.value)}
+              className="input-field text-sm"
+            >
+              {models.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Save / Clear buttons */}
+        {provider && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={!apiKey.trim() || saved}
+              className="btn-primary text-xs flex-1"
+            >
+              {saved ? 'Saved!' : 'Save Configuration'}
+            </button>
+            {isConfigured && (
+              <button
+                onClick={handleClear}
+                className="btn-secondary text-xs"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── High Councilor Ward Settings ─────────────────────────────
+
+function HighCouncilorSettings({ profile, saveProfile }) {
+  const [newWard, setNewWard] = useState('');
+  const assignedWards = profile?.assignedWards || [];
+
+  async function addWard() {
+    if (!newWard.trim()) return;
+    const updated = [...assignedWards, newWard.trim()];
+    await saveProfile({ assignedWards: updated });
+    setNewWard('');
+  }
+
+  async function removeWard(index) {
+    const updated = assignedWards.filter((_, i) => i !== index);
+    await saveProfile({ assignedWards: updated });
+  }
+
+  return (
+    <div className="mb-6">
+      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        High Councilor Settings
+      </h2>
+      <div className="card space-y-3">
+        <p className="text-xs text-gray-500">
+          Add wards you are assigned to oversee. You'll be able to manage callings, to-dos, and meetings for each ward.
+        </p>
+
+        {assignedWards.length > 0 && (
+          <div className="space-y-1.5">
+            {assignedWards.map((ward, i) => (
+              <div key={i} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                <Church size={14} className="text-primary-500 flex-shrink-0" />
+                <span className="text-sm text-gray-700 flex-1">{ward}</span>
+                <button
+                  onClick={() => removeWard(i)}
+                  className="text-gray-300 hover:text-red-500 transition-colors"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newWard}
+            onChange={e => setNewWard(e.target.value)}
+            placeholder="Ward name"
+            className="input-field flex-1 text-sm"
+            onKeyDown={e => e.key === 'Enter' && addWard()}
+          />
+          <button
+            onClick={addWard}
+            disabled={!newWard.trim()}
+            className="btn-primary text-xs px-3"
+          >
+            <Plus size={14} className="inline mr-0.5" />
+            Add
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
