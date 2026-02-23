@@ -64,30 +64,80 @@ export function filterTreeByJurisdiction(tree, jurisdiction) {
 }
 
 // Determine which nodes should auto-expand vs collapse
-export function getDefaultExpandState(tree, jurisdiction) {
+// Uses "2 lines of authority" rule: expand the user's node, direct children (1 line),
+// and collapse everything 2+ lines away from the user's position.
+export function getDefaultExpandState(tree, jurisdiction, userCallingKey) {
   const expandMap = {};
 
-  function walk(nodes, depth) {
-    for (const node of nodes) {
-      if (jurisdiction.scope === 'stake') {
-        // Stake sees everything, auto-expand stake-level (tier 0-1), collapse ward details (tier > 4)
-        expandMap[node.id] = (node.tier || 0) <= 2;
-      } else if (jurisdiction.scope === 'ward') {
-        // Bishop sees all ward orgs, expand bishopric + org presidents (tier <= 4)
-        expandMap[node.id] = (node.tier || 0) <= 4;
-      } else if (jurisdiction.scope === 'org') {
-        // Org leaders see only their subtree, everything expanded
-        expandMap[node.id] = true;
-      } else if (jurisdiction.scope === 'assigned_wards') {
-        // High councilor: expand stake level, collapse most ward details
-        expandMap[node.id] = (node.tier || 0) <= 3;
+  // First, try to find the user's node and compute distances from it
+  if (userCallingKey) {
+    const ancestorIds = new Set();
+    let userNodeId = null;
+
+    // Find the user's node and all ancestor IDs leading to it
+    function findUserNode(nodes, ancestors) {
+      for (const node of nodes) {
+        if (node.callingKey === userCallingKey) {
+          userNodeId = node.id;
+          for (const a of ancestors) ancestorIds.add(a);
+          return true;
+        }
+        if (node.children) {
+          if (findUserNode(node.children, [...ancestors, node.id])) return true;
+        }
+      }
+      return false;
+    }
+
+    findUserNode(tree, []);
+
+    if (userNodeId) {
+      // Mark distances from the user's node downward
+      function markDistances(nodes, distanceFromUser) {
+        for (const node of nodes) {
+          if (node.id === userNodeId) {
+            // User's own node — always expanded
+            expandMap[node.id] = true;
+            // Mark children with distance 1
+            if (node.children) markDistances(node.children, 1);
+          } else if (ancestorIds.has(node.id)) {
+            // Ancestor of user — expand to show path to user
+            expandMap[node.id] = true;
+            if (node.children) markDistances(node.children, distanceFromUser);
+          } else if (distanceFromUser !== null) {
+            // We're in the user's subtree — expand if within 1 line of authority
+            expandMap[node.id] = distanceFromUser < 2;
+            if (node.children) markDistances(node.children, distanceFromUser + 1);
+          } else {
+            // Outside user's subtree (sibling branches of ancestors) — collapsed
+            expandMap[node.id] = false;
+            if (node.children) markDistances(node.children, null);
+          }
+        }
       }
 
-      if (node.children) walk(node.children, depth + 1);
+      markDistances(tree, null);
+      return expandMap;
     }
   }
 
-  walk(tree, 0);
+  // Fallback: tier-based logic if user's node isn't found
+  function walkFallback(nodes) {
+    for (const node of nodes) {
+      if (jurisdiction.scope === 'stake') {
+        expandMap[node.id] = (node.tier || 0) <= 2;
+      } else if (jurisdiction.scope === 'ward') {
+        expandMap[node.id] = (node.tier || 0) <= 4;
+      } else if (jurisdiction.scope === 'org') {
+        expandMap[node.id] = true;
+      } else if (jurisdiction.scope === 'assigned_wards') {
+        expandMap[node.id] = (node.tier || 0) <= 3;
+      }
+      if (node.children) walkFallback(node.children);
+    }
+  }
+
+  walkFallback(tree);
   return expandMap;
 }
 

@@ -43,6 +43,6 @@ export function useVisibility() {
     hiddenOrgs,
     toggleHideOrg,
     filterTree: (tree) => filterTreeByJurisdiction(tree, jurisdiction),
-    getExpandState: (tree) => getDefaultExpandState(tree, jurisdiction),
+    getExpandState: (tree) => getDefaultExpandState(tree, jurisdiction, highestRole?.callingKey),
   };
 }
