@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import Modal from './shared/Modal';
-import { CALLING_STAGES, STAGE_ORDER } from '../utils/constants';
+import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES } from '../utils/constants';
 import { ORGANIZATIONS } from '../data/callings';
 import { usePeople } from '../hooks/useDb';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Users } from 'lucide-react';
 
 const EMPTY = {
   organization: '',
@@ -12,9 +12,15 @@ const EMPTY = {
   personId: null,
   stage: 'identified',
   notes: '',
+  parentSlotId: null,
+  priority: 'medium',
+  expectedCount: 1,
+  recommendedServiceMonths: '',
+  releaseTarget: '',
+  presidingOfficer: '',
 };
 
-export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete }) {
+export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete, parentSlotId, allSlots = [], onOpenCandidates }) {
   const isEdit = !!slot;
   const { people } = usePeople();
   const [form, setForm] = useState(EMPTY);
@@ -24,10 +30,29 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete 
 
   useEffect(() => {
     if (open) {
-      setForm(slot ? { ...EMPTY, ...slot } : EMPTY);
+      if (slot) {
+        setForm({
+          ...EMPTY,
+          ...slot,
+          recommendedServiceMonths: slot.recommendedServiceMonths ?? '',
+          releaseTarget: slot.releaseTarget ?? '',
+          presidingOfficer: slot.presidingOfficer ?? '',
+          expectedCount: slot.expectedCount ?? 1,
+          priority: slot.priority ?? 'medium',
+        });
+      } else {
+        const parentId = parentSlotId || null;
+        const parent = parentId ? allSlots.find(s => s.id === parentId) : null;
+        setForm({
+          ...EMPTY,
+          parentSlotId: parentId,
+          organization: parent?.organization || '',
+          isCustomPosition: true,
+        });
+      }
       setConfirmDelete(false);
     }
-  }, [open, slot]);
+  }, [open, slot, parentSlotId]);
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -44,14 +69,24 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete 
     if (!form.roleName.trim() || saving) return;
     setSaving(true);
     try {
-      await onSave({
+      const data = {
         organization: form.organization || undefined,
         roleName: form.roleName.trim(),
         candidateName: form.candidateName.trim() || undefined,
         personId: form.personId || undefined,
         stage: form.stage,
         notes: form.notes.trim() || undefined,
-      });
+        parentSlotId: form.parentSlotId || null,
+        priority: form.priority || 'medium',
+        expectedCount: parseInt(form.expectedCount) || 1,
+        recommendedServiceMonths: form.recommendedServiceMonths ? parseInt(form.recommendedServiceMonths) : null,
+        releaseTarget: form.releaseTarget.trim() || undefined,
+        presidingOfficer: form.presidingOfficer.trim() || undefined,
+      };
+      if (!isEdit && form.isCustomPosition) {
+        data.isCustomPosition = true;
+      }
+      await onSave(data);
     } finally {
       setSaving(false);
     }
@@ -65,7 +100,17 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete 
     if (onDelete) await onDelete();
   }
 
-  const allStages = [...STAGE_ORDER, 'declined'];
+  // Build stage options — call track + release track + declined
+  const allStages = [...CALL_STAGE_ORDER, ...RELEASE_STAGE_ORDER.filter(s => s !== 'serving'), 'declined'];
+  // Deduplicate
+  const stageOptions = [...new Set(allStages)];
+
+  const parentOptions = allSlots
+    .filter(s => !isEdit || s.id !== slot?.id)
+    .sort((a, b) => (a.tier || 0) - (b.tier || 0));
+
+  const candidateCount = slot?.candidates?.length || 0;
+  const isReleaseTrack = ['release_planned', 'release_meeting'].includes(form.stage);
 
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Calling Slot' : 'New Calling Slot'} size="lg">
@@ -95,6 +140,64 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete 
             placeholder="e.g., EQ 2nd Counselor, Nursery Leader"
             className="input-field"
             autoFocus
+          />
+        </div>
+
+        {/* Priority + Expected Count (side by side) */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+            <select
+              value={form.priority}
+              onChange={e => set('priority', e.target.value)}
+              className="input-field"
+            >
+              {Object.values(CALLING_PRIORITIES).map(p => (
+                <option key={p.key} value={p.key}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">How Many Needed</label>
+            <input
+              type="number"
+              min="1"
+              max="20"
+              value={form.expectedCount}
+              onChange={e => set('expectedCount', e.target.value)}
+              className="input-field"
+            />
+          </div>
+        </div>
+
+        {/* Reports To (parent position) */}
+        {parentOptions.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Reports To</label>
+            <select
+              value={form.parentSlotId || ''}
+              onChange={e => set('parentSlotId', e.target.value ? Number(e.target.value) : null)}
+              className="input-field"
+            >
+              <option value="">No parent (top-level)</option>
+              {parentOptions.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.roleName}{s.candidateName ? ` — ${s.candidateName}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Presiding Officer */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Presiding Officer</label>
+          <input
+            type="text"
+            value={form.presidingOfficer}
+            onChange={e => set('presidingOfficer', e.target.value)}
+            placeholder='e.g., "Bishop", "EQ President"'
+            className="input-field"
           />
         </div>
 
@@ -135,6 +238,22 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete 
           )}
         </div>
 
+        {/* Candidates section (edit mode) */}
+        {isEdit && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenCandidates?.(slot)}
+              className="flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 bg-primary-50 px-3 py-2 rounded-lg transition-colors"
+            >
+              <Users size={14} />
+              {candidateCount > 0
+                ? `${candidateCount} Candidate${candidateCount !== 1 ? 's' : ''} — Review`
+                : 'Manage Candidates'}
+            </button>
+          </div>
+        )}
+
         {/* Stage (edit mode) */}
         {isEdit && (
           <div>
@@ -144,10 +263,39 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete 
               onChange={e => set('stage', e.target.value)}
               className="input-field"
             >
-              {allStages.map(key => (
+              {stageOptions.map(key => (
                 <option key={key} value={key}>{CALLING_STAGES[key]?.label || key}</option>
               ))}
             </select>
+          </div>
+        )}
+
+        {/* Service Length (recommended) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Recommended Service Length (months)</label>
+          <input
+            type="number"
+            min="0"
+            max="120"
+            value={form.recommendedServiceMonths}
+            onChange={e => set('recommendedServiceMonths', e.target.value)}
+            placeholder="Leave blank for no limit"
+            className="input-field"
+          />
+          <p className="text-[10px] text-gray-400 mt-0.5">Alerts will appear 2-3 months before this target</p>
+        </div>
+
+        {/* Release Target (shown for release-track stages) */}
+        {isReleaseTrack && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Release Target</label>
+            <input
+              type="text"
+              value={form.releaseTarget}
+              onChange={e => set('releaseTarget', e.target.value)}
+              placeholder='e.g., "Sacrament Meeting March 2"'
+              className="input-field"
+            />
           </div>
         )}
 
@@ -171,7 +319,7 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete 
               {slot.history.map((h, i) => (
                 <div key={i} className="text-[10px] text-gray-400 flex items-center gap-1">
                   <span>{CALLING_STAGES[h.from]?.label || h.from}</span>
-                  <span>→</span>
+                  <span>&rarr;</span>
                   <span className="font-medium text-gray-600">{CALLING_STAGES[h.to]?.label || h.to}</span>
                   <span className="ml-auto">{new Date(h.date).toLocaleDateString()}</span>
                 </div>

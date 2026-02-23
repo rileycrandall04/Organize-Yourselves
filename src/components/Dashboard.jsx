@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProfile, useDashboardStats, useInbox, useActionItems, useMeetings, useUserCallings, usePipelineSummary, useMeetingNoteTags } from '../hooks/useDb';
+import { useProfile, useDashboardStats, useInbox, useActionItems, useMeetings, useUserCallings, usePipelineSummary, useMeetingNoteTags, useMinisteringSummary } from '../hooks/useDb';
 import { getTagsForMeeting, getUnresolvedActionItems } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X, Heart, Users } from 'lucide-react';
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { dismissBackupReminder } from '../db';
 import ActionItemRow from './shared/ActionItemRow';
@@ -19,7 +19,12 @@ export default function Dashboard() {
   const { callings } = useUserCallings();
   const { meetings } = useMeetings();
   const { summary: pipelineSummary } = usePipelineSummary();
+  const { summary: ministeringSummary } = useMinisteringSummary();
   const { daysSinceExport, shouldShowReminder } = useLastExportDate();
+
+  // Show ministering card for EQ pres, RS pres, bishopric
+  const ministeringCallings = ['eq_president', 'rs_president', 'bishop', 'bishopric_1st', 'bishopric_2nd'];
+  const showMinistering = callings.some(c => ministeringCallings.includes(c.callingKey));
   const [reminderDismissed, setReminderDismissed] = useState(false);
 
   const showBackupBanner = shouldShowReminder && !reminderDismissed;
@@ -160,6 +165,60 @@ export default function Dashboard() {
                   <span className="text-amber-600"> · {pipelineSummary.needsAction} need action</span>
                 )}
               </p>
+              {(pipelineSummary.openPositions > 0 || pipelineSummary.releasesInProgress > 0 || pipelineSummary.candidatesPending > 0) && (
+                <div className="flex flex-wrap gap-2 mt-1.5">
+                  {pipelineSummary.openPositions > 0 && (
+                    <span className="text-[10px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
+                      {pipelineSummary.openPositions} open
+                    </span>
+                  )}
+                  {pipelineSummary.releasesInProgress > 0 && (
+                    <span className="text-[10px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full">
+                      {pipelineSummary.releasesInProgress} releasing
+                    </span>
+                  )}
+                  {pipelineSummary.candidatesPending > 0 && (
+                    <span className="text-[10px] font-medium bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">
+                      {pipelineSummary.candidatesPending} candidates
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+            <ChevronRight size={14} className="text-gray-300" />
+          </div>
+        </div>
+      )}
+
+      {/* Ministering Summary */}
+      {showMinistering && (
+        <div className="mb-6">
+          <div
+            onClick={() => navigate('/ministering')}
+            className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors"
+          >
+            <div className="p-2 rounded-lg bg-rose-50">
+              <Heart size={16} className="text-rose-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-900">Ministering</p>
+              <p className="text-xs text-gray-500">
+                {ministeringSummary.totalCompanionships} companionships
+              </p>
+              {(ministeringSummary.unassignedFamilies > 0 || ministeringSummary.overdueInterviews > 0) && (
+                <div className="flex flex-wrap gap-2 mt-1.5">
+                  {ministeringSummary.unassignedFamilies > 0 && (
+                    <span className="text-[10px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full">
+                      {ministeringSummary.unassignedFamilies} unassigned
+                    </span>
+                  )}
+                  {ministeringSummary.overdueInterviews > 0 && (
+                    <span className="text-[10px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
+                      {ministeringSummary.overdueInterviews} overdue interviews
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <ChevronRight size={14} className="text-gray-300" />
           </div>

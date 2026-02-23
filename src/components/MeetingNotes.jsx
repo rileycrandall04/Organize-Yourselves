@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
 import { addActionItem, addMeetingNoteTag } from '../db';
 import { formatFull } from '../utils/dates';
+import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import Modal from './shared/Modal';
 import MeetingPicker from './shared/MeetingPicker';
 import SacramentProgram from './SacramentProgram';
+import AiButton, { AiResultCard } from './shared/AiButton';
 import {
   ArrowLeft, Save, CheckCircle2, Plus, MessageSquare, FileText,
   ArrowUpRight, X,
@@ -27,6 +29,52 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [tagAgendaIndex, setTagAgendaIndex] = useState(null);
   const [tagPickerForGeneral, setTagPickerForGeneral] = useState(false);
+
+  // AI state
+  const aiEnabled = isAiConfigured();
+  const [aiSummary, setAiSummary] = useState(null);
+  const [aiSuggestions, setAiSuggestions] = useState(null);
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+
+  async function handleAiSummarize() {
+    setAiSummaryLoading(true);
+    setAiError('');
+    try {
+      const result = await summarizeMeetingNotes({
+        meetingName,
+        date: formatFull(instance.date),
+        agendaItems,
+        notes,
+      });
+      setAiSummary(result);
+    } catch (err) {
+      setAiError(err.message);
+    } finally {
+      setAiSummaryLoading(false);
+    }
+  }
+
+  async function handleAiSuggest() {
+    setAiSuggestionsLoading(true);
+    setAiError('');
+    try {
+      const result = await suggestActionItems({
+        meetingName,
+        date: formatFull(instance.date),
+        agendaItems,
+        notes,
+      });
+      setAiSuggestions(result);
+    } catch (err) {
+      setAiError(err.message);
+    } finally {
+      setAiSuggestionsLoading(false);
+    }
+  }
+
+  const hasContent = notes.trim() || agendaItems.some(a => a.notes?.trim());
 
   function updateAgendaNote(index, value) {
     setAgendaItems(prev => {
@@ -294,6 +342,39 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
             {instanceTags.length} note{instanceTags.length !== 1 ? 's' : ''} tagged for other meetings.
             They will appear in those meetings' next agendas.
           </p>
+        </div>
+      )}
+
+      {/* AI Features */}
+      {aiEnabled && hasContent && (
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <AiButton
+              onClick={handleAiSummarize}
+              label="Summarize"
+              loading={aiSummaryLoading}
+              disabled={aiSuggestionsLoading}
+            />
+            <AiButton
+              onClick={handleAiSuggest}
+              label="Suggest Actions"
+              loading={aiSuggestionsLoading}
+              disabled={aiSummaryLoading}
+            />
+          </div>
+          {aiError && (
+            <p className="text-xs text-red-500 mb-2">{aiError}</p>
+          )}
+          <AiResultCard
+            title="Meeting Summary"
+            content={aiSummary}
+            onClose={() => setAiSummary(null)}
+          />
+          <AiResultCard
+            title="Suggested Action Items"
+            content={aiSuggestions}
+            onClose={() => setAiSuggestions(null)}
+          />
         </div>
       )}
 

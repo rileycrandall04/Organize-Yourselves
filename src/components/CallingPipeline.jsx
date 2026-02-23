@@ -1,53 +1,76 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useCallingSlots, usePeople } from '../hooks/useDb';
-import { transitionCallingSlot } from '../db';
-import { CALLING_STAGES, STAGE_ORDER } from '../utils/constants';
+import { transitionCallingSlot, startRelease } from '../db';
+import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES } from '../utils/constants';
 import { ORGANIZATIONS } from '../data/callings';
-import { formatRelative } from '../utils/dates';
 import Modal from './shared/Modal';
 import {
   ArrowLeft, GitBranch, Plus, ArrowRight, RotateCcw, List, LayoutGrid,
-  ChevronDown, ChevronRight, AlertTriangle, Trash2,
+  ChevronDown, ChevronRight, AlertTriangle, Users, Clock, UserPlus,
 } from 'lucide-react';
 import CallingSlotForm from './CallingSlotForm';
+import OrgChart from './OrgChart';
+import NeedsDashboard from './NeedsDashboard';
+import CandidateManager from './CandidateManager';
 
 export default function CallingPipeline({ onBack }) {
   const { slots, loading, add, update, remove } = useCallingSlots();
-  const [view, setView] = useState('list'); // 'list' or 'kanban'
+  const [view, setView] = useState('list'); // 'list' | 'kanban' | 'orgchart'
+  const [pipelineTab, setPipelineTab] = useState('call'); // 'call' | 'release'
   const [formOpen, setFormOpen] = useState(false);
   const [editSlot, setEditSlot] = useState(null);
+  const [parentSlotId, setParentSlotId] = useState(null);
   const [advanceModal, setAdvanceModal] = useState(null);
   const [advanceNote, setAdvanceNote] = useState('');
   const [advancing, setAdvancing] = useState(false);
+  const [candidateSlot, setCandidateSlot] = useState(null);
+  const [releaseModal, setReleaseModal] = useState(null);
+  const [releaseTarget, setReleaseTarget] = useState('');
+
+  // All stages for grouping
+  const callStages = CALL_STAGE_ORDER;
+  const releaseStages = RELEASE_STAGE_ORDER.filter(s => s !== 'serving');
+  const displayStages = pipelineTab === 'call'
+    ? [...callStages, 'declined']
+    : ['serving', ...releaseStages];
 
   // Group slots by stage
-  const slotsByStage = {};
-  STAGE_ORDER.forEach(s => { slotsByStage[s] = []; });
-  slotsByStage['declined'] = [];
-  slots.forEach(slot => {
-    const stage = slot.stage || 'identified';
-    if (slotsByStage[stage]) {
-      slotsByStage[stage].push(slot);
-    } else {
-      slotsByStage['identified'].push(slot);
-    }
-  });
+  const slotsByStage = useMemo(() => {
+    const grouped = {};
+    Object.keys(CALLING_STAGES).forEach(s => { grouped[s] = []; });
+    grouped['declined'] = grouped['declined'] || [];
+    slots.forEach(slot => {
+      const stage = slot.stage || 'identified';
+      if (grouped[stage]) {
+        grouped[stage].push(slot);
+      } else {
+        grouped['identified'].push(slot);
+      }
+    });
+    return grouped;
+  }, [slots]);
 
-  const activeCount = slots.filter(s => s.stage !== 'set_apart').length;
+  const activeCount = slots.filter(s => !['serving', 'released'].includes(s.stage)).length;
 
-  function openAdd() {
+  function openAdd(parentId) {
     setEditSlot(null);
+    setParentSlotId(parentId || null);
     setFormOpen(true);
   }
 
   function openEdit(slot) {
     setEditSlot(slot);
+    setParentSlotId(null);
     setFormOpen(true);
   }
 
   function getNextStage(currentStage) {
-    const idx = STAGE_ORDER.indexOf(currentStage);
-    if (idx >= 0 && idx < STAGE_ORDER.length - 1) return STAGE_ORDER[idx + 1];
+    // Check call track
+    const callIdx = CALL_STAGE_ORDER.indexOf(currentStage);
+    if (callIdx >= 0 && callIdx < CALL_STAGE_ORDER.length - 1) return CALL_STAGE_ORDER[callIdx + 1];
+    // Check release track
+    const relIdx = RELEASE_STAGE_ORDER.indexOf(currentStage);
+    if (relIdx >= 0 && relIdx < RELEASE_STAGE_ORDER.length - 1) return RELEASE_STAGE_ORDER[relIdx + 1];
     return null;
   }
 
@@ -78,6 +101,17 @@ export default function CallingPipeline({ onBack }) {
     await transitionCallingSlot(slot.id, 'identified', 'Returned after decline');
   }
 
+  async function handleBeginRelease(slot) {
+    setReleaseModal(slot);
+    setReleaseTarget('');
+  }
+
+  async function confirmRelease() {
+    if (!releaseModal) return;
+    await startRelease(releaseModal.id, releaseTarget.trim());
+    setReleaseModal(null);
+  }
+
   function getOrgLabel(orgKey) {
     const org = ORGANIZATIONS.find(o => o.key === orgKey);
     return org?.label || orgKey || '';
@@ -97,16 +131,29 @@ export default function CallingPipeline({ onBack }) {
           <h1 className="text-2xl font-bold text-gray-900">Calling Pipeline</h1>
         </div>
         <div className="flex items-center gap-2">
-          {/* View toggle */}
+          {/* 3-way view toggle */}
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            {[
+              { key: 'list', icon: List, label: 'List' },
+              { key: 'kanban', icon: LayoutGrid, label: 'Board' },
+              { key: 'orgchart', icon: Users, label: 'Org' },
+            ].map(({ key, icon: Icon, label }) => (
+              <button
+                key={key}
+                onClick={() => setView(key)}
+                className={`p-1.5 rounded-md transition-colors ${
+                  view === key
+                    ? 'bg-white text-primary-700 shadow-sm'
+                    : 'text-gray-400 hover:text-gray-600'
+                }`}
+                title={label}
+              >
+                <Icon size={16} />
+              </button>
+            ))}
+          </div>
           <button
-            onClick={() => setView(view === 'list' ? 'kanban' : 'list')}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            title={view === 'list' ? 'Switch to kanban view' : 'Switch to list view'}
-          >
-            {view === 'list' ? <LayoutGrid size={18} /> : <List size={18} />}
-          </button>
-          <button
-            onClick={openAdd}
+            onClick={() => openAdd()}
             className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-800"
           >
             <Plus size={16} />
@@ -115,10 +162,38 @@ export default function CallingPipeline({ onBack }) {
         </div>
       </div>
 
+      {/* Needs Dashboard */}
+      <NeedsDashboard
+        onSelectSlot={openEdit}
+        onAddCandidate={(slot) => setCandidateSlot(slot)}
+      />
+
       {activeCount > 0 && (
         <p className="text-xs text-gray-400 mb-4">
           {activeCount} active calling{activeCount !== 1 ? 's' : ''} in pipeline
         </p>
+      )}
+
+      {/* Pipeline tab toggle (call vs release) — for list and kanban views */}
+      {view !== 'orgchart' && (
+        <div className="flex bg-gray-100 rounded-lg p-0.5 mb-4">
+          <button
+            onClick={() => setPipelineTab('call')}
+            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+              pipelineTab === 'call' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-400'
+            }`}
+          >
+            Call Pipeline
+          </button>
+          <button
+            onClick={() => setPipelineTab('release')}
+            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+              pipelineTab === 'release' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-400'
+            }`}
+          >
+            Release Track
+          </button>
+        </div>
       )}
 
       {loading ? (
@@ -136,31 +211,49 @@ export default function CallingPipeline({ onBack }) {
             Add First Calling
           </button>
         </div>
+      ) : view === 'orgchart' ? (
+        <OrgChart
+          onEditSlot={openEdit}
+          onAddChild={(parentNode) => openAdd(parentNode.id)}
+          onAddCandidate={(node) => setCandidateSlot(node)}
+          onBeginRelease={handleBeginRelease}
+          onAdvance={openAdvanceModal}
+        />
       ) : view === 'kanban' ? (
         <KanbanView
           slotsByStage={slotsByStage}
+          displayStages={displayStages}
           onSlotPress={openEdit}
           onAdvance={openAdvanceModal}
           onDecline={handleDecline}
           onReturn={handleReturnToIdentified}
+          onBeginRelease={handleBeginRelease}
+          onAddCandidate={(slot) => setCandidateSlot(slot)}
           getOrgLabel={getOrgLabel}
+          getNextStage={getNextStage}
         />
       ) : (
         <ListView
           slotsByStage={slotsByStage}
+          displayStages={displayStages}
           onSlotPress={openEdit}
           onAdvance={openAdvanceModal}
           onDecline={handleDecline}
           onReturn={handleReturnToIdentified}
+          onBeginRelease={handleBeginRelease}
+          onAddCandidate={(slot) => setCandidateSlot(slot)}
           getOrgLabel={getOrgLabel}
+          getNextStage={getNextStage}
         />
       )}
 
       {/* Calling Slot Form */}
       <CallingSlotForm
         open={formOpen}
-        onClose={() => setFormOpen(false)}
+        onClose={() => { setFormOpen(false); setParentSlotId(null); }}
         slot={editSlot}
+        parentSlotId={parentSlotId}
+        allSlots={slots}
         onSave={async (data) => {
           if (editSlot) {
             await update(editSlot.id, data);
@@ -168,8 +261,23 @@ export default function CallingPipeline({ onBack }) {
             await add(data);
           }
           setFormOpen(false);
+          setParentSlotId(null);
         }}
         onDelete={editSlot ? async () => { await remove(editSlot.id); setFormOpen(false); } : null}
+        onOpenCandidates={(slot) => { setFormOpen(false); setCandidateSlot(slot); }}
+      />
+
+      {/* Candidate Manager */}
+      <CandidateManager
+        open={!!candidateSlot}
+        onClose={() => setCandidateSlot(null)}
+        slot={candidateSlot}
+        onAccepted={(slot) => {
+          // If someone is currently serving, offer to begin release
+          if (slot.stage === 'serving' && slot.servedBy) {
+            handleBeginRelease(slot);
+          }
+        }}
       />
 
       {/* Advance confirmation modal */}
@@ -212,19 +320,53 @@ export default function CallingPipeline({ onBack }) {
           </div>
         )}
       </Modal>
+
+      {/* Begin Release modal */}
+      <Modal
+        open={!!releaseModal}
+        onClose={() => setReleaseModal(null)}
+        title="Begin Release"
+        size="sm"
+      >
+        {releaseModal && (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700">
+              Begin release process for{' '}
+              <span className="font-medium">{releaseModal.servedBy || releaseModal.candidateName}</span>{' '}
+              from <span className="font-medium">{releaseModal.roleName}</span>?
+            </p>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Release Target</label>
+              <input
+                type="text"
+                value={releaseTarget}
+                onChange={e => setReleaseTarget(e.target.value)}
+                placeholder='e.g., "Sacrament Meeting March 2"'
+                className="input-field text-sm"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={confirmRelease} className="btn-primary flex-1">
+                Begin Release
+              </button>
+              <button onClick={() => setReleaseModal(null)} className="btn-secondary flex-1">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
 
 // ── Kanban View ─────────────────────────────────────────────
 
-function KanbanView({ slotsByStage, onSlotPress, onAdvance, onDecline, onReturn, getOrgLabel }) {
-  const allStages = [...STAGE_ORDER, 'declined'];
-
+function KanbanView({ slotsByStage, displayStages, onSlotPress, onAdvance, onDecline, onReturn, onBeginRelease, onAddCandidate, getOrgLabel, getNextStage }) {
   return (
     <div className="overflow-x-auto -mx-4 px-4 no-scrollbar">
-      <div className="flex gap-3" style={{ minWidth: `${allStages.length * 240}px` }}>
-        {allStages.map(stageKey => {
+      <div className="flex gap-3" style={{ minWidth: `${displayStages.length * 240}px` }}>
+        {displayStages.map(stageKey => {
           const config = CALLING_STAGES[stageKey];
           const stageSlots = slotsByStage[stageKey] || [];
           const isDeclined = stageKey === 'declined';
@@ -253,7 +395,10 @@ function KanbanView({ slotsByStage, onSlotPress, onAdvance, onDecline, onReturn,
                       onAdvance={() => onAdvance(slot)}
                       onDecline={!isDeclined && slot.stage === 'extended' ? () => onDecline(slot) : null}
                       onReturn={isDeclined ? () => onReturn(slot) : null}
+                      onBeginRelease={slot.stage === 'serving' ? () => onBeginRelease(slot) : null}
+                      onAddCandidate={() => onAddCandidate(slot)}
                       getOrgLabel={getOrgLabel}
+                      getNextStage={getNextStage}
                       compact
                     />
                   ))
@@ -269,9 +414,8 @@ function KanbanView({ slotsByStage, onSlotPress, onAdvance, onDecline, onReturn,
 
 // ── List View ───────────────────────────────────────────────
 
-function ListView({ slotsByStage, onSlotPress, onAdvance, onDecline, onReturn, getOrgLabel }) {
+function ListView({ slotsByStage, displayStages, onSlotPress, onAdvance, onDecline, onReturn, onBeginRelease, onAddCandidate, getOrgLabel, getNextStage }) {
   const [collapsed, setCollapsed] = useState({});
-  const allStages = [...STAGE_ORDER, 'declined'];
 
   function toggle(stage) {
     setCollapsed(prev => ({ ...prev, [stage]: !prev[stage] }));
@@ -279,7 +423,7 @@ function ListView({ slotsByStage, onSlotPress, onAdvance, onDecline, onReturn, g
 
   return (
     <div className="space-y-4">
-      {allStages.map(stageKey => {
+      {displayStages.map(stageKey => {
         const config = CALLING_STAGES[stageKey];
         const stageSlots = slotsByStage[stageKey] || [];
         if (stageSlots.length === 0) return null;
@@ -311,7 +455,10 @@ function ListView({ slotsByStage, onSlotPress, onAdvance, onDecline, onReturn, g
                     onAdvance={() => onAdvance(slot)}
                     onDecline={!isDeclined && slot.stage === 'extended' ? () => onDecline(slot) : null}
                     onReturn={isDeclined ? () => onReturn(slot) : null}
+                    onBeginRelease={slot.stage === 'serving' ? () => onBeginRelease(slot) : null}
+                    onAddCandidate={() => onAddCandidate(slot)}
                     getOrgLabel={getOrgLabel}
+                    getNextStage={getNextStage}
                   />
                 ))}
               </div>
@@ -325,36 +472,89 @@ function ListView({ slotsByStage, onSlotPress, onAdvance, onDecline, onReturn, g
 
 // ── Slot Card ───────────────────────────────────────────────
 
-function SlotCard({ slot, onPress, onAdvance, onDecline, onReturn, getOrgLabel, compact }) {
-  const nextStage = STAGE_ORDER[STAGE_ORDER.indexOf(slot.stage) + 1];
-  const isTerminal = slot.stage === 'set_apart';
+function SlotCard({ slot, onPress, onAdvance, onDecline, onReturn, onBeginRelease, onAddCandidate, getOrgLabel, getNextStage, compact }) {
+  const nextStage = getNextStage(slot.stage);
+  const isTerminal = slot.stage === 'released' || (slot.stage === 'serving' && !nextStage);
+  const priorityConfig = CALLING_PRIORITIES[slot.priority];
+  const serviceInfo = slot.stage === 'serving' && slot.servingSince ? getServiceMonths(slot.servingSince) : null;
 
   return (
     <div
       onClick={onPress}
       className={`card cursor-pointer hover:border-primary-200 transition-colors ${compact ? 'p-2.5' : 'p-3'}`}
     >
-      <p className={`font-medium text-gray-900 ${compact ? 'text-xs' : 'text-sm'}`}>
-        {slot.roleName}
-      </p>
-      {slot.candidateName && (
-        <p className={`text-gray-600 ${compact ? 'text-[10px]' : 'text-xs'}`}>
-          {slot.candidateName}
-        </p>
-      )}
-      <p className={`text-gray-400 mt-0.5 ${compact ? 'text-[10px]' : 'text-[11px]'}`}>
-        {getOrgLabel(slot.organization)}
-      </p>
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            {/* Priority dot */}
+            {slot.priority && slot.priority !== 'medium' && (
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                slot.priority === 'high' ? 'bg-red-400' : 'bg-green-400'
+              }`} />
+            )}
+            <p className={`font-medium text-gray-900 truncate ${compact ? 'text-xs' : 'text-sm'}`}>
+              {slot.roleName}
+            </p>
+          </div>
+          {(slot.servedBy || slot.candidateName) && (
+            <p className={`text-gray-600 ${compact ? 'text-[10px]' : 'text-xs'}`}>
+              {slot.servedBy || slot.candidateName}
+            </p>
+          )}
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <p className={`text-gray-400 ${compact ? 'text-[10px]' : 'text-[11px]'}`}>
+              {getOrgLabel(slot.organization)}
+            </p>
+            {serviceInfo && (
+              <span className="text-[10px] text-gray-300">
+                &middot; {serviceInfo}mo
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Badges */}
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          {(slot.expectedCount || 1) > 1 && (
+            <span className="text-[9px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full">
+              {slot.currentCount || 0}/{slot.expectedCount}
+            </span>
+          )}
+          {slot.candidates?.length > 0 && (
+            <span className="text-[9px] font-medium bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">
+              {slot.candidates.length} name{slot.candidates.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+      </div>
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 mt-2" onClick={e => e.stopPropagation()}>
-        {!isTerminal && nextStage && (
+        {!isTerminal && nextStage && slot.stage !== 'serving' && (
           <button
             onClick={onAdvance}
             className="flex items-center gap-0.5 text-[10px] text-primary-600 hover:text-primary-800 font-medium"
           >
             <ArrowRight size={10} />
             {CALLING_STAGES[nextStage]?.label || 'Advance'}
+          </button>
+        )}
+        {onBeginRelease && (
+          <button
+            onClick={onBeginRelease}
+            className="flex items-center gap-0.5 text-[10px] text-amber-600 hover:text-amber-800 font-medium"
+          >
+            <Clock size={10} />
+            Begin Release
+          </button>
+        )}
+        {['release_planned', 'release_meeting'].includes(slot.stage) && nextStage && (
+          <button
+            onClick={onAdvance}
+            className="flex items-center gap-0.5 text-[10px] text-amber-600 hover:text-amber-800 font-medium"
+          >
+            <ArrowRight size={10} />
+            {CALLING_STAGES[nextStage]?.label}
           </button>
         )}
         {onDecline && (
@@ -372,10 +572,26 @@ function SlotCard({ slot, onPress, onAdvance, onDecline, onReturn, getOrgLabel, 
             className="flex items-center gap-0.5 text-[10px] text-blue-500 hover:text-blue-700 font-medium"
           >
             <RotateCcw size={10} />
-            Return to Identified
+            Return
+          </button>
+        )}
+        {!slot.candidateName && slot.stage === 'identified' && (
+          <button
+            onClick={onAddCandidate}
+            className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-primary-600 font-medium ml-auto"
+          >
+            <UserPlus size={10} />
+            Add Name
           </button>
         )}
       </div>
     </div>
   );
+}
+
+function getServiceMonths(servingSince) {
+  if (!servingSince) return null;
+  const start = new Date(servingSince).getTime();
+  const now = Date.now();
+  return Math.round((now - start) / (1000 * 60 * 60 * 24 * 30.44));
 }

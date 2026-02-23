@@ -31,6 +31,7 @@ export const ORGANIZATIONS = [
 ];
 
 export const CALLING_STATUS_FLOW = [
+  // Call track
   { key: 'identified', label: 'Identified', color: 'gray' },
   { key: 'prayed_about', label: 'Prayed About', color: 'blue' },
   { key: 'discussed', label: 'Discussed in Bishopric', color: 'indigo' },
@@ -39,6 +40,10 @@ export const CALLING_STATUS_FLOW = [
   { key: 'declined', label: 'Declined', color: 'red' },
   { key: 'sustained', label: 'Sustained', color: 'teal' },
   { key: 'set_apart', label: 'Set Apart', color: 'green' },
+  { key: 'serving', label: 'Serving', color: 'green' },
+  // Release track
+  { key: 'release_planned', label: 'Release Planned', color: 'amber' },
+  { key: 'release_meeting', label: 'Release Meeting', color: 'orange' },
   { key: 'released', label: 'Released', color: 'gray' },
 ];
 
@@ -438,6 +443,74 @@ export function getPresidentForOrg(orgKey) {
   return ORG_PRESIDENT_MAP[orgKey] || null;
 }
 
+// ── Default Org Hierarchy (for org chart initialization) ─────
+// Each entry: { tier, children[], parentCallingKey? }
+// tier: 0=Stake President, 1=Stake Presidency, 2=Bishop, 3=Bishopric, 4=Org Presidents, 5=Counselors/Secretary, 6=Teachers/Leaders
+
+export const ORG_HIERARCHY = [
+  // ── Stake Level ──
+  { callingKey: 'stake_president', roleName: 'Stake President', organization: 'stake', tier: 0, children: [
+    { callingKey: 'stake_1st_counselor', roleName: 'Stake 1st Counselor', organization: 'stake', tier: 1 },
+    { callingKey: 'stake_2nd_counselor', roleName: 'Stake 2nd Counselor', organization: 'stake', tier: 1 },
+    { roleName: 'Stake Executive Secretary', organization: 'stake', tier: 1 },
+    { roleName: 'Stake Clerk', organization: 'stake', tier: 1 },
+    { callingKey: 'high_councilor', roleName: 'High Council', organization: 'stake', tier: 1, children: [
+      { roleName: 'High Councilor 1', organization: 'stake', tier: 1 },
+      { roleName: 'High Councilor 2', organization: 'stake', tier: 1 },
+      { roleName: 'High Councilor 3', organization: 'stake', tier: 1 },
+      { roleName: 'High Councilor 4', organization: 'stake', tier: 1 },
+    ]},
+    { roleName: 'Stake RS President', organization: 'relief_society', tier: 1, children: [
+      { roleName: 'Stake RS 1st Counselor', organization: 'relief_society', tier: 1 },
+      { roleName: 'Stake RS 2nd Counselor', organization: 'relief_society', tier: 1 },
+    ]},
+    { roleName: 'Stake YW President', organization: 'young_women', tier: 1, children: [
+      { roleName: 'Stake YW 1st Counselor', organization: 'young_women', tier: 1 },
+      { roleName: 'Stake YW 2nd Counselor', organization: 'young_women', tier: 1 },
+    ]},
+    { roleName: 'Stake Primary President', organization: 'primary', tier: 1, children: [
+      { roleName: 'Stake Primary 1st Counselor', organization: 'primary', tier: 1 },
+      { roleName: 'Stake Primary 2nd Counselor', organization: 'primary', tier: 1 },
+    ]},
+    { roleName: 'Stake SS President (HC)', organization: 'sunday_school', tier: 1 },
+    { roleName: 'Stake YM President (HC)', organization: 'young_men', tier: 1 },
+    // ── Ward Level (under Stake President) ──
+    { callingKey: 'bishop', roleName: 'Bishop', organization: 'bishopric', tier: 2, children: [
+      { callingKey: 'bishopric_1st', roleName: '1st Counselor', organization: 'bishopric', tier: 3 },
+      { callingKey: 'bishopric_2nd', roleName: '2nd Counselor', organization: 'bishopric', tier: 3 },
+      { callingKey: 'exec_secretary', roleName: 'Executive Secretary', organization: 'bishopric', tier: 3 },
+      { callingKey: 'ward_clerk', roleName: 'Ward Clerk', organization: 'bishopric', tier: 3 },
+      { callingKey: 'eq_president', roleName: 'EQ President', organization: 'elders_quorum', tier: 4, children: [
+        { roleName: 'EQ 1st Counselor', organization: 'elders_quorum', tier: 5 },
+        { roleName: 'EQ 2nd Counselor', organization: 'elders_quorum', tier: 5 },
+        { roleName: 'EQ Secretary', organization: 'elders_quorum', tier: 5 },
+      ]},
+      { callingKey: 'rs_president', roleName: 'RS President', organization: 'relief_society', tier: 4, children: [
+        { roleName: 'RS 1st Counselor', organization: 'relief_society', tier: 5 },
+        { roleName: 'RS 2nd Counselor', organization: 'relief_society', tier: 5 },
+        { roleName: 'RS Secretary', organization: 'relief_society', tier: 5 },
+      ]},
+      { callingKey: 'yw_president', roleName: 'YW President', organization: 'young_women', tier: 4, children: [
+        { roleName: 'YW 1st Counselor', organization: 'young_women', tier: 5 },
+        { roleName: 'YW 2nd Counselor', organization: 'young_women', tier: 5 },
+      ]},
+      { callingKey: 'primary_president', roleName: 'Primary President', organization: 'primary', tier: 4, children: [
+        { roleName: 'Primary 1st Counselor', organization: 'primary', tier: 5 },
+        { roleName: 'Primary 2nd Counselor', organization: 'primary', tier: 5 },
+        { roleName: 'Primary Secretary', organization: 'primary', tier: 5 },
+        { roleName: 'Primary Music Leader', organization: 'primary', tier: 5 },
+      ]},
+      { callingKey: 'ss_president', roleName: 'SS President', organization: 'sunday_school', tier: 4, children: [
+        { roleName: 'SS 1st Counselor', organization: 'sunday_school', tier: 5 },
+        { roleName: 'SS Secretary', organization: 'sunday_school', tier: 5 },
+      ]},
+      { callingKey: 'ward_mission_leader', roleName: 'Ward Mission Leader', organization: 'missionary', tier: 4 },
+      { callingKey: 'temple_fh_leader', roleName: 'Temple & FH Leader', organization: 'temple_fh', tier: 4 },
+      { roleName: 'Music Coordinator', organization: 'music', tier: 4 },
+    ]},
+  ]},
+];
+
 // Helper: Get a flat list for UI selection
 export function getCallingList() {
   return Object.values(CALLINGS).map(c => ({
@@ -457,4 +530,125 @@ export function getCallingConfig(key) {
 export function getOrgLabel(key) {
   return ORGANIZATIONS.find(o => o.key === key)?.label || key;
 }
+
+// ── Organization Templates ──────────────────────────────────
+// Default subtree configs per organization for quick initialization
+// expectedCount = how many should fill this role (default 1)
+
+export const ORG_TEMPLATES = {
+  elders_quorum: {
+    root: 'EQ President',
+    children: [
+      { roleName: 'EQ 1st Counselor' },
+      { roleName: 'EQ 2nd Counselor' },
+      { roleName: 'EQ Secretary' },
+      { roleName: 'Ministering Coordinator', expectedCount: 2 },
+      { roleName: 'EQ Instructor', expectedCount: 2 },
+    ],
+  },
+  relief_society: {
+    root: 'RS President',
+    children: [
+      { roleName: 'RS 1st Counselor' },
+      { roleName: 'RS 2nd Counselor' },
+      { roleName: 'RS Secretary' },
+      { roleName: 'Ministering Coordinator', expectedCount: 2 },
+      { roleName: 'RS Instructor', expectedCount: 2 },
+      { roleName: 'RS Activity Coordinator', expectedCount: 2 },
+    ],
+  },
+  young_women: {
+    root: 'YW President',
+    children: [
+      { roleName: 'YW 1st Counselor' },
+      { roleName: 'YW 2nd Counselor' },
+      { roleName: 'YW Secretary' },
+      { roleName: 'YW Class Advisor', expectedCount: 3 },
+    ],
+  },
+  young_men: {
+    root: 'YM President',
+    children: [
+      { roleName: 'YM 1st Counselor' },
+      { roleName: 'YM 2nd Counselor' },
+      { roleName: 'YM Secretary' },
+      { roleName: 'Deacons Quorum Advisor', expectedCount: 2 },
+      { roleName: 'Teachers Quorum Advisor', expectedCount: 2 },
+      { roleName: 'Priests Quorum Advisor', expectedCount: 2 },
+    ],
+  },
+  primary: {
+    root: 'Primary President',
+    children: [
+      { roleName: 'Primary 1st Counselor' },
+      { roleName: 'Primary 2nd Counselor' },
+      { roleName: 'Primary Secretary' },
+      { roleName: 'Primary Music Leader' },
+      { roleName: 'Nursery Leader', expectedCount: 2 },
+      { roleName: 'Sunbeam Teacher', expectedCount: 2 },
+      { roleName: 'CTR Teacher', expectedCount: 4 },
+      { roleName: 'Valiant Teacher', expectedCount: 4 },
+    ],
+  },
+  sunday_school: {
+    root: 'SS President',
+    children: [
+      { roleName: 'SS 1st Counselor' },
+      { roleName: 'SS Secretary' },
+      { roleName: 'Gospel Doctrine Teacher', expectedCount: 2 },
+      { roleName: 'Gospel Essentials Teacher' },
+      { roleName: 'Youth Sunday School Teacher', expectedCount: 2 },
+    ],
+  },
+  missionary: {
+    root: 'Ward Mission Leader',
+    children: [
+      { roleName: 'Ward Missionary', expectedCount: 4 },
+    ],
+  },
+  temple_fh: {
+    root: 'Temple & FH Leader',
+    children: [
+      { roleName: 'Temple & FH Consultant', expectedCount: 3 },
+    ],
+  },
+  music: {
+    root: 'Music Coordinator',
+    children: [
+      { roleName: 'Choir Director' },
+      { roleName: 'Organist/Pianist', expectedCount: 2 },
+    ],
+  },
+};
+
+// ── Jurisdiction Map ────────────────────────────────────────
+// Maps each callingKey to the organizations they can see/edit
+// scope: 'stake' = everything, 'ward' = all ward orgs, 'org' = specific orgs only
+// 'assigned_wards' = stake-level + specific assigned wards (high councilor)
+
+export const JURISDICTION_MAP = {
+  // Stake level — sees everything
+  stake_president:     { orgs: ['*'], scope: 'stake' },
+  stake_1st_counselor: { orgs: ['*'], scope: 'stake' },
+  stake_2nd_counselor: { orgs: ['*'], scope: 'stake' },
+
+  // High Councilor — stake + assigned wards
+  high_councilor: { orgs: ['*'], scope: 'assigned_wards' },
+
+  // Bishopric — all ward organizations
+  bishop:        { orgs: ['*'], scope: 'ward' },
+  bishopric_1st: { orgs: ['*'], scope: 'ward' },
+  bishopric_2nd: { orgs: ['*'], scope: 'ward' },
+  exec_secretary: { orgs: ['*'], scope: 'ward' },
+  ward_clerk:    { orgs: ['*'], scope: 'ward' },
+
+  // Organization leaders — their org subtree only
+  eq_president:        { orgs: ['elders_quorum', 'missionary', 'temple_fh'], scope: 'org' },
+  rs_president:        { orgs: ['relief_society'], scope: 'org' },
+  yw_president:        { orgs: ['young_women'], scope: 'org' },
+  primary_president:   { orgs: ['primary'], scope: 'org' },
+  ss_president:        { orgs: ['sunday_school'], scope: 'org' },
+  ward_mission_leader: { orgs: ['missionary'], scope: 'org' },
+  temple_fh_leader:    { orgs: ['temple_fh'], scope: 'org' },
+};
 

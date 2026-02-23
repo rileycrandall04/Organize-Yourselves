@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import { getCallingConfig, getPresidentForOrg } from './data/callings';
+import { getCallingConfig, getPresidentForOrg, ORG_HIERARCHY, ORG_TEMPLATES } from './data/callings';
 
 const db = new Dexie('CallingOrganizer');
 
@@ -46,13 +46,20 @@ db.version(1).stores({
 
 // Phase 2: Meeting Intelligence + Calling Pipeline
 db.version(2).stores({
-  // New table: tagged notes bridging meetings
   meetingNoteTags: '++id, sourceMeetingInstanceId, targetMeetingId, consumed, createdAt',
-
-  // Enhanced callingSlots with stage index
   callingSlots: '++id, organization, roleName, personId, status, assignedTo, stage',
+});
 
-  // All other tables remain unchanged (Dexie preserves them automatically)
+// Phase 3: Org Chart hierarchy + custom meetings
+db.version(3).stores({
+  callingSlots: '++id, organization, roleName, personId, status, assignedTo, stage, parentSlotId, callingKey, tier',
+});
+
+// Phase 4: Enhanced pipeline — priority, open positions, candidates, service tracking, release flow
+db.version(4).stores({
+  callingSlots: '++id, organization, roleName, personId, status, assignedTo, stage, parentSlotId, callingKey, tier, priority, isOpen',
+  ministeringCompanionships: '++id, type, status',
+  ministeringInterviews: '++id, companionshipId, date',
 });
 
 // ── Helper functions ────────────────────────────────────────
@@ -145,6 +152,12 @@ export async function updateMeeting(id, changes) {
 
 export async function deleteMeeting(id) {
   return await db.meetings.delete(id);
+}
+
+export async function deleteMeetingWithInstances(id) {
+  const instances = await db.meetingInstances.where('meetingId').equals(id).toArray();
+  await db.meetingInstances.bulkDelete(instances.map(i => i.id));
+  await db.meetings.delete(id);
 }
 
 // Meeting Instances
@@ -383,6 +396,14 @@ export async function getCallingSlots(filters = {}) {
 
 export async function addCallingSlot(slot) {
   return await db.callingSlots.add({
+    priority: 'medium',
+    isOpen: true,
+    expectedCount: 1,
+    currentCount: 0,
+    candidates: [],
+    priorSubmissions: [],
+    recommendedServiceMonths: null,
+    presidingOfficer: null,
     ...slot,
     stage: slot.stage || 'identified',
     history: slot.history || [],
@@ -414,11 +435,30 @@ export async function transitionCallingSlot(id, newStage, note = '') {
     note,
   });
 
-  await db.callingSlots.update(id, {
+  const updates = {
     stage: newStage,
     history,
     updatedAt: new Date().toISOString(),
-  });
+  };
+
+  // Stage-specific side effects
+  if (newStage === 'serving') {
+    updates.servedBy = slot.candidateName || '';
+    updates.servedByPersonId = slot.personId || null;
+    updates.servingSince = new Date().toISOString();
+    updates.isOpen = false;
+    updates.currentCount = (slot.currentCount || 0) + 1;
+  } else if (newStage === 'released') {
+    updates.isOpen = true;
+    updates.servedBy = null;
+    updates.servedByPersonId = null;
+    updates.servingSince = null;
+    updates.candidateName = '';
+    updates.personId = null;
+    updates.currentCount = Math.max(0, (slot.currentCount || 1) - 1);
+  }
+
+  await db.callingSlots.update(id, updates);
 
   // Auto-generate action items for this transition
   const autoActions = getAutoActionsForTransition(newStage, slot);
@@ -454,6 +494,14 @@ function getAutoActionsForTransition(newStage, slot) {
         { title: `Set apart ${name} as ${role}`, priority: 'high', context: 'at_church' },
         { title: `Ensure ${name} has resources for ${role}`, priority: 'medium' },
       ];
+    case 'serving':
+      return [{ title: `Ensure ${name} has training and resources for ${role}`, priority: 'medium' }];
+    case 'release_planned':
+      return [{ title: `Schedule meeting with ${name} about release from ${role}`, priority: 'high', context: 'phone' }];
+    case 'release_meeting':
+      return [{ title: `Announce release of ${name} from ${role}`, priority: 'high', context: 'at_church' }];
+    case 'released':
+      return [{ title: `Identify replacement for ${role}`, priority: 'high' }];
     default:
       return [];
   }
@@ -461,11 +509,22 @@ function getAutoActionsForTransition(newStage, slot) {
 
 export async function getPipelineSummary() {
   const all = await db.callingSlots.toArray();
-  const active = all.filter(s => s.stage && s.stage !== 'set_apart');
-  const needsAction = active.filter(s =>
+  const inPipeline = all.filter(s => s.stage && !['serving', 'released'].includes(s.stage));
+  const needsAction = inPipeline.filter(s =>
     ['identified', 'extended', 'sustained'].includes(s.stage)
   );
-  return { total: all.length, active: active.length, needsAction: needsAction.length };
+  const openPositions = all.filter(s => s.isOpen || (!s.candidateName && s.stage === 'identified'));
+  const releasesInProgress = all.filter(s => ['release_planned', 'release_meeting'].includes(s.stage));
+  const candidatesPending = all.reduce((n, s) => n + (s.candidates?.length || 0), 0);
+
+  return {
+    total: all.length,
+    active: inPipeline.length,
+    needsAction: needsAction.length,
+    openPositions: openPositions.length,
+    releasesInProgress: releasesInProgress.length,
+    candidatesPending,
+  };
 }
 
 // ── Backup Metadata (no schema change — stored on profile row) ──
@@ -593,6 +652,316 @@ export async function removeAssignmentMeetings(callingKey, orgKey) {
     for (const inst of instances) await db.meetingInstances.delete(inst.id);
     await db.meetings.delete(m.id);
   }
+}
+
+// ── Org Chart Tree Helpers (Phase 3) ──────────────────────────
+
+export async function buildOrgTree() {
+  const all = await db.callingSlots.toArray();
+  const byParent = {};
+  const roots = [];
+
+  for (const slot of all) {
+    if (!slot.parentSlotId) {
+      roots.push(slot);
+    } else {
+      if (!byParent[slot.parentSlotId]) byParent[slot.parentSlotId] = [];
+      byParent[slot.parentSlotId].push(slot);
+    }
+  }
+
+  function buildNode(slot) {
+    const children = (byParent[slot.id] || [])
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    return { ...slot, children: children.map(buildNode) };
+  }
+
+  return roots
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+    .map(buildNode);
+}
+
+export async function initializeOrgChart() {
+  const existing = await db.callingSlots.count();
+  if (existing > 0) return false;
+
+  async function createNode(node, parentId, sortOrder) {
+    const id = await db.callingSlots.add({
+      organization: node.organization,
+      roleName: node.roleName,
+      callingKey: node.callingKey || null,
+      tier: node.tier,
+      sortOrder,
+      parentSlotId: parentId || null,
+      isCustomPosition: false,
+      stage: 'identified',
+      candidateName: '',
+      history: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (node.children) {
+      for (let i = 0; i < node.children.length; i++) {
+        await createNode(node.children[i], id, i);
+      }
+    }
+    return id;
+  }
+
+  for (let i = 0; i < ORG_HIERARCHY.length; i++) {
+    await createNode(ORG_HIERARCHY[i], null, i);
+  }
+  return true;
+}
+
+// ── Open Positions ──────────────────────────────────────────
+
+export async function getOpenPositions(orgFilter) {
+  let all = await db.callingSlots.toArray();
+  if (orgFilter) {
+    all = all.filter(s => s.organization === orgFilter);
+  }
+  return all.filter(s =>
+    s.isOpen === true ||
+    (s.currentCount || 0) < (s.expectedCount || 1) ||
+    (!s.candidateName && s.stage === 'identified')
+  );
+}
+
+// ── Candidate Management ────────────────────────────────────
+
+export async function addCandidate(slotId, candidate) {
+  const slot = await db.callingSlots.get(slotId);
+  if (!slot) return;
+
+  const candidates = [...(slot.candidates || [])];
+  candidates.push({
+    ...candidate,
+    submittedAt: new Date().toISOString(),
+    status: 'pending',
+  });
+
+  await db.callingSlots.update(slotId, {
+    candidates,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function declineCandidate(slotId, candidateIndex) {
+  const slot = await db.callingSlots.get(slotId);
+  if (!slot || !slot.candidates?.[candidateIndex]) return;
+
+  const candidates = [...(slot.candidates || [])];
+  const declined = candidates.splice(candidateIndex, 1)[0];
+  declined.status = 'declined';
+  declined.declinedAt = new Date().toISOString();
+
+  const priorSubmissions = [...(slot.priorSubmissions || []), declined];
+
+  await db.callingSlots.update(slotId, {
+    candidates,
+    priorSubmissions,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function acceptCandidate(slotId, candidateIndex) {
+  const slot = await db.callingSlots.get(slotId);
+  if (!slot || !slot.candidates?.[candidateIndex]) return null;
+
+  const candidates = [...(slot.candidates || [])];
+  const accepted = candidates.splice(candidateIndex, 1)[0];
+  accepted.status = 'accepted';
+  accepted.acceptedAt = new Date().toISOString();
+
+  await db.callingSlots.update(slotId, {
+    candidateName: accepted.name,
+    personId: accepted.personId || null,
+    candidates,
+    stage: 'identified',
+    updatedAt: new Date().toISOString(),
+  });
+
+  return slot; // Return slot so caller can check if someone is currently serving
+}
+
+// ── Release Flow ────────────────────────────────────────────
+
+export async function startRelease(slotId, releaseTarget) {
+  const slot = await db.callingSlots.get(slotId);
+  if (!slot || slot.stage !== 'serving') return;
+
+  await transitionCallingSlot(slotId, 'release_planned');
+  await db.callingSlots.update(slotId, { releaseTarget });
+}
+
+// ── Service Alerts ──────────────────────────────────────────
+
+export async function getServiceAlerts() {
+  const all = await db.callingSlots.toArray();
+  const now = Date.now();
+  const alerts = [];
+
+  for (const slot of all) {
+    if (slot.stage !== 'serving' || !slot.servingSince || !slot.recommendedServiceMonths) continue;
+    const start = new Date(slot.servingSince).getTime();
+    const servedMs = now - start;
+    const servedMonths = servedMs / (1000 * 60 * 60 * 24 * 30.44);
+    const remaining = slot.recommendedServiceMonths - servedMonths;
+
+    if (remaining <= 3 && remaining > -6) {
+      alerts.push({
+        ...slot,
+        servedMonths: Math.round(servedMonths),
+        remainingMonths: Math.round(remaining),
+      });
+    }
+  }
+
+  return alerts.sort((a, b) => a.remainingMonths - b.remainingMonths);
+}
+
+// ── Org Template Initialization ─────────────────────────────
+
+export async function initializeOrgFromTemplate(orgKey, parentSlotId) {
+  const template = ORG_TEMPLATES[orgKey];
+  if (!template) return [];
+
+  const ids = [];
+  for (let i = 0; i < template.children.length; i++) {
+    const child = template.children[i];
+    const count = child.expectedCount || 1;
+    const id = await db.callingSlots.add({
+      organization: orgKey,
+      roleName: child.roleName,
+      parentSlotId,
+      isCustomPosition: false,
+      stage: 'identified',
+      candidateName: '',
+      priority: 'medium',
+      isOpen: true,
+      expectedCount: count,
+      currentCount: 0,
+      candidates: [],
+      priorSubmissions: [],
+      recommendedServiceMonths: null,
+      presidingOfficer: null,
+      sortOrder: i,
+      history: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    ids.push(id);
+  }
+  return ids;
+}
+
+// ── Hidden Orgs (user preference) ───────────────────────────
+
+export async function updateHiddenOrgs(hiddenOrgs) {
+  const profile = await getProfile();
+  if (profile) {
+    await db.profile.update(profile.id, { hiddenOrgs });
+  }
+}
+
+// ── Ministering (Phase 4) ───────────────────────────────────
+
+export async function getMinisteringCompanionships(type) {
+  if (type) {
+    return await db.ministeringCompanionships.where('type').equals(type).toArray();
+  }
+  return await db.ministeringCompanionships.toArray();
+}
+
+export async function addMinisteringCompanionship(comp) {
+  return await db.ministeringCompanionships.add({
+    ...comp,
+    status: comp.status || 'active',
+    assignedFamilyIds: comp.assignedFamilyIds || [],
+    assignedFamilyNames: comp.assignedFamilyNames || [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function updateMinisteringCompanionship(id, changes) {
+  return await db.ministeringCompanionships.update(id, {
+    ...changes,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function deleteMinisteringCompanionship(id) {
+  // Also delete related interviews
+  const interviews = await db.ministeringInterviews.where('companionshipId').equals(id).toArray();
+  await db.ministeringInterviews.bulkDelete(interviews.map(i => i.id));
+  return await db.ministeringCompanionships.delete(id);
+}
+
+export async function getMinisteringInterviews(companionshipId) {
+  return await db.ministeringInterviews
+    .where('companionshipId').equals(companionshipId)
+    .reverse()
+    .sortBy('date');
+}
+
+export async function addMinisteringInterview(interview) {
+  return await db.ministeringInterviews.add({
+    ...interview,
+    date: interview.date || new Date().toISOString(),
+  });
+}
+
+export async function updateMinisteringInterview(id, changes) {
+  return await db.ministeringInterviews.update(id, changes);
+}
+
+// ── Ministering Summary (for Dashboard) ──────────────────────
+
+export async function getMinisteringSummary() {
+  const comps = await db.ministeringCompanionships.toArray();
+  const activeComps = comps.filter(c => c.status === 'active');
+
+  // Get all people to find unassigned
+  const people = await db.people.toArray();
+  const assignedIds = new Set();
+  const ministerIds = new Set();
+  for (const c of activeComps) {
+    if (c.minister1Id) ministerIds.add(c.minister1Id);
+    if (c.minister2Id) ministerIds.add(c.minister2Id);
+    for (const fId of (c.assignedFamilyIds || [])) {
+      assignedIds.add(fId);
+    }
+  }
+
+  const eligible = people.filter(p => p.isMinisterEligible !== false && !p.moveOutDate);
+  const unassignedFamilies = eligible.filter(p =>
+    !assignedIds.has(p.id) && !ministerIds.has(p.id)
+  ).length;
+
+  // Check for overdue interviews (> 90 days)
+  const now = Date.now();
+  const ninetyDays = 90 * 24 * 60 * 60 * 1000;
+  let overdueInterviews = 0;
+
+  for (const c of activeComps) {
+    const interviews = await db.ministeringInterviews
+      .where('companionshipId').equals(c.id)
+      .reverse()
+      .sortBy('date');
+    const lastInterview = interviews[0];
+    if (!lastInterview || (now - new Date(lastInterview.date).getTime()) > ninetyDays) {
+      overdueInterviews++;
+    }
+  }
+
+  return {
+    totalCompanionships: activeComps.length,
+    unassignedFamilies,
+    overdueInterviews,
+  };
 }
 
 export default db;
