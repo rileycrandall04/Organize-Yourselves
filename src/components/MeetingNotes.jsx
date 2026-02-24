@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
 import { addActionItem, addMeetingNoteTag, syncCallingNotesFromMeeting } from '../db';
 import { formatFull } from '../utils/dates';
@@ -9,7 +9,7 @@ import SacramentProgram from './SacramentProgram';
 import AiButton, { AiResultCard } from './shared/AiButton';
 import {
   ArrowLeft, Save, CheckCircle2, Plus, MessageSquare, FileText,
-  ArrowUpRight, X,
+  ArrowUpRight, X, CheckSquare, Clock, Users2, Trash2,
 } from 'lucide-react';
 
 export default function MeetingNotes({ instance, meetingName, onBack }) {
@@ -25,10 +25,18 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
   const [actionTitle, setActionTitle] = useState('');
   const [actionItemIds, setActionItemIds] = useState(instance.actionItemIds || []);
 
+  // Focus Families state
+  const [focusFamilies, setFocusFamilies] = useState(instance.focusFamilies || []);
+
+  // Text selection toolbar state
+  const [selectionToolbar, setSelectionToolbar] = useState(null); // { text, top, left }
+  const containerRef = useRef(null);
+
   // Note tagging state
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [tagAgendaIndex, setTagAgendaIndex] = useState(null);
   const [tagPickerForGeneral, setTagPickerForGeneral] = useState(false);
+  const [tagFromSelection, setTagFromSelection] = useState(null); // selected text to tag
 
   // AI state
   const aiEnabled = isAiConfigured();
@@ -94,7 +102,7 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
     if (saving) return;
     setSaving(true);
     try {
-      await update(instance.id, { notes, agendaItems, actionItemIds });
+      await update(instance.id, { notes, agendaItems, actionItemIds, focusFamilies });
       setDirty(false);
     } finally {
       setSaving(false);
@@ -104,7 +112,7 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
   async function handleFinalize() {
     setSaving(true);
     try {
-      await update(instance.id, { notes, agendaItems, actionItemIds, status: 'completed' });
+      await update(instance.id, { notes, agendaItems, actionItemIds, focusFamilies, status: 'completed' });
       // Sync calling pipeline notes back to calling slots
       await syncCallingNotesFromMeeting(agendaItems, instance.date, meetingName);
       setDirty(false);
@@ -126,6 +134,89 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
     setQuickActionOpen(false);
   }
 
+  // --- Focus Families ---
+
+  function addFocusFamily() {
+    setFocusFamilies(prev => [...prev, { name: '', notes: '' }]);
+    setDirty(true);
+  }
+
+  function updateFocusFamily(index, field, value) {
+    setFocusFamilies(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+    setDirty(true);
+  }
+
+  function removeFocusFamily(index) {
+    setFocusFamilies(prev => prev.filter((_, i) => i !== index));
+    setDirty(true);
+  }
+
+  // --- Text Selection Toolbar ---
+
+  const handleTextSelect = useCallback((e) => {
+    if (isCompleted) return;
+    const el = e.target;
+    if (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT') return;
+    const selectedText = el.value.substring(el.selectionStart, el.selectionEnd).trim();
+    if (selectedText.length < 3) {
+      setSelectionToolbar(null);
+      return;
+    }
+    // Position toolbar relative to the container
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    if (!containerRect) return;
+    setSelectionToolbar({
+      text: selectedText,
+      top: elRect.top - containerRect.top - 36,
+      left: Math.min(elRect.left - containerRect.left + 8, 200),
+    });
+  }, [isCompleted]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener('mouseup', handleTextSelect);
+    container.addEventListener('keyup', handleTextSelect);
+    return () => {
+      container.removeEventListener('mouseup', handleTextSelect);
+      container.removeEventListener('keyup', handleTextSelect);
+    };
+  }, [handleTextSelect]);
+
+  async function createActionFromSelection() {
+    if (!selectionToolbar?.text) return;
+    const id = await addActionItem({
+      title: selectionToolbar.text,
+      sourceMeetingInstanceId: instance.id,
+    });
+    setActionItemIds(prev => [...prev, id]);
+    await update(instance.id, { actionItemIds: [...actionItemIds, id] });
+    setSelectionToolbar(null);
+  }
+
+  function tagFromSelectionText() {
+    if (!selectionToolbar?.text) return;
+    setTagFromSelection(selectionToolbar.text);
+    setSelectionToolbar(null);
+    setTagPickerOpen(true);
+  }
+
+  // --- Calling Snooze ---
+
+  function snoozeAgendaItem(index) {
+    setAgendaItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], snoozed: true };
+      return updated;
+    });
+    setDirty(true);
+  }
+
   // --- Note Tagging ---
 
   function openTagPicker(agendaIndex) {
@@ -141,6 +232,19 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
   }
 
   async function handleTagMeeting(meeting) {
+    // If tagging from text selection, use that text
+    if (tagFromSelection) {
+      await addMeetingNoteTag({
+        sourceMeetingInstanceId: instance.id,
+        targetMeetingId: meeting.id,
+        text: tagFromSelection.trim(),
+        agendaItemIndex: -2, // -2 = from selection highlight
+      });
+      setTagFromSelection(null);
+      setTagPickerOpen(false);
+      return;
+    }
+
     const text = tagPickerForGeneral
       ? notes
       : agendaItems[tagAgendaIndex]?.notes || '';
@@ -168,7 +272,37 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
   const isCompleted = instance.status === 'completed';
 
   return (
-    <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
+    <div ref={containerRef} className="px-4 pt-6 pb-24 max-w-lg mx-auto relative">
+      {/* Floating selection toolbar */}
+      {selectionToolbar && (
+        <div
+          className="absolute z-30 flex items-center gap-1 bg-gray-800 text-white rounded-lg shadow-lg px-2 py-1.5 animate-in fade-in"
+          style={{ top: selectionToolbar.top, left: selectionToolbar.left }}
+        >
+          <button
+            onMouseDown={e => { e.preventDefault(); createActionFromSelection(); }}
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+          >
+            <CheckSquare size={12} />
+            Action Item
+          </button>
+          <div className="w-px h-4 bg-gray-600" />
+          <button
+            onMouseDown={e => { e.preventDefault(); tagFromSelectionText(); }}
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+          >
+            <ArrowUpRight size={12} />
+            Tag
+          </button>
+          <button
+            onMouseDown={e => { e.preventDefault(); setSelectionToolbar(null); }}
+            className="ml-1 p-0.5 rounded hover:bg-gray-700 transition-colors"
+          >
+            <X size={10} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <button onClick={onBack} className="flex items-center gap-1 text-sm text-primary-600 mb-4">
         <ArrowLeft size={16} />
@@ -206,7 +340,7 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
             <FileText size={14} className="text-primary-600" />
             Agenda
           </h2>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {agendaItems.map((item, i) => {
               const itemTags = getAgendaItemTags(i);
               const sourceClass = item.source === 'carry_forward'
@@ -218,53 +352,73 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
                     : '';
 
               return (
-                <div key={i} className={`card ${sourceClass}`}>
-                  <div className="flex items-start gap-2 mb-2">
-                    <span className="text-xs text-gray-400 mt-0.5 w-4 text-right flex-shrink-0">{i + 1}.</span>
-                    <span className="text-sm font-medium text-gray-800 flex-1">{item.label}</span>
+                <div key={i} className={`card !p-2.5 ${sourceClass}`}>
+                  <div className="flex items-start gap-1.5 mb-1.5">
+                    <span className="text-[10px] text-gray-400 mt-0.5 w-3 text-right flex-shrink-0">{i + 1}.</span>
+                    <span className="text-xs font-medium text-gray-800 flex-1">{item.label}</span>
                     {item.source === 'carry_forward' && (
-                      <span className="badge bg-amber-100 text-amber-700 text-[10px] flex-shrink-0">Carry Forward</span>
+                      <span className="badge bg-amber-100 text-amber-700 text-[9px] flex-shrink-0">Carry Forward</span>
                     )}
                     {item.source === 'tagged_note' && (
-                      <span className="badge bg-indigo-100 text-indigo-700 text-[10px] flex-shrink-0">Tagged Note</span>
+                      <span className="badge bg-indigo-100 text-indigo-700 text-[9px] flex-shrink-0">Tagged Note</span>
                     )}
                     {item.source === 'calling_pipeline' && (
-                      <span className="badge bg-purple-100 text-purple-700 text-[10px] flex-shrink-0">Calling</span>
+                      <span className="badge bg-purple-100 text-purple-700 text-[9px] flex-shrink-0">Calling</span>
+                    )}
+                    {item.snoozed && (
+                      <span className="badge bg-gray-100 text-gray-500 text-[9px] flex-shrink-0">Snoozed</span>
                     )}
                   </div>
-                  <textarea
-                    value={item.notes}
-                    onChange={e => updateAgendaNote(i, e.target.value)}
-                    placeholder="Notes..."
-                    rows={2}
-                    className="input-field text-xs"
-                    disabled={isCompleted}
-                  />
-                  {/* Tag controls + chips */}
-                  <div className="flex items-center justify-between mt-1.5">
-                    <div className="flex gap-1 flex-wrap">
-                      {itemTags.map(tag => (
-                        <span key={tag.id} className="inline-flex items-center gap-0.5 badge bg-indigo-50 text-indigo-600 text-[10px]">
-                          <ArrowUpRight size={8} />
-                          {getMeetingName(tag.targetMeetingId)}
-                          {!isCompleted && (
-                            <button onClick={() => removeTag(tag.id)} className="ml-0.5 hover:text-red-500">
-                              <X size={8} />
+                  {item.snoozed ? (
+                    <p className="text-[10px] text-gray-400 italic">Snoozed — will reappear in next meeting</p>
+                  ) : (
+                    <>
+                      <textarea
+                        value={item.notes}
+                        onChange={e => updateAgendaNote(i, e.target.value)}
+                        placeholder="Notes..."
+                        rows={1}
+                        className="input-field text-xs"
+                        disabled={isCompleted}
+                      />
+                      {/* Tag controls + chips + snooze */}
+                      <div className="flex items-center justify-between mt-1">
+                        <div className="flex gap-1 flex-wrap">
+                          {itemTags.map(tag => (
+                            <span key={tag.id} className="inline-flex items-center gap-0.5 badge bg-indigo-50 text-indigo-600 text-[9px]">
+                              <ArrowUpRight size={8} />
+                              {getMeetingName(tag.targetMeetingId)}
+                              {!isCompleted && (
+                                <button onClick={() => removeTag(tag.id)} className="ml-0.5 hover:text-red-500">
+                                  <X size={8} />
+                                </button>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {!isCompleted && item.source === 'calling_pipeline' && (
+                            <button
+                              onClick={() => snoozeAgendaItem(i)}
+                              className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:text-amber-700"
+                            >
+                              <Clock size={10} />
+                              Snooze
                             </button>
                           )}
-                        </span>
-                      ))}
-                    </div>
-                    {!isCompleted && item.notes?.trim() && (
-                      <button
-                        onClick={() => openTagPicker(i)}
-                        className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700 flex-shrink-0"
-                      >
-                        <ArrowUpRight size={10} />
-                        Tag
-                      </button>
-                    )}
-                  </div>
+                          {!isCompleted && item.notes?.trim() && (
+                            <button
+                              onClick={() => openTagPicker(i)}
+                              className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700"
+                            >
+                              <ArrowUpRight size={10} />
+                              Tag
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -310,6 +464,62 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Focus Families / Individuals */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            <Users2 size={14} className="text-primary-600" />
+            Focus Families / Individuals
+          </h2>
+          {!isCompleted && (
+            <button
+              onClick={addFocusFamily}
+              className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
+            >
+              <Plus size={14} />
+              Add
+            </button>
+          )}
+        </div>
+        {focusFamilies.length === 0 && (
+          <p className="text-xs text-gray-400">No focus families or individuals added yet.</p>
+        )}
+        {focusFamilies.length > 0 && (
+          <div className="space-y-2">
+            {focusFamilies.map((ff, i) => (
+              <div key={i} className="card !p-2.5">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <input
+                    type="text"
+                    value={ff.name}
+                    onChange={e => updateFocusFamily(i, 'name', e.target.value)}
+                    placeholder="Family or individual name..."
+                    className="input-field text-xs flex-1 !py-1"
+                    disabled={isCompleted}
+                  />
+                  {!isCompleted && (
+                    <button
+                      onClick={() => removeFocusFamily(i)}
+                      className="text-gray-400 hover:text-red-500 flex-shrink-0"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  value={ff.notes}
+                  onChange={e => updateFocusFamily(i, 'notes', e.target.value)}
+                  placeholder="Discussion notes..."
+                  rows={1}
+                  className="input-field text-xs"
+                  disabled={isCompleted}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Action items created from this meeting */}

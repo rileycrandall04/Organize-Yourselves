@@ -4,7 +4,7 @@ import { CALLING_PRIORITIES } from '../utils/constants';
 import { getOrgLabel, ORGANIZATIONS } from '../data/callings';
 import { AlertTriangle, ChevronDown, ChevronRight, Clock, UserPlus, Users } from 'lucide-react';
 
-export default function NeedsDashboard({ onSelectSlot, onAddCandidate }) {
+export default function NeedsDashboard({ onSelectSlot, onAddCandidate, onOrgFilter, activeOrgFilter }) {
   const { positions, loading } = useOpenPositions();
   const { alerts } = useServiceAlerts();
   const [expanded, setExpanded] = useState(false);
@@ -72,7 +72,11 @@ export default function NeedsDashboard({ onSelectSlot, onAddCandidate }) {
                 {byOrg.map(({ orgKey, label, positions: orgPositions }) => (
                   <button
                     key={orgKey}
-                    onClick={() => setSelectedOrg(selectedOrg === orgKey ? null : orgKey)}
+                    onClick={() => {
+                      const newOrg = selectedOrg === orgKey ? null : orgKey;
+                      setSelectedOrg(newOrg);
+                      onOrgFilter?.(newOrg);
+                    }}
                     className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
                       selectedOrg === orgKey
                         ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300'
@@ -145,19 +149,17 @@ export default function NeedsDashboard({ onSelectSlot, onAddCandidate }) {
                 <div
                   key={alert.id}
                   onClick={() => onSelectSlot?.(alert)}
-                  className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-gray-50 transition-colors"
                 >
-                  <AlertTriangle size={12} className={`flex-shrink-0 ${
+                  <AlertTriangle size={10} className={`flex-shrink-0 ${
                     alert.remainingMonths <= 0 ? 'text-red-400' : 'text-amber-400'
                   }`} />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium text-gray-900 truncate block">
-                      {alert.servedBy || alert.candidateName} — {alert.roleName}
-                    </span>
-                    <span className="text-[10px] text-gray-400">
-                      {alert.servedMonths} months (recommended: {alert.recommendedServiceMonths})
-                    </span>
-                  </div>
+                  <span className="text-[11px] font-medium text-gray-900 truncate flex-1 min-w-0">
+                    {alert.servedBy || alert.candidateName} — {alert.roleName}
+                  </span>
+                  <span className="text-[9px] text-gray-400 flex-shrink-0">
+                    {alert.servedMonths}mo / {alert.recommendedServiceMonths}
+                  </span>
                 </div>
               ))}
             </div>

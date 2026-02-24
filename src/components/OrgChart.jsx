@@ -1,17 +1,24 @@
 import { useState, useMemo } from 'react';
 import { useOrgTree } from '../hooks/useDb';
 import { useVisibility } from '../hooks/useVisibility';
-import { CALLING_STAGES } from '../utils/constants';
+import { CALLING_STAGES, DISPLAY_STAGE_GROUPS } from '../utils/constants';
 import { groupSlotsByOrganization } from '../utils/orgGrouping';
 import {
   ChevronDown, ChevronRight, Plus, Users, GitBranch,
   UserPlus, Play, Eye, Clock,
-  AlertTriangle,
+  AlertTriangle, ArrowLeft,
 } from 'lucide-react';
 
-export default function OrgChart({ onEditSlot, onAddSlot, onAddCandidate, onBeginRelease, onAdvance, onNavigateSettings }) {
+export default function OrgChart({ onEditSlot, onAddSlot, onAddCandidate, onBeginRelease, onAdvance, onNavigateSettings, stageFilter, orgFilter, onClearOrgFilter }) {
   const { tree, loading } = useOrgTree();
   const { filterTree, hiddenOrgs, toggleHideOrg } = useVisibility();
+
+  // Get the allowed stages for the current filter
+  const allowedStages = useMemo(() => {
+    if (!stageFilter) return null;
+    const group = DISPLAY_STAGE_GROUPS.find(g => g.key === stageFilter);
+    return group ? group.stages : null;
+  }, [stageFilter]);
 
   const filteredTree = useMemo(() => filterTree(tree), [tree, filterTree]);
   const orgGroups = useMemo(() => groupSlotsByOrganization(filteredTree), [filteredTree]);
@@ -44,9 +51,25 @@ export default function OrgChart({ onEditSlot, onAddSlot, onAddCandidate, onBegi
     );
   }
 
+  // Filter groups by org and stage
+  const filteredGroups = orgGroups.filter(group => {
+    if (orgFilter && group.orgKey !== orgFilter) return false;
+    return true;
+  });
+
   return (
     <div className="space-y-1">
-      {orgGroups.map(group => (
+      {/* Back to Full View button when org-filtered */}
+      {orgFilter && (
+        <button
+          onClick={onClearOrgFilter}
+          className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 font-medium mb-2"
+        >
+          <ArrowLeft size={12} />
+          All Organizations
+        </button>
+      )}
+      {filteredGroups.map(group => (
         <OrgFolder
           key={group.orgKey}
           group={group}
@@ -57,6 +80,7 @@ export default function OrgChart({ onEditSlot, onAddSlot, onAddCandidate, onBegi
           onAddCandidate={onAddCandidate}
           onBeginRelease={onBeginRelease}
           onAdvance={onAdvance}
+          allowedStages={allowedStages}
         />
       ))}
     </div>
@@ -65,9 +89,22 @@ export default function OrgChart({ onEditSlot, onAddSlot, onAddCandidate, onBegi
 
 // ── Org Folder ──────────────────────────────────────────────
 
-function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCandidate, onBeginRelease, onAdvance }) {
+function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCandidate, onBeginRelease, onAdvance, allowedStages }) {
   const [expanded, setExpanded] = useState(false);
   const [otherExpanded, setOtherExpanded] = useState(false);
+
+  // Filter slots by stage if filter is active
+  const filterSlots = (slots) => {
+    if (!allowedStages) return slots;
+    return slots.filter(slot => allowedStages.includes(slot.stage));
+  };
+
+  const filteredPresidency = filterSlots(group.presidencySlots);
+  const filteredOther = filterSlots(group.otherSlots);
+  const totalVisible = filteredPresidency.length + filteredOther.length;
+
+  // If stage filter is active and no visible slots, hide the entire folder
+  if (allowedStages && totalVisible === 0) return null;
 
   // Hidden org — compact single row
   if (hidden) {
@@ -130,7 +167,7 @@ function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCa
       {expanded && (
         <div className="ml-2">
           {/* Presidency/direct slots (always visible when org is expanded) */}
-          {group.presidencySlots.map(slot => (
+          {filteredPresidency.map(slot => (
             <SlotRow
               key={slot.id}
               slot={slot}
@@ -143,7 +180,7 @@ function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCa
           ))}
 
           {/* Other Callings sub-section (only shown for orgs with a presidency) */}
-          {group.hasPresidency && group.otherSlots.length > 0 && (
+          {group.hasPresidency && filteredOther.length > 0 && (
             <div>
               <div
                 className="flex items-center gap-1.5 py-0.5 px-1 rounded cursor-pointer hover:bg-gray-50 transition-colors group/other"
@@ -153,7 +190,7 @@ function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCa
                   {otherExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 </button>
                 <span className="text-[10px] font-medium text-gray-400 flex-1">
-                  Other Callings ({group.otherSlots.length})
+                  Other Callings ({filteredOther.length})
                 </span>
                 {/* Inline add button on Other Callings header */}
                 <button
@@ -166,7 +203,7 @@ function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCa
               </div>
               {otherExpanded && (
                 <div className="ml-3">
-                  {group.otherSlots.map(slot => (
+                  {filteredOther.map(slot => (
                     <SlotRow
                       key={slot.id}
                       slot={slot}

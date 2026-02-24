@@ -98,11 +98,19 @@ export const STAGE_LIST = Object.values(CALLING_STAGES);
 // ── Calling Priorities ──────────────────────────────────────
 export const CALLING_PRIORITIES = {
   high: { key: 'high', label: 'High', color: 'red', badge: 'bg-red-50 text-red-700' },
-  medium: { key: 'medium', label: 'Medium', color: 'yellow', badge: 'bg-yellow-50 text-yellow-700' },
   low: { key: 'low', label: 'Low', color: 'green', badge: 'bg-green-50 text-green-700' },
 };
 
 export const CALLING_PRIORITY_LIST = Object.values(CALLING_PRIORITIES);
+
+// ── Display Stage Groups (simplified 5-category view) ───────
+export const DISPLAY_STAGE_GROUPS = [
+  { key: 'discussing', label: 'Discussing', stages: ['identified', 'discussed', 'prayed_about'], color: 'blue' },
+  { key: 'extending', label: 'Need to Extend', stages: ['assigned_to_extend', 'extended'], color: 'purple' },
+  { key: 'sustaining', label: 'Sustaining', stages: ['accepted', 'sustained'], color: 'teal' },
+  { key: 'set_apart', label: 'To be Set Apart', stages: ['set_apart'], color: 'green' },
+  { key: 'complete', label: 'Complete', stages: ['serving'], color: 'green' },
+];
 
 // ── Note Tag Sources (for auto-agenda items) ────────────────
 export const NOTE_TAG_SOURCES = {

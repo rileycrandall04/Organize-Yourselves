@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCallingSlots, usePeople } from '../hooks/useDb';
 import { transitionCallingSlot, startRelease } from '../db';
-import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES } from '../utils/constants';
+import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES, DISPLAY_STAGE_GROUPS } from '../utils/constants';
 import { ORGANIZATIONS } from '../data/callings';
 import Modal from './shared/Modal';
 import {
@@ -10,14 +10,17 @@ import {
   ChevronDown, ChevronRight, AlertTriangle, Users, Clock, UserPlus,
   Check, X,
 } from 'lucide-react';
+import { isAiConfigured } from '../utils/ai';
 import CallingSlotForm from './CallingSlotForm';
 import OrgChart from './OrgChart';
 import NeedsDashboard from './NeedsDashboard';
 import CandidateManager from './CandidateManager';
+import CallingChat from './CallingChat';
 
 export default function CallingPipeline({ onBack }) {
   const navigate = useNavigate();
   const { slots, loading, add, update, remove } = useCallingSlots();
+  const { people } = usePeople();
   const [view, setView] = useState('orgchart'); // 'list' | 'kanban' | 'orgchart'
   const [pipelineTab, setPipelineTab] = useState('call'); // 'call' | 'release'
   const [formOpen, setFormOpen] = useState(false);
@@ -33,6 +36,9 @@ export default function CallingPipeline({ onBack }) {
   const [releaseModal, setReleaseModal] = useState(null);
   const [releaseTarget, setReleaseTarget] = useState('');
   const [autoReleasePrompt, setAutoReleasePrompt] = useState(null); // { slot, servedBy }
+  const [showCandidateAutocomplete, setShowCandidateAutocomplete] = useState(false);
+  const [stageFilter, setStageFilter] = useState(null); // null | DISPLAY_STAGE_GROUPS key
+  const [orgFilter, setOrgFilter] = useState(null); // null | org key
 
   // All stages for grouping
   const callStages = CALL_STAGE_ORDER;
@@ -215,15 +221,44 @@ export default function CallingPipeline({ onBack }) {
               ))}
             </div>
           ) : (
-            <div>
+            <div className="relative">
               <label className="block text-xs font-medium text-gray-600 mb-1">Candidate Name</label>
               <input
                 type="text"
                 value={typeof advanceCandidate === 'string' ? advanceCandidate : ''}
-                onChange={e => setAdvanceCandidate(e.target.value)}
-                placeholder="Enter candidate name..."
+                onChange={e => {
+                  setAdvanceCandidate(e.target.value);
+                  setShowCandidateAutocomplete(e.target.value.length >= 2);
+                }}
+                onFocus={() => { if ((typeof advanceCandidate === 'string' ? advanceCandidate : '').length >= 2) setShowCandidateAutocomplete(true); }}
+                onBlur={() => setTimeout(() => setShowCandidateAutocomplete(false), 150)}
+                placeholder="Start typing a name..."
                 className="input-field text-sm"
+                autoComplete="off"
               />
+              {showCandidateAutocomplete && (() => {
+                const q = (typeof advanceCandidate === 'string' ? advanceCandidate : '').toLowerCase();
+                const matches = people.filter(p => p.name.toLowerCase().includes(q));
+                if (matches.length === 0) return null;
+                return (
+                  <div className="absolute z-20 left-0 right-0 mt-1 max-h-32 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
+                    {matches.slice(0, 8).map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          setAdvanceCandidate({ name: p.name, id: p.id });
+                          setShowCandidateAutocomplete(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-primary-50 border-b border-gray-100 last:border-0"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           )}
           {slot.candidateName && !advanceCandidate && (
@@ -481,12 +516,6 @@ export default function CallingPipeline({ onBack }) {
 
   return (
     <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
-      {/* Header */}
-      <button onClick={onBack} className="flex items-center gap-1 text-sm text-primary-600 mb-4">
-        <ArrowLeft size={16} />
-        Back
-      </button>
-
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
           <GitBranch size={24} className="text-primary-700" />
@@ -530,12 +559,53 @@ export default function CallingPipeline({ onBack }) {
       <NeedsDashboard
         onSelectSlot={openEdit}
         onAddCandidate={(slot) => setCandidateSlot(slot)}
+        onOrgFilter={(orgKey) => {
+          setOrgFilter(orgFilter === orgKey ? null : orgKey);
+        }}
+        activeOrgFilter={orgFilter}
       />
 
       {activeCount > 0 && (
-        <p className="text-xs text-gray-400 mb-4">
+        <p className="text-xs text-gray-400 mb-3">
           {activeCount} active calling{activeCount !== 1 ? 's' : ''} in pipeline
         </p>
+      )}
+
+      {/* Stage filter chips (orgchart view only) */}
+      {view === 'orgchart' && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          <button
+            onClick={() => setStageFilter(null)}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+              stageFilter === null
+                ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300'
+                : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+            }`}
+          >
+            All
+          </button>
+          {DISPLAY_STAGE_GROUPS.map(group => {
+            const count = slots.filter(s => group.stages.includes(s.stage)).length;
+            return (
+              <button
+                key={group.key}
+                onClick={() => setStageFilter(stageFilter === group.key ? null : group.key)}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                  stageFilter === group.key
+                    ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300'
+                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                <span>{group.label}</span>
+                {count > 0 && (
+                  <span className={`text-[9px] font-bold px-1 py-0.5 rounded-full min-w-[16px] text-center ${
+                    stageFilter === group.key ? 'bg-primary-200 text-primary-800' : 'bg-gray-200 text-gray-600'
+                  }`}>{count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {/* Pipeline tab toggle (call vs release) — for list and kanban views */}
@@ -583,6 +653,9 @@ export default function CallingPipeline({ onBack }) {
           onBeginRelease={handleBeginRelease}
           onAdvance={openAdvanceModal}
           onNavigateSettings={() => navigate('/settings')}
+          stageFilter={stageFilter}
+          orgFilter={orgFilter}
+          onClearOrgFilter={() => setOrgFilter(null)}
         />
       ) : view === 'kanban' ? (
         <KanbanView
@@ -717,6 +790,9 @@ export default function CallingPipeline({ onBack }) {
           </div>
         )}
       </Modal>
+
+      {/* AI Chat */}
+      {isAiConfigured() && <CallingChat slots={slots} />}
     </div>
   );
 }

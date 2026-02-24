@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Modal from './shared/Modal';
 import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES } from '../utils/constants';
-import { ORGANIZATIONS, REPORTS_TO_ROLES } from '../data/callings';
+import { ORGANIZATIONS, REPORTS_TO_ROLES, getReportsToForOrg } from '../data/callings';
 import { usePeople } from '../hooks/useDb';
 import { Trash2, Users } from 'lucide-react';
 
@@ -13,7 +13,7 @@ const EMPTY = {
   stage: 'identified',
   notes: '',
   parentSlotId: null,
-  priority: 'medium',
+  priority: 'low',
   expectedCount: 1,
   recommendedServiceMonths: '',
   releaseTarget: '',
@@ -38,7 +38,7 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
           releaseTarget: slot.releaseTarget ?? '',
           presidingOfficer: slot.presidingOfficer ?? '',
           expectedCount: slot.expectedCount ?? 1,
-          priority: slot.priority ?? 'medium',
+          priority: slot.priority ?? 'low',
         });
       } else {
         const parentId = parentSlotId || null;
@@ -77,7 +77,7 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
         stage: form.stage,
         notes: form.notes.trim() || undefined,
         parentSlotId: form.parentSlotId || null,
-        priority: form.priority || 'medium',
+        priority: form.priority || 'low',
         expectedCount: parseInt(form.expectedCount) || 1,
         recommendedServiceMonths: form.recommendedServiceMonths ? parseInt(form.recommendedServiceMonths) : null,
         releaseTarget: form.releaseTarget.trim() || undefined,
@@ -105,9 +105,14 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
   // Deduplicate
   const stageOptions = [...new Set(allStages)];
 
+  // Scope Reports To by org when a specific organization is selected
+  const scopedReportsTo = form.organization
+    ? getReportsToForOrg(form.organization)
+    : REPORTS_TO_ROLES;
+
   const parentOptions = allSlots
     .filter(s => !isEdit || s.id !== slot?.id)
-    .filter(s => REPORTS_TO_ROLES.includes(s.roleName))
+    .filter(s => scopedReportsTo.includes(s.roleName))
     .sort((a, b) => (a.tier || 0) - (b.tier || 0));
 
   const candidateCount = slot?.candidates?.length || 0;
@@ -205,41 +210,44 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
           />
         </div>
 
-        {/* Candidate */}
-        <div>
+        {/* Candidate (with inline autocomplete) */}
+        <div className="relative">
           <label className="block text-sm font-medium text-gray-700 mb-1">Candidate</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={form.candidateName}
-              onChange={e => { set('candidateName', e.target.value); set('personId', null); }}
-              placeholder="Name (type or pick from people)"
-              className="input-field flex-1"
-            />
-            {people.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowPeoplePicker(!showPeoplePicker)}
-                className="btn-secondary text-xs px-3"
-              >
-                Pick
-              </button>
-            )}
-          </div>
-          {showPeoplePicker && (
-            <div className="mt-2 max-h-32 overflow-y-auto border border-gray-200 rounded-lg">
-              {people.map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => selectPerson(p)}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-primary-50 border-b border-gray-100 last:border-0"
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-          )}
+          <input
+            type="text"
+            value={form.candidateName}
+            onChange={e => {
+              const val = e.target.value;
+              set('candidateName', val);
+              set('personId', null);
+              setShowPeoplePicker(val.length >= 2);
+            }}
+            onFocus={() => { if (form.candidateName.length >= 2) setShowPeoplePicker(true); }}
+            onBlur={() => setTimeout(() => setShowPeoplePicker(false), 150)}
+            placeholder="Start typing a name..."
+            className="input-field"
+            autoComplete="off"
+          />
+          {showPeoplePicker && (() => {
+            const q = form.candidateName.toLowerCase();
+            const matches = people.filter(p => p.name.toLowerCase().includes(q));
+            if (matches.length === 0) return null;
+            return (
+              <div className="absolute z-20 left-0 right-0 mt-1 max-h-32 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
+                {matches.slice(0, 8).map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => selectPerson(p)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-primary-50 border-b border-gray-100 last:border-0"
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Candidates section (edit mode) */}

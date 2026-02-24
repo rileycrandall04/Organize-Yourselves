@@ -221,7 +221,7 @@ export async function addActionItem(item) {
   return await db.actionItems.add({
     ...item,
     status: item.status || 'not_started',
-    priority: item.priority || 'medium',
+    priority: item.priority || 'low',
     createdAt: new Date().toISOString(),
     targetMeetingIds: item.targetMeetingIds || [],
   });
@@ -406,8 +406,8 @@ async function getCallingPipelineAgendaItems(meetingId) {
   const jurisdiction = JURISDICTION_MAP[meeting.callingId];
   if (!jurisdiction) return [];
 
-  // Get all calling slots in active discussion stages
-  const activeStages = ['discussed', 'prayed_about', 'assigned_to_extend'];
+  // Get all calling slots in active stages (discussion through set apart)
+  const activeStages = ['discussed', 'prayed_about', 'assigned_to_extend', 'extended', 'accepted', 'sustained', 'set_apart'];
   const allSlots = await db.callingSlots.toArray();
   const activeSlots = allSlots.filter(slot => {
     if (!activeStages.includes(slot.stage)) return false;
@@ -418,8 +418,8 @@ async function getCallingPipelineAgendaItems(meetingId) {
 
   if (activeSlots.length === 0) return [];
 
-  // Sort by stage urgency: assigned_to_extend first, then prayed_about, then discussed
-  const stageOrder = { assigned_to_extend: 0, prayed_about: 1, discussed: 2 };
+  // Sort by stage urgency: action-needed stages first
+  const stageOrder = { assigned_to_extend: 0, extended: 1, prayed_about: 2, discussed: 3, accepted: 4, sustained: 5, set_apart: 6 };
   activeSlots.sort((a, b) => (stageOrder[a.stage] ?? 99) - (stageOrder[b.stage] ?? 99));
 
   return activeSlots.map(slot => ({
@@ -470,7 +470,7 @@ export async function getCallingSlots(filters = {}) {
 
 export async function addCallingSlot(slot) {
   return await db.callingSlots.add({
-    priority: 'medium',
+    priority: 'low',
     isOpen: true,
     expectedCount: 1,
     currentCount: 0,
@@ -559,18 +559,18 @@ function getAutoActionsForTransition(newStage, slot) {
     case 'extended':
       return [{ title: `Follow up on ${role} extension to ${name}`, priority: 'high', context: 'phone' }];
     case 'accepted':
-      return [{ title: `Add ${name} for ${role} to sustainings`, priority: 'medium', context: 'at_church' }];
+      return [{ title: `Add ${name} for ${role} to sustainings`, priority: 'high', context: 'at_church' }];
     case 'declined':
-      return [{ title: `Reconsider candidates for ${role} (${name} declined)`, priority: 'medium' }];
+      return [{ title: `Reconsider candidates for ${role} (${name} declined)`, priority: 'high' }];
     case 'sustained':
       return [{ title: `Schedule setting apart for ${name} as ${role}`, priority: 'high', context: 'phone' }];
     case 'set_apart':
       return [
         { title: `Set apart ${name} as ${role}`, priority: 'high', context: 'at_church' },
-        { title: `Ensure ${name} has resources for ${role}`, priority: 'medium' },
+        { title: `Ensure ${name} has resources for ${role}`, priority: 'low' },
       ];
     case 'serving':
-      return [{ title: `Ensure ${name} has training and resources for ${role}`, priority: 'medium' }];
+      return [{ title: `Ensure ${name} has training and resources for ${role}`, priority: 'low' }];
     case 'release_planned':
       return [{ title: `Schedule meeting with ${name} about release from ${role}`, priority: 'high', context: 'phone' }];
     case 'release_meeting':

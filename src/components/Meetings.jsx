@@ -135,23 +135,23 @@ function MeetingCard({ meeting, onPress, isCustom }) {
   return (
     <div
       onClick={onPress}
-      className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors"
+      className="card !py-2.5 !px-3 flex items-center gap-2 cursor-pointer hover:border-primary-200 transition-colors"
     >
-      <div className="p-2 rounded-lg bg-primary-50">
-        <Calendar size={18} className="text-primary-600" />
+      <div className="p-1 rounded-lg bg-primary-50">
+        <Calendar size={14} className="text-primary-600" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <p className="text-sm font-medium text-gray-900 truncate">{meeting.name}</p>
+          <p className="text-xs font-medium text-gray-900 truncate">{meeting.name}</p>
           {isCustom && (
-            <span className="text-[10px] font-medium text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full flex-shrink-0">
+            <span className="text-[9px] font-medium text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full flex-shrink-0">
               Custom
             </span>
           )}
         </div>
-        <p className="text-xs text-gray-500">{cadenceLabel}</p>
+        <p className="text-[11px] text-gray-500">{cadenceLabel}</p>
       </div>
-      <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />
+      <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
     </div>
   );
 }
