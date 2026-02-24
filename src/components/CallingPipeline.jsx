@@ -17,7 +17,7 @@ import CandidateManager from './CandidateManager';
 export default function CallingPipeline({ onBack }) {
   const navigate = useNavigate();
   const { slots, loading, add, update, remove } = useCallingSlots();
-  const [view, setView] = useState('list'); // 'list' | 'kanban' | 'orgchart'
+  const [view, setView] = useState('orgchart'); // 'list' | 'kanban' | 'orgchart'
   const [pipelineTab, setPipelineTab] = useState('call'); // 'call' | 'release'
   const [formOpen, setFormOpen] = useState(false);
   const [editSlot, setEditSlot] = useState(null);
