@@ -67,7 +67,7 @@ export default function OrgChart({ onEditSlot, onAddChild, onAddCandidate, onBeg
 // ── Org Folder ──────────────────────────────────────────────
 
 function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddChild, onAddCandidate, onBeginRelease, onAdvance }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [otherExpanded, setOtherExpanded] = useState(false);
 
   // Hidden org — compact single row
