@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Modal from './shared/Modal';
 import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES } from '../utils/constants';
-import { ORGANIZATIONS } from '../data/callings';
+import { ORGANIZATIONS, REPORTS_TO_ROLES } from '../data/callings';
 import { usePeople } from '../hooks/useDb';
 import { Trash2, Users } from 'lucide-react';
 
@@ -20,7 +20,7 @@ const EMPTY = {
   presidingOfficer: '',
 };
 
-export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete, parentSlotId, allSlots = [], onOpenCandidates }) {
+export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete, parentSlotId, prefilledOrganization, allSlots = [], onOpenCandidates }) {
   const isEdit = !!slot;
   const { people } = usePeople();
   const [form, setForm] = useState(EMPTY);
@@ -46,13 +46,13 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
         setForm({
           ...EMPTY,
           parentSlotId: parentId,
-          organization: parent?.organization || '',
+          organization: prefilledOrganization || parent?.organization || '',
           isCustomPosition: true,
         });
       }
       setConfirmDelete(false);
     }
-  }, [open, slot, parentSlotId]);
+  }, [open, slot, parentSlotId, prefilledOrganization]);
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -107,6 +107,7 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
 
   const parentOptions = allSlots
     .filter(s => !isEdit || s.id !== slot?.id)
+    .filter(s => REPORTS_TO_ROLES.includes(s.roleName))
     .sort((a, b) => (a.tier || 0) - (b.tier || 0));
 
   const candidateCount = slot?.candidates?.length || 0;
@@ -180,11 +181,14 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
               className="input-field"
             >
               <option value="">No parent (top-level)</option>
-              {parentOptions.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.roleName}{s.candidateName ? ` — ${s.candidateName}` : ''}
-                </option>
-              ))}
+              {parentOptions.map(s => {
+                const orgLabel = ORGANIZATIONS.find(o => o.key === s.organization)?.label;
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.roleName}{s.candidateName ? ` — ${s.candidateName}` : ''}{orgLabel ? ` (${orgLabel})` : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
         )}

@@ -30,6 +30,29 @@ export const ORGANIZATIONS = [
   { key: 'other', label: 'Other' },
 ];
 
+// Maps org keys → presidency role names in authority order
+// Only these 6 orgs get a distinct "Presidency" section in the org chart
+export const PRESIDENCY_ROLES = {
+  elders_quorum: ['EQ President', 'EQ 1st Counselor', 'EQ 2nd Counselor', 'EQ Secretary'],
+  relief_society: ['RS President', 'RS 1st Counselor', 'RS 2nd Counselor', 'RS Secretary'],
+  young_women: ['YW President', 'YW 1st Counselor', 'YW 2nd Counselor', 'YW Secretary'],
+  young_men: ['YM President', 'YM 1st Counselor', 'YM 2nd Counselor', 'YM Secretary'],
+  primary: ['Primary President', 'Primary 1st Counselor', 'Primary 2nd Counselor', 'Primary Secretary'],
+  sunday_school: ['SS President', 'SS 1st Counselor', 'SS Secretary'],
+};
+
+// Valid "Reports To" options in CallingSlotForm
+export const REPORTS_TO_ROLES = [
+  'Bishop', '1st Counselor', '2nd Counselor', 'Executive Secretary', 'Ward Clerk',
+  'EQ President', 'EQ 1st Counselor', 'EQ 2nd Counselor', 'EQ Secretary',
+  'RS President', 'RS 1st Counselor', 'RS 2nd Counselor', 'RS Secretary',
+  'YW President', 'YW 1st Counselor', 'YW 2nd Counselor', 'YW Secretary',
+  'YM President', 'YM 1st Counselor', 'YM 2nd Counselor', 'YM Secretary',
+  'Primary President', 'Primary 1st Counselor', 'Primary 2nd Counselor', 'Primary Secretary',
+  'SS President', 'SS 1st Counselor', 'SS Secretary',
+  'Ward Mission Leader', 'Temple & FH Leader', 'Music Coordinator',
+];
+
 export const CALLING_STATUS_FLOW = [
   // Call track
   { key: 'identified', label: 'Identified', color: 'gray' },
@@ -518,7 +541,7 @@ export const ORG_HIERARCHY = [
         { roleName: 'Primary 1st Counselor', organization: 'primary', tier: 5 },
         { roleName: 'Primary 2nd Counselor', organization: 'primary', tier: 5 },
         { roleName: 'Primary Secretary', organization: 'primary', tier: 5 },
-        { roleName: 'Primary Music Leader', organization: 'primary', tier: 5 },
+        { roleName: 'Primary Music Leader', organization: 'primary', tier: 6 },
         { roleName: 'Nursery Leader', organization: 'primary', tier: 6, expectedCount: 2 },
         { roleName: 'Sunbeam Teacher', organization: 'primary', tier: 6, expectedCount: 2 },
         { roleName: 'CTR Teacher', organization: 'primary', tier: 6, expectedCount: 4 },
