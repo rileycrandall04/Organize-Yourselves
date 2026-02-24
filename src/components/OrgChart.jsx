@@ -1,16 +1,15 @@
 import { useState, useMemo } from 'react';
-import { useOrgTree, useCallingSlots } from '../hooks/useDb';
+import { useOrgTree } from '../hooks/useDb';
 import { useVisibility } from '../hooks/useVisibility';
 import { CALLING_STAGES } from '../utils/constants';
-import { ORGANIZATIONS } from '../data/callings';
 import { groupSlotsByOrganization } from '../utils/orgGrouping';
 import {
   ChevronDown, ChevronRight, Plus, Users, GitBranch,
-  UserPlus, ArrowRight, Play, Eye, Clock,
+  UserPlus, Play, Eye, Clock,
   AlertTriangle,
 } from 'lucide-react';
 
-export default function OrgChart({ onEditSlot, onAddChild, onAddCandidate, onBeginRelease, onAdvance, onNavigateSettings }) {
+export default function OrgChart({ onEditSlot, onAddSlot, onAddCandidate, onBeginRelease, onAdvance, onNavigateSettings }) {
   const { tree, loading } = useOrgTree();
   const { filterTree, hiddenOrgs, toggleHideOrg } = useVisibility();
 
@@ -54,7 +53,7 @@ export default function OrgChart({ onEditSlot, onAddChild, onAddCandidate, onBeg
           hidden={hiddenOrgs?.includes(group.orgKey)}
           onToggleHide={() => toggleHideOrg?.(group.orgKey)}
           onEditSlot={onEditSlot}
-          onAddChild={onAddChild}
+          onAddSlot={onAddSlot}
           onAddCandidate={onAddCandidate}
           onBeginRelease={onBeginRelease}
           onAdvance={onAdvance}
@@ -66,7 +65,7 @@ export default function OrgChart({ onEditSlot, onAddChild, onAddCandidate, onBeg
 
 // ── Org Folder ──────────────────────────────────────────────
 
-function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddChild, onAddCandidate, onBeginRelease, onAdvance }) {
+function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCandidate, onBeginRelease, onAdvance }) {
   const [expanded, setExpanded] = useState(false);
   const [otherExpanded, setOtherExpanded] = useState(false);
 
@@ -109,6 +108,14 @@ function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddChild, onAddC
             {group.vacantCount} vacant
           </span>
         )}
+        {/* Inline add button on org header */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onAddSlot?.(null, group.orgKey); }}
+          className="p-0.5 rounded text-gray-300 hover:text-primary-500 opacity-0 group-hover:opacity-100 transition-opacity"
+          title={`Add position to ${group.orgLabel}`}
+        >
+          <Plus size={12} />
+        </button>
         {/* Hide org button */}
         <button
           onClick={(e) => { e.stopPropagation(); onToggleHide(); }}
@@ -122,32 +129,40 @@ function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddChild, onAddC
       {/* Expanded content */}
       {expanded && (
         <div className="ml-2">
-          {/* Presidency slots (always visible when org is expanded) */}
+          {/* Presidency/direct slots (always visible when org is expanded) */}
           {group.presidencySlots.map(slot => (
             <SlotRow
               key={slot.id}
               slot={slot}
               onEdit={onEditSlot}
-              onAddChild={onAddChild}
+              onAddSlot={onAddSlot}
               onAddCandidate={onAddCandidate}
               onBeginRelease={onBeginRelease}
               onAdvance={onAdvance}
             />
           ))}
 
-          {/* Other Callings sub-section */}
-          {group.otherSlots.length > 0 && (
+          {/* Other Callings sub-section (only shown for orgs with a presidency) */}
+          {group.hasPresidency && group.otherSlots.length > 0 && (
             <div>
               <div
-                className="flex items-center gap-1.5 py-0.5 px-1 rounded cursor-pointer hover:bg-gray-50 transition-colors"
+                className="flex items-center gap-1.5 py-0.5 px-1 rounded cursor-pointer hover:bg-gray-50 transition-colors group/other"
                 onClick={() => setOtherExpanded(!otherExpanded)}
               >
                 <button className="p-0.5 text-gray-300">
                   {otherExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 </button>
-                <span className="text-[10px] font-medium text-gray-400">
+                <span className="text-[10px] font-medium text-gray-400 flex-1">
                   Other Callings ({group.otherSlots.length})
                 </span>
+                {/* Inline add button on Other Callings header */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onAddSlot?.(null, group.orgKey); }}
+                  className="p-0.5 rounded text-gray-300 hover:text-primary-500 opacity-0 group-hover/other:opacity-100 transition-opacity"
+                  title="Add calling"
+                >
+                  <Plus size={10} />
+                </button>
               </div>
               {otherExpanded && (
                 <div className="ml-3">
@@ -157,7 +172,7 @@ function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddChild, onAddC
                       slot={slot}
                       indented
                       onEdit={onEditSlot}
-                      onAddChild={onAddChild}
+                      onAddSlot={onAddSlot}
                       onAddCandidate={onAddCandidate}
                       onBeginRelease={onBeginRelease}
                       onAdvance={onAdvance}
@@ -180,7 +195,7 @@ function getDotColor(slot) {
   if (stage === 'serving') return 'bg-green-500';
   if (stage === 'declined') return 'bg-red-400';
   if (['release_planned', 'release_meeting'].includes(stage)) return 'bg-amber-400';
-  if (['prayed_about', 'discussed', 'extended', 'accepted', 'sustained', 'set_apart'].includes(stage)) return 'bg-blue-400';
+  if (['discussed', 'prayed_about', 'assigned_to_extend', 'extended', 'accepted', 'sustained', 'set_apart'].includes(stage)) return 'bg-blue-400';
   if (!slot.candidateName && stage === 'identified') return 'bg-red-400';
   return 'bg-gray-300';
 }
@@ -194,7 +209,7 @@ function getServiceInfo(slot) {
   return { dateStr, months };
 }
 
-function SlotRow({ slot, indented, onEdit, onAddChild, onAddCandidate, onBeginRelease, onAdvance }) {
+function SlotRow({ slot, indented, onEdit, onAddSlot, onAddCandidate, onBeginRelease, onAdvance }) {
   const isVacant = !slot.candidateName && slot.stage === 'identified';
   const dotColor = getDotColor(slot);
   const stageConfig = CALLING_STAGES[slot.stage] || CALLING_STAGES.identified;
@@ -243,6 +258,7 @@ function SlotRow({ slot, indented, onEdit, onAddChild, onAddCandidate, onBeginRe
             slot.stage === 'declined' ? 'bg-red-50 text-red-600' :
             slot.stage === 'released' ? 'bg-gray-100 text-gray-500' :
             ['release_planned', 'release_meeting'].includes(slot.stage) ? 'bg-amber-50 text-amber-600' :
+            slot.stage === 'assigned_to_extend' ? 'bg-purple-50 text-purple-700' :
             'bg-gray-100 text-gray-600'}`}
         >
           {stageConfig.label}
@@ -281,7 +297,7 @@ function SlotRow({ slot, indented, onEdit, onAddChild, onAddCandidate, onBeginRe
           </button>
         )}
 
-        {['prayed_about', 'discussed', 'extended', 'accepted', 'sustained', 'set_apart'].includes(slot.stage) && (
+        {['discussed', 'prayed_about', 'assigned_to_extend', 'extended', 'accepted', 'sustained', 'set_apart'].includes(slot.stage) && (
           <button
             onClick={(e) => { e.stopPropagation(); onAdvance?.(slot); }}
             className="p-0.5 rounded text-gray-300 hover:text-green-500 transition-colors"
@@ -292,7 +308,7 @@ function SlotRow({ slot, indented, onEdit, onAddChild, onAddCandidate, onBeginRe
         )}
 
         <button
-          onClick={(e) => { e.stopPropagation(); onAddChild?.(slot); }}
+          onClick={(e) => { e.stopPropagation(); onAddSlot?.(slot.id, slot.organization); }}
           className="p-0.5 rounded text-gray-300 hover:text-primary-500 transition-colors"
           title="Add position under this role"
         >

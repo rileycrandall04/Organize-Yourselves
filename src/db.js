@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
 import { getCallingConfig, getPresidentForOrg, ORG_HIERARCHY, ORG_TEMPLATES, JURISDICTION_MAP } from './data/callings';
+import { CALLING_STAGES, CALL_STAGE_ORDER } from './utils/constants';
 
 const db = new Dexie('CallingOrganizer');
 
@@ -377,7 +378,80 @@ export async function buildAutoAgenda(meetingId) {
     }
   }
 
+  // 4. Get active calling pipeline items for meetings with jurisdiction
+  const callingItems = await getCallingPipelineAgendaItems(meetingId);
+  if (callingItems.length > 0) {
+    const closingIdx2 = agendaItems.findIndex(
+      a => a.label.toLowerCase().includes('closing prayer')
+    );
+    const insertAt = closingIdx2 >= 0 ? closingIdx2 : agendaItems.length;
+
+    for (let i = callingItems.length - 1; i >= 0; i--) {
+      agendaItems.splice(insertAt, 0, callingItems[i]);
+    }
+  }
+
   return agendaItems;
+}
+
+/**
+ * Get active calling pipeline items as agenda entries.
+ * Queries calling slots in discussion stages (discussed, prayed_about, assigned_to_extend)
+ * filtered by the meeting's calling jurisdiction.
+ */
+async function getCallingPipelineAgendaItems(meetingId) {
+  const meeting = await db.meetings.get(meetingId);
+  if (!meeting || !meeting.callingId) return [];
+
+  const jurisdiction = JURISDICTION_MAP[meeting.callingId];
+  if (!jurisdiction) return [];
+
+  // Get all calling slots in active discussion stages
+  const activeStages = ['discussed', 'prayed_about', 'assigned_to_extend'];
+  const allSlots = await db.callingSlots.toArray();
+  const activeSlots = allSlots.filter(slot => {
+    if (!activeStages.includes(slot.stage)) return false;
+    // Filter by jurisdiction
+    if (jurisdiction.orgs[0] === '*') return true; // full access
+    return jurisdiction.orgs.includes(slot.organization);
+  });
+
+  if (activeSlots.length === 0) return [];
+
+  // Sort by stage urgency: assigned_to_extend first, then prayed_about, then discussed
+  const stageOrder = { assigned_to_extend: 0, prayed_about: 1, discussed: 2 };
+  activeSlots.sort((a, b) => (stageOrder[a.stage] ?? 99) - (stageOrder[b.stage] ?? 99));
+
+  return activeSlots.map(slot => ({
+    label: `[Calling] ${slot.roleName} — ${CALLING_STAGES[slot.stage]?.label || slot.stage}${slot.candidateName ? ` (${slot.candidateName})` : ''}`,
+    notes: '',
+    source: 'calling_pipeline',
+    callingSlotId: slot.id,
+  }));
+}
+
+// Export for use in MeetingNotes
+export async function syncCallingNotesFromMeeting(agendaItems, instanceDate, meetingName) {
+  for (const item of agendaItems) {
+    if (item.source === 'calling_pipeline' && item.callingSlotId && item.notes?.trim()) {
+      const slot = await db.callingSlots.get(item.callingSlotId);
+      if (!slot) continue;
+
+      // Append meeting notes to the slot's meetingNotes array
+      const meetingNotes = [...(slot.meetingNotes || [])];
+      meetingNotes.push({
+        date: instanceDate,
+        meetingName: meetingName,
+        note: item.notes.trim(),
+      });
+
+      await db.callingSlots.update(item.callingSlotId, {
+        meetingNotes,
+        notes: item.notes.trim(), // Also update the main notes field
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
 }
 
 // ── Calling Slots / Pipeline (Phase 2) ───────────────────────
@@ -423,7 +497,7 @@ export async function deleteCallingSlot(id) {
   return await db.callingSlots.delete(id);
 }
 
-export async function transitionCallingSlot(id, newStage, note = '') {
+export async function transitionCallingSlot(id, newStage, note = '', extraUpdates = {}) {
   const slot = await db.callingSlots.get(id);
   if (!slot) return;
 
@@ -439,13 +513,14 @@ export async function transitionCallingSlot(id, newStage, note = '') {
     stage: newStage,
     history,
     updatedAt: new Date().toISOString(),
+    ...extraUpdates,
   };
 
   // Stage-specific side effects
   if (newStage === 'serving') {
-    updates.servedBy = slot.candidateName || '';
+    updates.servedBy = updates.servedBy || slot.candidateName || '';
     updates.servedByPersonId = slot.personId || null;
-    updates.servingSince = new Date().toISOString();
+    updates.servingSince = updates.servingSince || new Date().toISOString();
     updates.isOpen = false;
     updates.currentCount = (slot.currentCount || 0) + 1;
   } else if (newStage === 'released') {
@@ -461,28 +536,28 @@ export async function transitionCallingSlot(id, newStage, note = '') {
   await db.callingSlots.update(id, updates);
 
   // Auto-generate action items for this transition
-  const autoActions = getAutoActionsForTransition(newStage, slot);
+  const autoActions = getAutoActionsForTransition(newStage, { ...slot, ...updates });
   for (const action of autoActions) {
     await addActionItem(action);
   }
 
-  return autoActions.length;
+  return { autoActionCount: autoActions.length, hasCurrentHolder: !!slot.servedBy };
 }
 
 function getAutoActionsForTransition(newStage, slot) {
   const name = slot.candidateName || 'the candidate';
   const role = slot.roleName || 'the calling';
+  const assignedTo = slot.assignedTo || 'a presidency member';
 
   switch (newStage) {
+    case 'discussed':
+      return [{ title: `Discuss names for ${role} in presidency meeting`, priority: 'high', context: 'at_church' }];
     case 'prayed_about':
       return [{ title: `Pray about ${name} for ${role}`, priority: 'high' }];
-    case 'discussed':
-      return [{ title: `Discuss ${name} for ${role} in Bishopric Meeting`, priority: 'high', context: 'at_church' }];
+    case 'assigned_to_extend':
+      return [{ title: `${assignedTo}: extend ${role} to ${name}`, priority: 'high', context: 'visit' }];
     case 'extended':
-      return [
-        { title: `Schedule interview to extend ${role} to ${name}`, priority: 'high', context: 'phone' },
-        { title: `Extend ${role} calling to ${name}`, priority: 'high', context: 'visit' },
-      ];
+      return [{ title: `Follow up on ${role} extension to ${name}`, priority: 'high', context: 'phone' }];
     case 'accepted':
       return [{ title: `Add ${name} for ${role} to sustainings`, priority: 'medium', context: 'at_church' }];
     case 'declined':

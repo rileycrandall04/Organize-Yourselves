@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
-import { addActionItem, addMeetingNoteTag } from '../db';
+import { addActionItem, addMeetingNoteTag, syncCallingNotesFromMeeting } from '../db';
 import { formatFull } from '../utils/dates';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import Modal from './shared/Modal';
@@ -105,6 +105,8 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
     setSaving(true);
     try {
       await update(instance.id, { notes, agendaItems, actionItemIds, status: 'completed' });
+      // Sync calling pipeline notes back to calling slots
+      await syncCallingNotesFromMeeting(agendaItems, instance.date, meetingName);
       setDirty(false);
       onBack();
     } finally {
@@ -211,7 +213,9 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
                 ? 'border-l-2 border-l-amber-300'
                 : item.source === 'tagged_note'
                   ? 'border-l-2 border-l-indigo-300'
-                  : '';
+                  : item.source === 'calling_pipeline'
+                    ? 'border-l-2 border-l-purple-300'
+                    : '';
 
               return (
                 <div key={i} className={`card ${sourceClass}`}>
@@ -223,6 +227,9 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
                     )}
                     {item.source === 'tagged_note' && (
                       <span className="badge bg-indigo-100 text-indigo-700 text-[10px] flex-shrink-0">Tagged Note</span>
+                    )}
+                    {item.source === 'calling_pipeline' && (
+                      <span className="badge bg-purple-100 text-purple-700 text-[10px] flex-shrink-0">Calling</span>
                     )}
                   </div>
                   <textarea

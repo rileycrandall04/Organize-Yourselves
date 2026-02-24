@@ -62,10 +62,11 @@ export const ACTION_VIEWS = [
 
 // ── Calling Pipeline Stages ─────────────────────────────────
 export const CALLING_STAGES = {
-  // Call track
+  // Call track (in real-world process order)
   identified: { key: 'identified', label: 'Identified', color: 'gray' },
-  prayed_about: { key: 'prayed_about', label: 'Prayed About', color: 'blue' },
   discussed: { key: 'discussed', label: 'Discussed', color: 'indigo' },
+  prayed_about: { key: 'prayed_about', label: 'Prayed About', color: 'blue' },
+  assigned_to_extend: { key: 'assigned_to_extend', label: 'Assigned to Extend', color: 'purple' },
   extended: { key: 'extended', label: 'Extended', color: 'yellow' },
   accepted: { key: 'accepted', label: 'Accepted', color: 'emerald' },
   declined: { key: 'declined', label: 'Declined', color: 'red' },
@@ -78,10 +79,10 @@ export const CALLING_STAGES = {
   released: { key: 'released', label: 'Released', color: 'gray' },
 };
 
-// Call track stages (identified → serving)
+// Call track stages (identified → serving) — real-world process order
 export const CALL_STAGE_ORDER = [
-  'identified', 'prayed_about', 'discussed', 'extended',
-  'accepted', 'sustained', 'set_apart', 'serving',
+  'identified', 'discussed', 'prayed_about', 'assigned_to_extend',
+  'extended', 'accepted', 'sustained', 'set_apart', 'serving',
 ];
 
 // Release track stages (serving → released)
@@ -108,6 +109,7 @@ export const NOTE_TAG_SOURCES = {
   template: { key: 'template', label: 'Template' },
   carry_forward: { key: 'carry_forward', label: 'Carry Forward' },
   tagged_note: { key: 'tagged_note', label: 'Tagged Note' },
+  calling_pipeline: { key: 'calling_pipeline', label: 'Calling' },
 };
 
 // ── Bottom Nav Tabs ─────────────────────────────────────────

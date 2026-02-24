@@ -49,8 +49,26 @@ export default function NeedsDashboard({ onSelectSlot, onAddCandidate }) {
 
           {expanded && (
             <div className="border-t border-gray-100 px-3 py-2.5">
-              {/* Horizontal org chips */}
+              {/* Horizontal org chips + Show All */}
               <div className="flex flex-wrap gap-1.5">
+                {/* Show All chip */}
+                <button
+                  onClick={() => setSelectedOrg(selectedOrg === '__all__' ? null : '__all__')}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+                    selectedOrg === '__all__'
+                      ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-300'
+                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <span>Show All</span>
+                  <span className={`text-[9px] font-bold px-1 py-0.5 rounded-full min-w-[18px] text-center ${
+                    selectedOrg === '__all__'
+                      ? 'bg-primary-200 text-primary-800'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {positions.length}
+                  </span>
+                </button>
                 {byOrg.map(({ orgKey, label, positions: orgPositions }) => (
                   <button
                     key={orgKey}
@@ -74,36 +92,29 @@ export default function NeedsDashboard({ onSelectSlot, onAddCandidate }) {
               </div>
 
               {/* Selected org detail list */}
-              {selectedOrg && (
+              {selectedOrg && selectedOrg !== '__all__' && (
                 <div className="mt-2 border-t border-gray-100 pt-2 space-y-0.5">
                   {byOrg
                     .find(o => o.orgKey === selectedOrg)
                     ?.positions.map(pos => (
-                      <div
-                        key={pos.id}
-                        onClick={() => onSelectSlot?.(pos)}
-                        className="flex items-center gap-1.5 py-1 px-1.5 rounded cursor-pointer hover:bg-gray-50 transition-colors group"
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                          (pos.priority === 'high') ? 'bg-red-400' :
-                          (pos.priority === 'low') ? 'bg-green-400' :
-                          'bg-amber-400'
-                        }`} />
-                        <span className="text-xs text-gray-800 truncate flex-1">{pos.roleName}</span>
-                        {pos.candidates?.length > 0 && (
-                          <span className="text-[9px] font-medium text-blue-600 bg-blue-50 px-1 py-0.5 rounded-full flex-shrink-0">
-                            {pos.candidates.length}
-                          </span>
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onAddCandidate?.(pos); }}
-                          className="p-0.5 rounded text-gray-300 hover:text-primary-500 opacity-0 group-hover:opacity-100 transition-all"
-                          title="Add candidate"
-                        >
-                          <UserPlus size={10} />
-                        </button>
-                      </div>
+                      <PositionRow key={pos.id} pos={pos} onSelectSlot={onSelectSlot} onAddCandidate={onAddCandidate} />
                     ))}
+                </div>
+              )}
+
+              {/* Show All — grouped by org with sub-headers */}
+              {selectedOrg === '__all__' && (
+                <div className="mt-2 border-t border-gray-100 pt-2 space-y-2">
+                  {byOrg.map(({ orgKey, label, positions: orgPositions }) => (
+                    <div key={orgKey}>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-1.5 mb-0.5">{label}</p>
+                      <div className="space-y-0.5">
+                        {orgPositions.map(pos => (
+                          <PositionRow key={pos.id} pos={pos} onSelectSlot={onSelectSlot} onAddCandidate={onAddCandidate} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -153,6 +164,34 @@ export default function NeedsDashboard({ onSelectSlot, onAddCandidate }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function PositionRow({ pos, onSelectSlot, onAddCandidate }) {
+  return (
+    <div
+      onClick={() => onSelectSlot?.(pos)}
+      className="flex items-center gap-1.5 py-1 px-1.5 rounded cursor-pointer hover:bg-gray-50 transition-colors group"
+    >
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+        (pos.priority === 'high') ? 'bg-red-400' :
+        (pos.priority === 'low') ? 'bg-green-400' :
+        'bg-amber-400'
+      }`} />
+      <span className="text-xs text-gray-800 truncate flex-1">{pos.roleName}</span>
+      {pos.candidates?.length > 0 && (
+        <span className="text-[9px] font-medium text-blue-600 bg-blue-50 px-1 py-0.5 rounded-full flex-shrink-0">
+          {pos.candidates.length}
+        </span>
+      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); onAddCandidate?.(pos); }}
+        className="p-0.5 rounded text-gray-300 hover:text-primary-500 opacity-0 group-hover:opacity-100 transition-all"
+        title="Add candidate"
+      >
+        <UserPlus size={10} />
+      </button>
     </div>
   );
 }

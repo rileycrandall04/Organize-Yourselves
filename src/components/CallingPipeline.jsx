@@ -8,6 +8,7 @@ import Modal from './shared/Modal';
 import {
   ArrowLeft, GitBranch, Plus, ArrowRight, RotateCcw, List, LayoutGrid,
   ChevronDown, ChevronRight, AlertTriangle, Users, Clock, UserPlus,
+  Check, X,
 } from 'lucide-react';
 import CallingSlotForm from './CallingSlotForm';
 import OrgChart from './OrgChart';
@@ -22,12 +23,16 @@ export default function CallingPipeline({ onBack }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editSlot, setEditSlot] = useState(null);
   const [parentSlotId, setParentSlotId] = useState(null);
+  const [addOrg, setAddOrg] = useState(null); // pre-filled organization for new slot
   const [advanceModal, setAdvanceModal] = useState(null);
   const [advanceNote, setAdvanceNote] = useState('');
+  const [advanceAssignedTo, setAdvanceAssignedTo] = useState('');
+  const [advanceCandidate, setAdvanceCandidate] = useState(null);
   const [advancing, setAdvancing] = useState(false);
   const [candidateSlot, setCandidateSlot] = useState(null);
   const [releaseModal, setReleaseModal] = useState(null);
   const [releaseTarget, setReleaseTarget] = useState('');
+  const [autoReleasePrompt, setAutoReleasePrompt] = useState(null); // { slot, servedBy }
 
   // All stages for grouping
   const callStages = CALL_STAGE_ORDER;
@@ -54,15 +59,17 @@ export default function CallingPipeline({ onBack }) {
 
   const activeCount = slots.filter(s => !['serving', 'released'].includes(s.stage)).length;
 
-  function openAdd(parentId) {
+  function openAdd(parentId, organization) {
     setEditSlot(null);
     setParentSlotId(parentId || null);
+    setAddOrg(organization || null);
     setFormOpen(true);
   }
 
   function openEdit(slot) {
     setEditSlot(slot);
     setParentSlotId(null);
+    setAddOrg(null);
     setFormOpen(true);
   }
 
@@ -79,16 +86,42 @@ export default function CallingPipeline({ onBack }) {
   function openAdvanceModal(slot) {
     setAdvanceModal(slot);
     setAdvanceNote('');
+    setAdvanceAssignedTo('');
+    setAdvanceCandidate(null);
   }
 
-  async function handleAdvance() {
+  async function handleAdvance(overrideStage) {
     if (!advanceModal || advancing) return;
     setAdvancing(true);
     try {
-      const nextStage = getNextStage(advanceModal.stage);
-      if (nextStage) {
-        await transitionCallingSlot(advanceModal.id, nextStage, advanceNote.trim());
+      const nextStage = overrideStage || getNextStage(advanceModal.stage);
+      if (!nextStage) return;
+
+      const extraUpdates = {};
+
+      // Stage-specific data
+      if (nextStage === 'assigned_to_extend' && advanceAssignedTo.trim()) {
+        extraUpdates.assignedTo = advanceAssignedTo.trim();
       }
+      if (nextStage === 'prayed_about' && advanceCandidate) {
+        extraUpdates.candidateName = advanceCandidate.name || advanceCandidate;
+        if (advanceCandidate.id) extraUpdates.personId = advanceCandidate.id;
+      }
+      if (nextStage === 'serving') {
+        extraUpdates.servedBy = advanceModal.candidateName;
+        extraUpdates.servingSince = new Date().toISOString();
+      }
+
+      await transitionCallingSlot(advanceModal.id, nextStage, advanceNote.trim(), extraUpdates);
+
+      // Check for auto-release prompt when accepting
+      if (nextStage === 'accepted' && advanceModal.servedBy) {
+        setAutoReleasePrompt({
+          slot: advanceModal,
+          servedBy: advanceModal.servedBy,
+        });
+      }
+
       setAdvanceModal(null);
     } finally {
       setAdvancing(false);
@@ -96,11 +129,13 @@ export default function CallingPipeline({ onBack }) {
   }
 
   async function handleDecline(slot) {
-    await transitionCallingSlot(slot.id, 'declined', '');
+    // Decline returns to 'discussed' stage (not 'identified')
+    await transitionCallingSlot(slot.id || advanceModal?.id, 'declined', '');
+    setAdvanceModal(null);
   }
 
-  async function handleReturnToIdentified(slot) {
-    await transitionCallingSlot(slot.id, 'identified', 'Returned after decline');
+  async function handleReturnToDiscussed(slot) {
+    await transitionCallingSlot(slot.id, 'discussed', 'Returned after decline');
   }
 
   async function handleBeginRelease(slot) {
@@ -114,9 +149,334 @@ export default function CallingPipeline({ onBack }) {
     setReleaseModal(null);
   }
 
+  async function confirmAutoRelease() {
+    if (!autoReleasePrompt) return;
+    await startRelease(autoReleasePrompt.slot.id, '');
+    setAutoReleasePrompt(null);
+  }
+
   function getOrgLabel(orgKey) {
     const org = ORGANIZATIONS.find(o => o.key === orgKey);
     return org?.label || orgKey || '';
+  }
+
+  // Contextual advance modal content
+  function renderAdvanceContent() {
+    if (!advanceModal) return null;
+    const slot = advanceModal;
+    const currentStage = slot.stage;
+    const nextStage = getNextStage(currentStage);
+
+    // ── identified → discussed
+    if (currentStage === 'identified') {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            Begin discussing names for <span className="font-medium">{slot.roleName}</span>?
+          </p>
+          <textarea
+            value={advanceNote}
+            onChange={e => setAdvanceNote(e.target.value)}
+            placeholder="Optional note..."
+            rows={2}
+            className="input-field text-xs"
+          />
+          <div className="flex gap-3">
+            <button onClick={() => handleAdvance()} disabled={advancing} className="btn-primary flex-1">
+              {advancing ? 'Advancing...' : 'Begin Discussion'}
+            </button>
+            <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── discussed → prayed_about (select candidate)
+    if (currentStage === 'discussed') {
+      const candidates = slot.candidates || [];
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            Which candidate should be prayed about for <span className="font-medium">{slot.roleName}</span>?
+          </p>
+          {candidates.length > 0 ? (
+            <div className="space-y-1 max-h-32 overflow-y-auto border border-gray-200 rounded-lg">
+              {candidates.map((c, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setAdvanceCandidate(c)}
+                  className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 last:border-0 transition-colors ${
+                    advanceCandidate === c ? 'bg-primary-50 text-primary-700 font-medium' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  {c.name || c}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Candidate Name</label>
+              <input
+                type="text"
+                value={typeof advanceCandidate === 'string' ? advanceCandidate : ''}
+                onChange={e => setAdvanceCandidate(e.target.value)}
+                placeholder="Enter candidate name..."
+                className="input-field text-sm"
+              />
+            </div>
+          )}
+          {slot.candidateName && !advanceCandidate && (
+            <p className="text-xs text-gray-400">
+              Current candidate: <span className="font-medium">{slot.candidateName}</span>
+            </p>
+          )}
+          <textarea
+            value={advanceNote}
+            onChange={e => setAdvanceNote(e.target.value)}
+            placeholder="Optional note..."
+            rows={2}
+            className="input-field text-xs"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() => handleAdvance()}
+              disabled={advancing}
+              className="btn-primary flex-1"
+            >
+              {advancing ? 'Advancing...' : 'Pray About'}
+            </button>
+            <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── prayed_about → assigned_to_extend (who will extend?)
+    if (currentStage === 'prayed_about') {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            Who will extend <span className="font-medium">{slot.roleName}</span> to{' '}
+            <span className="font-medium">{slot.candidateName}</span>?
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Assigned To</label>
+            <input
+              type="text"
+              value={advanceAssignedTo}
+              onChange={e => setAdvanceAssignedTo(e.target.value)}
+              placeholder='e.g., "Bishop Smith", "EQ President"'
+              className="input-field text-sm"
+              autoFocus
+            />
+          </div>
+          <textarea
+            value={advanceNote}
+            onChange={e => setAdvanceNote(e.target.value)}
+            placeholder="Optional note..."
+            rows={2}
+            className="input-field text-xs"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() => handleAdvance()}
+              disabled={advancing || !advanceAssignedTo.trim()}
+              className="btn-primary flex-1"
+            >
+              {advancing ? 'Advancing...' : 'Assign'}
+            </button>
+            <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── assigned_to_extend → extended
+    if (currentStage === 'assigned_to_extend') {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            <span className="font-medium">{slot.assignedTo || 'The assigned leader'}</span> will extend{' '}
+            <span className="font-medium">{slot.roleName}</span> to{' '}
+            <span className="font-medium">{slot.candidateName}</span>.
+          </p>
+          <textarea
+            value={advanceNote}
+            onChange={e => setAdvanceNote(e.target.value)}
+            placeholder="Optional note..."
+            rows={2}
+            className="input-field text-xs"
+          />
+          <div className="flex gap-3">
+            <button onClick={() => handleAdvance()} disabled={advancing} className="btn-primary flex-1">
+              {advancing ? 'Advancing...' : 'Mark Extended'}
+            </button>
+            <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── extended → accepted OR declined
+    if (currentStage === 'extended') {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            Did <span className="font-medium">{slot.candidateName}</span> accept{' '}
+            <span className="font-medium">{slot.roleName}</span>?
+          </p>
+          <textarea
+            value={advanceNote}
+            onChange={e => setAdvanceNote(e.target.value)}
+            placeholder="Optional note..."
+            rows={2}
+            className="input-field text-xs"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleAdvance('accepted')}
+              disabled={advancing}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors"
+            >
+              <Check size={14} />
+              {advancing ? '...' : 'Accepted'}
+            </button>
+            <button
+              onClick={() => handleDecline(slot)}
+              disabled={advancing}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              <X size={14} />
+              {advancing ? '...' : 'Declined'}
+            </button>
+          </div>
+          <button onClick={() => setAdvanceModal(null)} className="btn-secondary w-full">Cancel</button>
+        </div>
+      );
+    }
+
+    // ── accepted → sustained
+    if (currentStage === 'accepted') {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            Add <span className="font-medium">{slot.candidateName}</span> for{' '}
+            <span className="font-medium">{slot.roleName}</span> to sustainings?
+          </p>
+          <textarea
+            value={advanceNote}
+            onChange={e => setAdvanceNote(e.target.value)}
+            placeholder="Optional note..."
+            rows={2}
+            className="input-field text-xs"
+          />
+          <div className="flex gap-3">
+            <button onClick={() => handleAdvance()} disabled={advancing} className="btn-primary flex-1">
+              {advancing ? 'Advancing...' : 'Add to Sustainings'}
+            </button>
+            <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── sustained → set_apart
+    if (currentStage === 'sustained') {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            Schedule setting apart for <span className="font-medium">{slot.candidateName}</span> as{' '}
+            <span className="font-medium">{slot.roleName}</span>?
+          </p>
+          <textarea
+            value={advanceNote}
+            onChange={e => setAdvanceNote(e.target.value)}
+            placeholder="Optional note..."
+            rows={2}
+            className="input-field text-xs"
+          />
+          <div className="flex gap-3">
+            <button onClick={() => handleAdvance()} disabled={advancing} className="btn-primary flex-1">
+              {advancing ? 'Advancing...' : 'Schedule Set Apart'}
+            </button>
+            <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── set_apart → serving
+    if (currentStage === 'set_apart') {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            Mark <span className="font-medium">{slot.candidateName}</span> as now serving as{' '}
+            <span className="font-medium">{slot.roleName}</span>?
+          </p>
+          <p className="text-xs text-gray-400">
+            This will record today as their service start date.
+          </p>
+          <textarea
+            value={advanceNote}
+            onChange={e => setAdvanceNote(e.target.value)}
+            placeholder="Optional note..."
+            rows={2}
+            className="input-field text-xs"
+          />
+          <div className="flex gap-3">
+            <button onClick={() => handleAdvance()} disabled={advancing} className="btn-primary flex-1">
+              {advancing ? 'Advancing...' : 'Begin Serving'}
+            </button>
+            <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Release track stages (fallback generic)
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-gray-700">
+          Move <span className="font-medium">{slot.roleName}</span> from{' '}
+          <span className="font-medium">{CALLING_STAGES[currentStage]?.label}</span> to{' '}
+          <span className="font-medium text-primary-700">
+            {CALLING_STAGES[nextStage]?.label}
+          </span>?
+        </p>
+        {slot.candidateName && (
+          <p className="text-xs text-gray-500">Candidate: {slot.candidateName}</p>
+        )}
+        <textarea
+          value={advanceNote}
+          onChange={e => setAdvanceNote(e.target.value)}
+          placeholder="Optional note..."
+          rows={2}
+          className="input-field text-xs"
+        />
+        <div className="flex gap-3">
+          <button onClick={() => handleAdvance()} disabled={advancing} className="btn-primary flex-1">
+            {advancing ? 'Advancing...' : 'Confirm'}
+          </button>
+          <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Get contextual title for advance modal
+  function getAdvanceTitle() {
+    if (!advanceModal) return 'Advance Calling';
+    const stage = advanceModal.stage;
+    if (stage === 'identified') return 'Begin Discussion';
+    if (stage === 'discussed') return 'Select Candidate';
+    if (stage === 'prayed_about') return 'Assign to Extend';
+    if (stage === 'assigned_to_extend') return 'Mark Extended';
+    if (stage === 'extended') return 'Response';
+    if (stage === 'accepted') return 'Add to Sustainings';
+    if (stage === 'sustained') return 'Schedule Set Apart';
+    if (stage === 'set_apart') return 'Begin Serving';
+    return 'Advance Calling';
   }
 
   return (
@@ -154,13 +514,15 @@ export default function CallingPipeline({ onBack }) {
               </button>
             ))}
           </div>
-          <button
-            onClick={() => openAdd()}
-            className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-800"
-          >
-            <Plus size={16} />
-            Add
-          </button>
+          {view !== 'orgchart' && (
+            <button
+              onClick={() => openAdd()}
+              className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-800"
+            >
+              <Plus size={16} />
+              Add
+            </button>
+          )}
         </div>
       </div>
 
@@ -208,7 +570,7 @@ export default function CallingPipeline({ onBack }) {
           <GitBranch size={40} className="mx-auto mb-3 text-gray-300" />
           <p className="text-sm">No callings in the pipeline yet.</p>
           <p className="text-xs text-gray-400 mt-1">Track calling changes from identification through setting apart.</p>
-          <button onClick={openAdd} className="btn-primary mt-3 text-sm">
+          <button onClick={() => openAdd()} className="btn-primary mt-3 text-sm">
             <Plus size={14} className="inline mr-1" />
             Add First Calling
           </button>
@@ -216,7 +578,7 @@ export default function CallingPipeline({ onBack }) {
       ) : view === 'orgchart' ? (
         <OrgChart
           onEditSlot={openEdit}
-          onAddChild={(parentNode) => openAdd(parentNode.id)}
+          onAddSlot={(parentId, organization) => openAdd(parentId, organization)}
           onAddCandidate={(node) => setCandidateSlot(node)}
           onBeginRelease={handleBeginRelease}
           onAdvance={openAdvanceModal}
@@ -229,7 +591,7 @@ export default function CallingPipeline({ onBack }) {
           onSlotPress={openEdit}
           onAdvance={openAdvanceModal}
           onDecline={handleDecline}
-          onReturn={handleReturnToIdentified}
+          onReturn={handleReturnToDiscussed}
           onBeginRelease={handleBeginRelease}
           onAddCandidate={(slot) => setCandidateSlot(slot)}
           getOrgLabel={getOrgLabel}
@@ -242,7 +604,7 @@ export default function CallingPipeline({ onBack }) {
           onSlotPress={openEdit}
           onAdvance={openAdvanceModal}
           onDecline={handleDecline}
-          onReturn={handleReturnToIdentified}
+          onReturn={handleReturnToDiscussed}
           onBeginRelease={handleBeginRelease}
           onAddCandidate={(slot) => setCandidateSlot(slot)}
           getOrgLabel={getOrgLabel}
@@ -253,9 +615,10 @@ export default function CallingPipeline({ onBack }) {
       {/* Calling Slot Form */}
       <CallingSlotForm
         open={formOpen}
-        onClose={() => { setFormOpen(false); setParentSlotId(null); }}
+        onClose={() => { setFormOpen(false); setParentSlotId(null); setAddOrg(null); }}
         slot={editSlot}
         parentSlotId={parentSlotId}
+        prefilledOrganization={addOrg}
         allSlots={slots}
         onSave={async (data) => {
           if (editSlot) {
@@ -265,6 +628,7 @@ export default function CallingPipeline({ onBack }) {
           }
           setFormOpen(false);
           setParentSlotId(null);
+          setAddOrg(null);
         }}
         onDelete={editSlot ? async () => { await remove(editSlot.id); setFormOpen(false); } : null}
         onOpenCandidates={(slot) => { setFormOpen(false); setCandidateSlot(slot); }}
@@ -283,41 +647,35 @@ export default function CallingPipeline({ onBack }) {
         }}
       />
 
-      {/* Advance confirmation modal */}
+      {/* Contextual Advance Modal */}
       <Modal
         open={!!advanceModal}
         onClose={() => setAdvanceModal(null)}
-        title="Advance Calling"
+        title={getAdvanceTitle()}
         size="sm"
       >
-        {advanceModal && (
+        {renderAdvanceContent()}
+      </Modal>
+
+      {/* Auto-release prompt (after acceptance) */}
+      <Modal
+        open={!!autoReleasePrompt}
+        onClose={() => setAutoReleasePrompt(null)}
+        title="Release Current Holder?"
+        size="sm"
+      >
+        {autoReleasePrompt && (
           <div className="space-y-3">
             <p className="text-sm text-gray-700">
-              Move <span className="font-medium">{advanceModal.roleName}</span> from{' '}
-              <span className="font-medium">{CALLING_STAGES[advanceModal.stage]?.label}</span> to{' '}
-              <span className="font-medium text-primary-700">
-                {CALLING_STAGES[getNextStage(advanceModal.stage)]?.label}
-              </span>?
-            </p>
-            {advanceModal.candidateName && (
-              <p className="text-xs text-gray-500">Candidate: {advanceModal.candidateName}</p>
-            )}
-            <textarea
-              value={advanceNote}
-              onChange={e => setAdvanceNote(e.target.value)}
-              placeholder="Optional note about this transition..."
-              rows={2}
-              className="input-field text-xs"
-            />
-            <p className="text-[10px] text-gray-400">
-              Action items may be auto-created for this stage.
+              <span className="font-medium">{autoReleasePrompt.servedBy}</span> is currently serving as{' '}
+              <span className="font-medium">{autoReleasePrompt.slot.roleName}</span>. Would you like to begin the release process?
             </p>
             <div className="flex gap-3">
-              <button onClick={handleAdvance} disabled={advancing} className="btn-primary flex-1">
-                {advancing ? 'Advancing...' : 'Confirm'}
+              <button onClick={confirmAutoRelease} className="btn-primary flex-1">
+                Begin Release
               </button>
-              <button onClick={() => setAdvanceModal(null)} className="btn-secondary flex-1">
-                Cancel
+              <button onClick={() => setAutoReleasePrompt(null)} className="btn-secondary flex-1">
+                Not Now
               </button>
             </div>
           </div>
@@ -478,7 +836,6 @@ function ListView({ slotsByStage, displayStages, onSlotPress, onAdvance, onDecli
 function SlotCard({ slot, onPress, onAdvance, onDecline, onReturn, onBeginRelease, onAddCandidate, getOrgLabel, getNextStage, compact }) {
   const nextStage = getNextStage(slot.stage);
   const isTerminal = slot.stage === 'released' || (slot.stage === 'serving' && !nextStage);
-  const priorityConfig = CALLING_PRIORITIES[slot.priority];
   const serviceInfo = slot.stage === 'serving' && slot.servingSince ? getServiceMonths(slot.servingSince) : null;
 
   return (
