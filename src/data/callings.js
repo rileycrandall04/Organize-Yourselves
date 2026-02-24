@@ -542,8 +542,8 @@ export const ORG_HIERARCHY = [
       ]},
       // ── Music ──
       { roleName: 'Music Coordinator', organization: 'music', tier: 4, children: [
-        { roleName: 'Choir Director', organization: 'music', tier: 5 },
-        { roleName: 'Organist/Pianist', organization: 'music', tier: 5, expectedCount: 2 },
+        { roleName: 'Choir Director', organization: 'music', tier: 6 },
+        { roleName: 'Organist/Pianist', organization: 'music', tier: 6, expectedCount: 2 },
       ]},
     ]},
   ]},
