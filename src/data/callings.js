@@ -38,7 +38,7 @@ export const PRESIDENCY_ROLES = {
   young_women: ['YW President', 'YW 1st Counselor', 'YW 2nd Counselor', 'YW Secretary'],
   young_men: ['YM President', 'YM 1st Counselor', 'YM 2nd Counselor', 'YM Secretary'],
   primary: ['Primary President', 'Primary 1st Counselor', 'Primary 2nd Counselor', 'Primary Secretary'],
-  sunday_school: ['SS President', 'SS 1st Counselor', 'SS Secretary'],
+  sunday_school: ['SS President', 'SS 1st Counselor', 'SS 2nd Counselor', 'SS Secretary'],
 };
 
 // Valid "Reports To" options in CallingSlotForm
@@ -49,9 +49,30 @@ export const REPORTS_TO_ROLES = [
   'YW President', 'YW 1st Counselor', 'YW 2nd Counselor', 'YW Secretary',
   'YM President', 'YM 1st Counselor', 'YM 2nd Counselor', 'YM Secretary',
   'Primary President', 'Primary 1st Counselor', 'Primary 2nd Counselor', 'Primary Secretary',
-  'SS President', 'SS 1st Counselor', 'SS Secretary',
+  'SS President', 'SS 1st Counselor', 'SS 2nd Counselor', 'SS Secretary',
   'Ward Mission Leader', 'Temple & FH Leader', 'Music Coordinator',
 ];
+
+// Bishopric roles that are always valid "Reports To" options
+const BISHOPRIC_REPORTS_TO = ['Bishop', '1st Counselor', '2nd Counselor', 'Executive Secretary', 'Ward Clerk'];
+
+/**
+ * Get valid "Reports To" role names for a specific organization.
+ * Returns Bishopric members + that org's presidency members.
+ * For non-presidency orgs, returns Bishopric + relevant org leaders.
+ */
+export function getReportsToForOrg(orgKey) {
+  if (!orgKey) return REPORTS_TO_ROLES; // No org → show all
+  const presidencyRoles = PRESIDENCY_ROLES[orgKey];
+  if (presidencyRoles) {
+    return [...BISHOPRIC_REPORTS_TO, ...presidencyRoles];
+  }
+  // Non-presidency orgs: Bishopric + any leaders in that org from REPORTS_TO_ROLES
+  const orgLeaders = REPORTS_TO_ROLES.filter(r => !BISHOPRIC_REPORTS_TO.includes(r) && !Object.values(PRESIDENCY_ROLES).flat().includes(r));
+  return [...BISHOPRIC_REPORTS_TO, ...orgLeaders.filter(r =>
+    r === 'Ward Mission Leader' || r === 'Temple & FH Leader' || r === 'Music Coordinator'
+  )];
+}
 
 export const CALLING_STATUS_FLOW = [
   // Call track
@@ -550,6 +571,7 @@ export const ORG_HIERARCHY = [
       // ── Sunday School ──
       { callingKey: 'ss_president', roleName: 'SS President', organization: 'sunday_school', tier: 4, children: [
         { roleName: 'SS 1st Counselor', organization: 'sunday_school', tier: 5 },
+        { roleName: 'SS 2nd Counselor', organization: 'sunday_school', tier: 5 },
         { roleName: 'SS Secretary', organization: 'sunday_school', tier: 5 },
         { roleName: 'Gospel Doctrine Teacher', organization: 'sunday_school', tier: 6, expectedCount: 2 },
         { roleName: 'Gospel Essentials Teacher', organization: 'sunday_school', tier: 6 },
@@ -655,6 +677,7 @@ export const ORG_TEMPLATES = {
     root: 'SS President',
     children: [
       { roleName: 'SS 1st Counselor' },
+      { roleName: 'SS 2nd Counselor' },
       { roleName: 'SS Secretary' },
       { roleName: 'Gospel Doctrine Teacher', expectedCount: 2 },
       { roleName: 'Gospel Essentials Teacher' },

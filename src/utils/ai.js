@@ -118,6 +118,35 @@ async function callAi(systemPrompt, userMessage) {
   throw new Error(`Unknown provider: ${provider}`);
 }
 
+// ── Calling Chat ─────────────────────────────────────────────
+
+const CALLING_SYSTEM_PROMPT = `You are a calling management assistant for a leader in The Church of Jesus Christ of Latter-day Saints. You help with reports about callings, answer questions about the calling pipeline, and provide insights about service and staffing. Be concise, practical, and organized. Use simple formatting with line breaks and dashes for lists.`;
+
+export async function callingChatMessage(userMessage, slots) {
+  // Build context summary from current calling slots
+  const contextLines = ['Current Calling Slots:'];
+  const byOrg = {};
+  for (const s of slots) {
+    const org = s.organization || 'Unknown';
+    if (!byOrg[org]) byOrg[org] = [];
+    const months = s.servingSince
+      ? Math.round((Date.now() - new Date(s.servingSince).getTime()) / (1000 * 60 * 60 * 24 * 30))
+      : null;
+    byOrg[org].push(
+      `- ${s.roleName}: ${s.candidateName || s.servedBy || '(vacant)'} | Stage: ${s.stage || 'serving'} | Priority: ${s.priority || 'low'}${months != null ? ` | ${months}mo` : ''}${s.isOpen ? ' | OPEN' : ''}`
+    );
+  }
+  for (const [org, lines] of Object.entries(byOrg)) {
+    contextLines.push(`\n${org}:`);
+    contextLines.push(...lines);
+  }
+  contextLines.push(`\nTotal slots: ${slots.length}`);
+  contextLines.push(`Open positions: ${slots.filter(s => s.isOpen || (!s.candidateName && s.stage === 'identified')).length}`);
+
+  const fullMessage = `${contextLines.join('\n')}\n\nUser question: ${userMessage}`;
+  return callAi(CALLING_SYSTEM_PROMPT, fullMessage);
+}
+
 // ── Meeting Features ─────────────────────────────────────────
 
 const MEETING_SYSTEM_PROMPT = `You are a helpful assistant for a leader in The Church of Jesus Christ of Latter-day Saints. You help summarize meeting notes and suggest action items. Be concise, practical, and spiritually sensitive. Use a warm but professional tone.`;

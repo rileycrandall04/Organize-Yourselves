@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useOnboardingComplete } from './hooks/useDb';
 import BottomNav from './components/shared/BottomNav';
@@ -13,9 +14,11 @@ import Settings from './components/Settings';
 import People from './components/People';
 import CallingPipeline from './components/CallingPipeline';
 import Ministering from './components/Ministering';
+import Tutorial, { isTutorialCompleted } from './components/Tutorial';
 
 export default function App() {
   const { ready, loading } = useOnboardingComplete();
+  const [tutorialDone, setTutorialDone] = useState(isTutorialCompleted);
 
   if (loading) {
     return (
@@ -36,6 +39,7 @@ export default function App() {
   // Main app with bottom nav
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
+      {!tutorialDone && <Tutorial onComplete={() => setTutorialDone(true)} />}
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/actions" element={<ActionItems />} />
@@ -46,7 +50,7 @@ export default function App() {
         <Route path="/journal" element={<Journal onBack={() => window.history.back()} />} />
         <Route path="/settings" element={<Settings onBack={() => window.history.back()} />} />
         <Route path="/people" element={<People onBack={() => window.history.back()} />} />
-        <Route path="/pipeline" element={<CallingPipeline onBack={() => window.history.back()} />} />
+        <Route path="/pipeline" element={<CallingPipeline />} />
         <Route path="/ministering" element={<Ministering onBack={() => window.history.back()} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
