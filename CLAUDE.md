@@ -8,268 +8,172 @@ A personal productivity app for LDS church leaders to organize their calling res
 
 **Design mantra:** Less time administering, more time ministering.
 
-## Target Users (Phase 1: Individual / Lite Mode)
-
-Leadership callings only — Ward Council members and above:
-- Bishop, Bishopric Counselors, Executive Secretary
-- Elders Quorum President, Relief Society President
-- Ward Mission Leader
-- Young Women President, Primary President, Sunday School President
-- Temple & Family History Leader
-- Stake President, Stake Presidency Counselors, High Councilors
-
-Phase 1 is a **personal tool** — no data sharing between users. Future phases will add opt-in ward/stake linking.
-
 ## Tech Stack
 
-- **Frontend:** React 18 + Vite + Tailwind CSS + @tailwindcss/forms
-- **Storage:** Dexie.js (IndexedDB wrapper) for offline-first local persistence
+- **Frontend:** React 18 + Vite 5.4.21 + Tailwind CSS + @tailwindcss/forms
+- **Storage:** Dexie.js v3.2.4 (IndexedDB wrapper) for offline-first local persistence
 - **Icons:** lucide-react
 - **Dates:** date-fns
-- **Routing:** react-router-dom
-- **No backend needed for Phase 1** — all data stored locally in IndexedDB
+- **Routing:** react-router-dom (BrowserRouter)
+- **AI:** Optional Anthropic/OpenAI integration via `src/utils/ai.js`
+- **No backend needed** — all data stored locally in IndexedDB
+- **Dev server:** port 3001 via `.claude/launch.json`
+- **GitHub:** `rileycrandall04/Organize-Yourselves`
+
+## Current Version: v0.4.0
+
+## What's Built (Complete Feature Set)
+
+### Core Features (Phase 1)
+- Onboarding flow (name + calling selection → auto-setup)
+- Dashboard with quick capture, stats cards, focus items, upcoming meetings
+- Action Items with views (Today, This Week, Overdue, By Pillar, By Context, All, Completed)
+- Meetings with auto-generated agendas, inline notes, carry-forward action items
+- Quick Capture Inbox with process flow
+- Responsibilities (handbook defaults + custom)
+- Spiritual Impressions Journal
+- People management
+- Settings with backup/restore/export
+- Ministering (EQ/RS/Bishopric callings)
+
+### Calling Pipeline (Phase 2-4)
+- Full org chart with 10 organizations, presidency tiers, and hierarchy
+- Kanban and list views alongside org chart
+- Stage flow: Identified → Discussed → Prayed About → Assigned to Extend → Extended → Accepted → Sustained → Set Apart → Serving
+- Release flow: Release Planned → Release Meeting → Released
+- Candidate management with autocomplete from People
+- Auto-generated action items on stage transitions
+- Priority system (high/low only)
+
+### Pipeline Display (PR #6)
+- 5 display stage groups with filter chips (Discussing, Need to Extend, Sustaining, To be Set Apart, Complete)
+- Org chip click → filter org chart to single auxiliary
+- Pipeline on bottom tab bar; Inbox moved to More menu
+- Scoped "Reports To" per auxiliary organization
+
+### Meeting Intelligence (PR #6)
+- Focus Families/Individuals section in meeting notes
+- Text selection toolbar: highlight text → create action item or tag for another meeting
+- Calling snooze on pipeline agenda items
+- Expanded agenda propagation (all active stages through set_apart)
+- Note tagging across meetings with auto-populate
+- AI-powered meeting summaries and action item suggestions
+
+### AI Chat (PR #6)
+- CallingChat component on Pipeline page (floating chat panel)
+- `callingChatMessage()` with full pipeline context
+- Suggested question chips for quick queries
+- Only visible when AI is configured (Settings → API key)
+
+### Tutorial (PR #6)
+- 6-step first-time tutorial overlay
+- localStorage flag prevents re-showing
+- Skip button available
 
 ## Key Architecture Decisions
 
-1. **Offline-first:** All data in IndexedDB via Dexie.js. No network required for core functionality. Essential because church buildings often have poor connectivity.
-2. **Mobile-first responsive:** Designed for phone use (quick capture during meetings, reviewing tasks between appointments) but works on desktop.
-3. **Non-confidential data only:** App is for workflow management, NOT case management. Keep entries generic (e.g., "Meet with John Smith" not details about why). Action items from private meetings should be generic and unlinked to specific individuals' situations.
-4. **Handbook-derived defaults:** Each calling comes pre-loaded with responsibilities and meetings from the General Handbook, but everything is customizable.
+1. **Offline-first:** All data in IndexedDB via Dexie.js. No network required for core functionality.
+2. **Mobile-first responsive:** Designed for phone use but works on desktop.
+3. **Non-confidential data only:** Workflow management, NOT case management.
+4. **Handbook-derived defaults:** Each calling pre-loaded with responsibilities and meetings.
+5. **AI optional:** Works fully without AI; API key adds summaries, suggestions, and chat.
 
-## Phase 1 Feature Set (What We're Building Now)
+## Key Files & Data Model
 
-### 1. Onboarding Flow
-- Enter name
-- Select one or more callings from a searchable/grouped list
-- App auto-generates: responsibilities (from handbook), meetings (with templates), personalized dashboard
-- ~15-20 minutes of focused setup, then builds organically
+### Database (`src/db.js`)
+- 4 schema versions (v1 base → v4 enhanced pipeline)
+- Key tables: `profile`, `userCallings`, `callingSlots`, `meetings`, `meetingInstances`, `actionItems`, `inbox`, `journal`, `people`, `meetingNoteTags`
+- Key functions: `buildAutoAgenda()`, `getCallingPipelineAgendaItems()`, `transitionCallingSlot()`, `getAutoActionsForTransition()`, `syncCallingNotesFromMeeting()`
 
-### 2. Dashboard (Home)
-- Greeting with calling context
-- Quick capture bar (always accessible, one-tap thought capture)
-- Stats cards: Overdue items, Due Today, Active Items, Inbox count
-- Focus Items: Starred + High Priority action items
-- Upcoming meetings with prep status indicators
-- Recent activity feed
+### Calling Config (`src/data/callings.js`)
+- `PRESIDENCY_ROLES`: Maps 6 org keys → role name arrays
+- `REPORTS_TO_ROLES`: Flat array of valid parent roles
+- `getReportsToForOrg(orgKey)`: Scoped filtering helper
+- `ORG_HIERARCHY`: Full org chart tree structure
+- `ORG_TEMPLATES`: Default positions per organization
+- `JURISDICTION_MAP`: Maps callingKey → { orgs, scope }
 
-### 3. Action Items (The Heart of the System)
-- Create with: title, description, owner, priority (High/Medium/Low), starred flag, pillar category, context (at church/home/phone/computer/visit), due date, source meeting, target meetings for reporting
-- Views: Today, This Week, Overdue, By Pillar, By Context, All, Completed
-- Status flow: Not Started → In Progress → Waiting → Complete
-- Sort: Overdue first → Starred → High priority → Due date
-- Support recurring items (weekly, monthly, etc.) for things like "Update new move-in list"
-- SMART prompting: Encourage specific, measurable, assignable, relevant, time-bound items
+### Constants (`src/utils/constants.js`)
+- `CALLING_STAGES`, `CALL_STAGE_ORDER`, `RELEASE_STAGE_ORDER`
+- `CALLING_PRIORITIES`: high and low only (no medium)
+- `DISPLAY_STAGE_GROUPS`: 5 user-friendly categories mapping 9 granular stages
 
-### 4. Meetings
-- List of meetings per calling with cadence info
-- Each meeting type has an agenda template (customizable)
-- Create meeting instances (specific dated occurrences)
-- During a meeting instance: take notes inline against agenda items, quick-create action items, tag notes for other meetings ("→ Missionary Huddle"), mark attendance
-- After meeting: finalize notes, action items auto-distribute
-- **Future killer feature:** Notes tagged in one meeting auto-populate agendas in related meetings
-
-### 5. Quick Capture Inbox
-- Zero-friction text input from anywhere
-- Items land in inbox as unprocessed
-- Process later: convert to action item (with full fields), convert to meeting note, move to journal, or discard
-- GTD "capture" philosophy — get it out of your head immediately
-
-### 6. Responsibilities
-- View all responsibilities grouped by calling
-- Handbook-derived defaults marked separately from custom
-- Add custom responsibilities (e.g., "Update new move-in list weekly")
-- Mark as recurring with cadence
-- Grouped by pillar (Living, Caring, Inviting, Uniting, Admin)
-
-### 7. Spiritual Impressions Journal
-- Private, never shared (even in future multi-user mode)
-- Simple text entry with date and optional tags
-- Quick entry from anywhere in the app
-- Searchable
-
-### 8. Settings / More
-- Manage callings (add/remove, re-run onboarding)
-- View responsibilities
-- Access journal
-- Reset data option
-- Export data (future)
-
-## Data Model
-
-All stored in Dexie.js (IndexedDB). Schema defined in `src/db.js`:
-
-```
-profile: { name }
-callings: [callingKey strings]
-responsibilities: [{ id, callingKey, title, pillar, isCustom, isRecurring, recurringCadence }]
-meetings: [{ id, callingKey, name, cadence, template[] }]
-meetingInstances: [{ id, meetingId, date, notes, agendaItems[], actionItemIds[], status }]
-actionItems: [{ id, title, description, status, priority, starred, pillar, context, dueDate, isRecurring, recurringCadence, sourceMeetingInstanceId, targetMeetingIds[], createdAt, completedAt }]
-inbox: [{ id, text, createdAt, processed }]
-journal: [{ id, text, date, tags[] }]
-people: [{ id, name, phone, email }] // manually added as relevant, NOT a full ward list
-```
-
-## Four Pillars (Categories for responsibilities and action items)
-
-From Handbook 1.2 — all church work falls under:
-1. **Living the Gospel** (blue) — Teaching, learning, ordinances, covenant path
-2. **Caring for Those in Need** (amber) — Ministering, service, welfare, compassionate service
-3. **Inviting All to Receive the Gospel** (emerald) — Missionary work, new/returning members, activation
-4. **Uniting Families for Eternity** (purple) — Temple, family history, sealing
-5. **Administration** (gray) — Callings, meetings, finances, records (our addition)
-
-## Calling Configurations
-
-Pre-built in `src/data/callings.js`. Each calling has:
-- `key`, `title`, `org`, `handbook` reference
-- `responsibilities[]` — each with title and pillar
-- `meetings[]` — each with name, cadence, and agenda template
-
-Callings currently defined: bishop, bishopric_1st, bishopric_2nd, exec_secretary, eq_president, rs_president, ward_mission_leader, yw_president, primary_president, ss_president, temple_fh_leader, stake_president, high_councilor
-
-## Calling Pipeline (Future Phase 2-3)
-
-Kanban flow for managing calling changes:
-IDENTIFIED → PRAYED ABOUT → DISCUSSED IN BISHOPRIC → EXTENDED → ACCEPTED → SUSTAINED → SET APART
-(with DECLINED branch back to IDENTIFIED)
-
-Each stage transition auto-generates appropriate action items.
-
-## Meeting Workflow (The Core Innovation for Phase 2)
-
-**Before:** Auto-generate agenda from template + unresolved items from last instance + tagged notes from other meetings
-**During:** Notes inline on agenda, quick-create action items, tag notes for other meetings
-**After:** Finalize, distribute action items, queue tagged notes for destination meetings
-
-## UX Principles
-
-1. **5-minute Sunday:** Most use in short bursts. Quick capture, quick review, quick prep.
-2. **Progressive disclosure:** Simple by default, power features available but not overwhelming.
-3. **Mobile-first:** Thumb-friendly, quick input, works offline.
-4. **Respect the sacred:** Tone reflects the sacred nature of service. No gamification.
-5. **Simplicity is key:** Every screen should be immediately clear. Minimal taps to accomplish common tasks.
-
-## Color Palette
-
-- Primary: Blue-700 (#1e3f8f) — headers, buttons, active states
-- Pillar colors: Blue (Living), Amber (Caring), Emerald (Inviting), Purple (Uniting), Gray (Admin)
-- Background: Slate-50
-- Cards: White with subtle border
-- Sage green accent available for spiritual/sacred elements
+### AI (`src/utils/ai.js`)
+- Supports Anthropic (Claude) and OpenAI providers
+- `callAi()` core function, `callingChatMessage()`, `summarizeMeetingNotes()`, `suggestActionItems()`
+- Config stored in localStorage
 
 ## Project Structure
 
 ```
-calling-organizer/
-├── index.html
-├── package.json
-├── vite.config.js
-├── tailwind.config.js
-├── postcss.config.js
-├── CLAUDE.md              ← You are here
-├── public/
-│   └── manifest.json      ← PWA manifest (to create)
-├── src/
-│   ├── main.jsx           ← Entry point (to create)
-│   ├── App.jsx            ← Root component with routing (to create)
-│   ├── index.css           ← Tailwind directives + component classes
-│   ├── db.js               ← Dexie database schema + helper functions
-│   ├── data/
-│   │   └── callings.js     ← Handbook-derived calling configurations
-│   ├── components/
-│   │   ├── Onboarding.jsx
-│   │   ├── Dashboard.jsx
-│   │   ├── ActionItems.jsx
-│   │   ├── ActionItemForm.jsx
-│   │   ├── Meetings.jsx
-│   │   ├── MeetingDetail.jsx
-│   │   ├── MeetingNotes.jsx
-│   │   ├── InboxView.jsx
-│   │   ├── Responsibilities.jsx
-│   │   ├── Journal.jsx
-│   │   ├── MoreMenu.jsx
-│   │   └── shared/          ← Reusable UI pieces
-│   │       ├── PillarBadge.jsx
-│   │       ├── PriorityBadge.jsx
-│   │       ├── ActionItemRow.jsx
-│   │       └── Modal.jsx
-│   ├── hooks/
-│   │   └── useDb.js         ← Custom hooks for database operations
-│   └── utils/
-│       ├── dates.js         ← Date formatting helpers
-│       └── constants.js     ← Shared constants
+src/
+├── main.jsx
+├── App.jsx                    ← Router + tutorial gate
+├── index.css                  ← Tailwind + component classes
+├── db.js                      ← Dexie schema + all CRUD helpers
+├── data/
+│   └── callings.js            ← Calling configs, org hierarchy, templates
+├── components/
+│   ├── Dashboard.jsx
+│   ├── ActionItems.jsx
+│   ├── Meetings.jsx
+│   ├── MeetingNotes.jsx       ← Agenda, notes, focus families, selection toolbar
+│   ├── CallingPipeline.jsx    ← Pipeline orchestrator (org chart, kanban, list)
+│   ├── CallingChat.jsx        ← AI chat panel on pipeline page
+│   ├── CallingSlotForm.jsx    ← Form with autocomplete, scoped reports-to
+│   ├── OrgChart.jsx           ← Org chart with stage/org filtering
+│   ├── NeedsDashboard.jsx     ← Open positions + service alerts
+│   ├── CandidateManager.jsx
+│   ├── Tutorial.jsx           ← First-time 6-step tutorial
+│   ├── Onboarding.jsx
+│   ├── InboxView.jsx
+│   ├── MoreMenu.jsx
+│   ├── Settings.jsx
+│   ├── People.jsx
+│   ├── Journal.jsx
+│   ├── Responsibilities.jsx
+│   ├── Ministering.jsx
+│   ├── SacramentProgram.jsx
+│   └── shared/
+│       ├── BottomNav.jsx      ← Home, Actions, Meetings, Pipeline, More
+│       ├── ActionItemRow.jsx
+│       ├── Modal.jsx
+│       ├── MeetingPicker.jsx
+│       ├── AiButton.jsx
+│       ├── PillarBadge.jsx
+│       └── PriorityBadge.jsx
+├── hooks/
+│   └── useDb.js               ← Reactive hooks (useLiveQuery)
+└── utils/
+    ├── ai.js                  ← AI provider abstraction
+    ├── dates.js               ← Date formatting helpers
+    └── constants.js           ← Enums, stage config, display groups
 ```
 
-## Build Order
+## Git History (PRs merged to master)
 
-1. Shared utilities and hooks (dates.js, constants.js, useDb.js)
-2. Shared UI components (PillarBadge, PriorityBadge, ActionItemRow, Modal)
-3. main.jsx + App.jsx with routing shell
-4. Onboarding flow (name → calling selection → auto-setup)
-5. Dashboard with quick capture
-6. Action Items (list views + create/edit form)
-7. Meetings list + Meeting Detail + Meeting Notes
-8. Inbox (capture + process flow)
-9. Responsibilities view (with custom add)
-10. Journal
-11. Settings / More menu
-12. PWA manifest + service worker for offline
+1. **PR #1** — Initial app build (onboarding, dashboard, actions, meetings, inbox, journal)
+2. **PR #2** — Calling pipeline (kanban, org chart, stage transitions)
+3. **PR #3** — Flat folder org chart redesign
+4. **PR #4** — Pipeline UX defaults (org view, collapse sections, open positions)
+5. **PR #5** — Presidency tiers, workflow redesign, meeting integration
+6. **PR #6** — Meeting intelligence, AI chat, pipeline enhancements, UI compaction, tutorial (v0.4.0)
 
-## Revised Full Roadmap
+## UX Principles
 
-- **Phase 1:** Personal dashboard + meetings + action items + quick capture + responsibilities + journal (CURRENT)
-- **Phase 2:** Meeting intelligence (note tagging, auto-agendas) + calling pipeline kanban
-- **Phase 3:** Onboarding wizard improvements + mentoring mode + transition/handoff packages
-- **Phase 4:** Calendar, visits, receipts, lesson library
-- **Phase 5:** Multi-user ward sync + delegation + stake-level views (LAST)
+1. **5-minute Sunday:** Most use in short bursts.
+2. **Progressive disclosure:** Simple by default, power features available.
+3. **Mobile-first:** Thumb-friendly, quick input, works offline.
+4. **Respect the sacred:** Tone reflects the sacred nature of service.
+5. **Simplicity is key:** Every screen immediately clear, minimal taps.
 
-## What's Already Built
+## Notes for Future Sessions
 
-### Config & Data Layer (from prior session)
-- `package.json` — All dependencies declared (npm install already run)
-- `vite.config.js` — Vite config (port 3001, open: false)
-- `tailwind.config.js` — Custom colors (primary blue, sage green)
-- `postcss.config.js` — PostCSS config
-- `index.html` — HTML entry point
-- `src/index.css` — Tailwind directives + component utility classes (btn-primary, btn-secondary, card, input-field, badge variants for priority and pillar)
-- `src/db.js` — Complete Dexie database schema with all CRUD helpers and dashboard stats function. Note: `getProfile()` returns `null` (not undefined) when empty, so `useLiveQuery` can distinguish "loading" from "no data".
-- `src/data/callings.js` — Full calling configurations for 13 leadership callings with responsibilities, meetings, agenda templates, pillar categories, handbook references
-
-### Build Steps 1-5 (completed this session)
-- `src/utils/dates.js` — 10 date formatting helpers (formatShort, formatFriendly, formatDueStatus, isOverdue, todayStr, etc.)
-- `src/utils/constants.js` — All enums: STATUSES, PRIORITIES, CONTEXTS, CADENCES, MEETING_STATUSES, PILLAR_BADGE_CLASS, ACTION_VIEWS, NAV_TABS
-- `src/hooks/useDb.js` — 11 reactive hooks using dexie-react-hooks (useProfile, useUserCallings, useActionItems, useInbox, useDashboardStats, useOnboardingComplete, etc.)
-- `src/components/shared/PillarBadge.jsx` — Pillar category badge
-- `src/components/shared/PriorityBadge.jsx` — Priority level badge
-- `src/components/shared/ActionItemRow.jsx` — Tappable action item row with status/star toggles, badges, overdue highlighting
-- `src/components/shared/Modal.jsx` — Bottom-sheet (mobile) / centered dialog (desktop), Escape/backdrop close, scroll lock
-- `src/components/shared/BottomNav.jsx` — 5-tab bottom nav with inbox badge count
-- `src/main.jsx` — Entry point with BrowserRouter
-- `src/App.jsx` — Root component: loading spinner → onboarding gate → routes + bottom nav
-- `src/components/Onboarding.jsx` — Full 2-step flow: name entry → calling selection with search/org grouping → auto-setup
-- `src/components/Dashboard.jsx` — Greeting, quick capture bar, 4 stat cards (tappable), focus items (starred/high-priority), upcoming meetings
-- `src/components/ActionItems.jsx` — Placeholder (step 6)
-- `src/components/Meetings.jsx` — Placeholder (step 7)
-- `src/components/InboxView.jsx` — Placeholder (step 8)
-- `src/components/MoreMenu.jsx` — Menu items for Responsibilities, Journal, People, Settings
-
-## What Needs to Be Built Next
-
-Build steps 6-12 remain. Start with step 6 (Action Items):
-
-6. **Action Items** — List views (Today, This Week, Overdue, By Pillar, By Context, All, Completed) + create/edit form with ActionItemForm.jsx
-7. **Meetings** — List + MeetingDetail + MeetingNotes (agenda, notes, action item creation)
-8. **Inbox** — Quick capture input + process flow (convert to action item, meeting note, journal, or discard)
-9. **Responsibilities** — View grouped by calling, custom add, recurring cadence
-10. **Journal** — Simple text entries with date/tags, searchable
-11. **Settings / More** — Manage callings, reset data
-12. **PWA** — manifest.json + service worker for offline
-
-## Important Notes
-
-- Dependencies already installed. Run `npm run dev` to start (port 3001).
-- The db.js helper functions return promises (use async/await)
-- Calling configs in callings.js export both the full CALLINGS object and helper functions (getCallingList, getCallingConfig, getOrgLabel, getPillarConfig)
-- Keep the UI simple and clean. Avoid over-engineering. Ship something usable fast.
-- Production build verified: `npx vite build` passes cleanly (1708 modules, no errors)
+- Build passes cleanly: `npx vite build` (1736 modules, ~559 KB gzipped ~156 KB)
+- Dev server: `npm run dev` on port 3001
+- Always use `preview_snapshot` instead of `preview_screenshot` for visual verification
+- Bottom nav: Home, Actions, Meetings, Pipeline, More
+- Priorities are high/low only (medium was removed in v0.4.0)
+- `getReportsToForOrg()` scopes parent options per auxiliary
+- Tutorial uses localStorage key `tutorial_completed`
+- AI config uses localStorage key `organize_ai_config`
