@@ -404,16 +404,20 @@ export async function markTagConsumed(id) {
 
 // ── Auto-Agenda Builder (Phase 2) ────────────────────────────
 
-export async function getLatestInstance(meetingId) {
+export async function getLatestInstance(meetingId, beforeDate) {
   const instances = await db.meetingInstances
     .where('meetingId').equals(meetingId)
     .reverse()
     .sortBy('date');
+  if (beforeDate) {
+    // Return the most recent instance BEFORE the given date
+    return instances.find(i => i.date < beforeDate) || null;
+  }
   return instances[0] || null;
 }
 
-export async function getUnresolvedActionItems(meetingId) {
-  const latest = await getLatestInstance(meetingId);
+export async function getUnresolvedActionItems(meetingId, beforeDate) {
+  const latest = await getLatestInstance(meetingId, beforeDate);
   if (!latest || !latest.actionItemIds || latest.actionItemIds.length === 0) return [];
 
   const unresolved = [];
@@ -426,7 +430,7 @@ export async function getUnresolvedActionItems(meetingId) {
   return unresolved;
 }
 
-export async function buildAutoAgenda(meetingId) {
+export async function buildAutoAgenda(meetingId, forDate) {
   const meeting = await db.meetings.get(meetingId);
   if (!meeting) return [];
 
@@ -453,8 +457,8 @@ export async function buildAutoAgenda(meetingId) {
     syncAfterWrite('meetings', meetingId, await db.meetings.get(meetingId));
   }
 
-  // 2. Get unresolved action items from last instance
-  const unresolved = await getUnresolvedActionItems(meetingId);
+  // 2. Get unresolved action items from the instance before this date (or latest)
+  const unresolved = await getUnresolvedActionItems(meetingId, forDate);
   if (unresolved.length > 0) {
     const followUpIdx = agendaItems.findIndex(
       a => a.label.toLowerCase().includes('follow-up') || a.label.toLowerCase().includes('action items')

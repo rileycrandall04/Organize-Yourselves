@@ -11,7 +11,7 @@ import AddPriorTasksModal from './AddPriorTasksModal';
 import {
   ArrowLeft, Save, CheckCircle2, Plus, MessageSquare, FileText,
   ArrowUpRight, X, CheckSquare, Clock, Users2, Trash2,
-  GripVertical, ListPlus, ChevronDown,
+  GripVertical, ListPlus, ChevronDown, Pencil,
 } from 'lucide-react';
 
 export default function MeetingNotes({ instance, meetingName, meetingId, onBack }) {
@@ -60,6 +60,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [editingDate, setEditingDate] = useState(false);
+  const [editDate, setEditDate] = useState(instance.date);
 
   const isCompleted = instance.status === 'completed';
 
@@ -525,7 +527,48 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-xl font-bold text-gray-900">{meetingName}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{formatFull(instance.date)}</p>
+          {editingDate ? (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <input
+                type="date"
+                value={editDate}
+                onChange={e => setEditDate(e.target.value)}
+                className="text-sm border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary-300"
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    if (editDate && editDate !== instance.date) {
+                      update(instance.id, { date: editDate });
+                      instance.date = editDate;
+                    }
+                    setEditingDate(false);
+                  }
+                  if (e.key === 'Escape') setEditingDate(false);
+                }}
+              />
+              <button
+                onClick={() => {
+                  if (editDate && editDate !== instance.date) {
+                    update(instance.id, { date: editDate });
+                    instance.date = editDate;
+                  }
+                  setEditingDate(false);
+                }}
+                className="text-primary-600 hover:text-primary-800"
+              >
+                <CheckCircle2 size={16} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setEditingDate(true)}
+              className="text-sm text-gray-500 mt-0.5 hover:text-primary-600 hover:underline flex items-center gap-1 group transition-colors"
+              title="Click to change date"
+            >
+              {formatFull(instance.date)}
+              <Pencil size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+          )}
         </div>
         {isCompleted && (
           <span className="flex items-center gap-1 text-xs font-medium text-green-600">

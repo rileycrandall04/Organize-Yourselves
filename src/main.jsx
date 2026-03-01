@@ -7,7 +7,7 @@ import { initNotificationsOnStartup } from './utils/notifications';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
       <App />
     </BrowserRouter>
   </React.StrictMode>
@@ -20,7 +20,7 @@ initNotificationsOnStartup();
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/sw.js')
+      .register(import.meta.env.BASE_URL + 'sw.js')
       .then((reg) => {
         console.log('[SW] Registered:', reg.scope);
 

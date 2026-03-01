@@ -95,9 +95,13 @@ export function formatTime(dateStr) {
   return format(d, 'h:mm a');
 }
 
-// Format for display in meeting instances: "Sun, Feb 22"
+// Format for display in meeting instances: "Sun, Feb 22" or "Sun, Feb 22, 2025" (if not current year)
 export function formatMeetingDate(dateStr) {
   const d = parseDate(dateStr);
   if (!d) return '';
-  return format(d, 'EEE, MMM d');
+  const now = new Date();
+  if (d.getFullYear() === now.getFullYear()) {
+    return format(d, 'EEE, MMM d');
+  }
+  return format(d, 'EEE, MMM d, yyyy');
 }

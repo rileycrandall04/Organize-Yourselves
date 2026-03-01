@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMeetingInstances, useMeetingNoteTags, useOngoingTasks, useMinisteringPlans } from '../hooks/useDb';
-import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, deleteMeetingWithInstances, addOngoingTask, addMinisteringPlan } from '../db';
+import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingWithInstances, addOngoingTask, addMinisteringPlan } from '../db';
 import { MEETING_CADENCES } from '../data/callings';
 import { todayStr, formatMeetingDate } from '../utils/dates';
 import { MEETING_STATUSES } from '../utils/constants';
@@ -33,6 +33,8 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const [newPlanPerson, setNewPlanPerson] = useState('');
   const [newPlanFamily, setNewPlanFamily] = useState('');
   const [newPlanDesc, setNewPlanDesc] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [customDate, setCustomDate] = useState(todayStr());
 
   // Get unresolved action items from last instance (for pending count)
   const unresolvedItems = useLiveQuery(
@@ -47,13 +49,15 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
 
   const isSacrament = meeting.name === 'Sacrament Meeting';
 
-  async function handleNewInstance() {
+  async function handleNewInstance(date) {
     if (creating) return;
     setCreating(true);
+    setShowDatePicker(false);
     try {
+      const instanceDate = date || todayStr();
       const newInstance = {
         meetingId: meeting.id,
-        date: todayStr(),
+        date: instanceDate,
         notes: '',
         actionItemIds: [],
         attendees: [],
@@ -81,7 +85,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           notes: '',
         };
       } else {
-        const autoAgenda = await buildAutoAgenda(meeting.id);
+        const autoAgenda = await buildAutoAgenda(meeting.id, instanceDate);
         newInstance.agendaItems = autoAgenda;
       }
 
@@ -414,19 +418,30 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
             <FileText size={14} className="text-primary-600" />
             Meeting History
           </h2>
-          <button
-            onClick={handleNewInstance}
-            disabled={creating}
-            className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
-          >
-            <Plus size={14} />
-            New Meeting
-            {pendingCount > 0 && (
-              <span className="ml-1 bg-indigo-100 text-indigo-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">
-                {pendingCount}
-              </span>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleNewInstance()}
+              disabled={creating}
+              className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
+            >
+              <Plus size={14} />
+              Today
+              {pendingCount > 0 && (
+                <span className="ml-1 bg-indigo-100 text-indigo-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => { setCustomDate(todayStr()); setShowDatePicker(true); }}
+              disabled={creating}
+              className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-primary-600"
+              title="Add meeting for a specific date"
+            >
+              <Calendar size={14} />
+              Other Date
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -438,14 +453,24 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           <div className="card text-center py-8 text-gray-400">
             <Calendar size={32} className="mx-auto mb-2 text-gray-300" />
             <p className="text-sm">No meetings recorded yet.</p>
-            <button
-              onClick={handleNewInstance}
-              disabled={creating}
-              className="btn-primary mt-3 text-sm"
-            >
-              <Plus size={14} className="inline mr-1" />
-              Start a Meeting
-            </button>
+            <div className="flex items-center justify-center gap-2 mt-3">
+              <button
+                onClick={() => handleNewInstance()}
+                disabled={creating}
+                className="btn-primary text-sm"
+              >
+                <Plus size={14} className="inline mr-1" />
+                Start Today
+              </button>
+              <button
+                onClick={() => { setCustomDate(todayStr()); setShowDatePicker(true); }}
+                disabled={creating}
+                className="btn-secondary text-sm"
+              >
+                <Calendar size={14} className="inline mr-1" />
+                Other Date
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-2">
@@ -539,6 +564,32 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           </div>
         </div>
       </Modal>
+
+      {/* Date picker modal for historical meetings */}
+      <Modal open={showDatePicker} onClose={() => setShowDatePicker(false)} title="Select Meeting Date" size="sm">
+        <div className="space-y-3">
+          <input
+            type="date"
+            value={customDate}
+            onChange={e => setCustomDate(e.target.value)}
+            className="input-field"
+            autoFocus
+          />
+          <p className="text-xs text-gray-400">
+            Select a date to record a past or future meeting. Carry-forward items from the most recent prior meeting will be auto-populated.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => handleNewInstance(customDate)}
+              disabled={!customDate || creating}
+              className="btn-primary flex-1"
+            >
+              Create Meeting
+            </button>
+            <button onClick={() => setShowDatePicker(false)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -547,6 +598,17 @@ function InstanceCard({ instance, onPress }) {
   const statusConfig = MEETING_STATUSES[instance.status] || MEETING_STATUSES.scheduled;
   const isCompleted = instance.status === 'completed';
   const StatusIcon = isCompleted ? CheckCircle2 : Clock;
+  const [editingDate, setEditingDate] = useState(false);
+  const [editDate, setEditDate] = useState(instance.date);
+
+  async function handleDateSave(e) {
+    e.stopPropagation();
+    if (editDate && editDate !== instance.date) {
+      await updateMeetingInstance(instance.id, { date: editDate });
+      instance.date = editDate;
+    }
+    setEditingDate(false);
+  }
 
   return (
     <div
@@ -558,9 +620,32 @@ function InstanceCard({ instance, onPress }) {
         className={isCompleted ? 'text-green-500 flex-shrink-0' : 'text-gray-400 flex-shrink-0'}
       />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900">
-          {formatMeetingDate(instance.date)}
-        </p>
+        {editingDate ? (
+          <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+            <input
+              type="date"
+              value={editDate}
+              onChange={e => setEditDate(e.target.value)}
+              className="text-sm border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary-300"
+              autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') handleDateSave(e); if (e.key === 'Escape') setEditingDate(false); }}
+            />
+            <button onClick={handleDateSave} className="text-primary-600 hover:text-primary-800">
+              <CheckCircle2 size={16} />
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm font-medium text-gray-900 group flex items-center gap-1.5">
+            {formatMeetingDate(instance.date)}
+            <button
+              onClick={e => { e.stopPropagation(); setEditingDate(true); }}
+              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-primary-600 transition-opacity"
+              title="Change date"
+            >
+              <Pencil size={12} />
+            </button>
+          </p>
+        )}
         <p className="text-xs text-gray-500">{statusConfig.label}</p>
       </div>
       {instance.actionItemIds?.length > 0 && (
