@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useMeetingInstances, useMeetingNoteTags, useOngoingTasks, useMinisteringPlans } from '../hooks/useDb';
 import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingWithInstances, addOngoingTask, addMinisteringPlan } from '../db';
-import { MEETING_CADENCES } from '../data/callings';
+import { MEETING_CADENCES, formatCadenceLabel, normalizeCadence } from '../data/callings';
 import { todayStr, formatMeetingDate } from '../utils/dates';
 import { MEETING_STATUSES } from '../utils/constants';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ArrowLeft, Calendar, Plus, Clock, CheckCircle2, ListChecks, FileText,
   ArrowUpRight, RotateCw, Pencil, Trash2, Target, Heart, ClipboardList,
+  Check, Save,
 } from 'lucide-react';
 import MeetingNotes from './MeetingNotes';
 import AddMeetingForm from './AddMeetingForm';
@@ -27,6 +28,9 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const [showAddTask, setShowAddTask] = useState(false);
   const [showAddPlan, setShowAddPlan] = useState(false);
   const [editingCadence, setEditingCadence] = useState(false);
+  const [cadenceSelection, setCadenceSelection] = useState([]);
+  const [editingAgenda, setEditingAgenda] = useState(false);
+  const [agendaEditItems, setAgendaEditItems] = useState([]);
   const [showAddPreMeetingTask, setShowAddPreMeetingTask] = useState(false);
   const [preMeetingTaskTitle, setPreMeetingTaskTitle] = useState('');
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -42,7 +46,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     [meeting.id]
   ) ?? [];
 
-  const cadenceLabel = MEETING_CADENCES[meeting.cadence] || meeting.cadence;
+  const cadenceLabel = formatCadenceLabel(meeting.cadence);
   const agendaTemplate = meeting.agendaTemplate || [];
   const pendingCount = pendingTags.length + unresolvedItems.length;
   const isCustom = meeting.source === 'custom';
@@ -106,6 +110,33 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     await updateMeeting(meeting.id, { cadence: newCadence });
     meeting.cadence = newCadence;
     setEditingCadence(false);
+  }
+
+  function startEditingCadence() {
+    setCadenceSelection(normalizeCadence(meeting.cadence));
+    setEditingCadence(true);
+  }
+
+  function toggleCadenceChip(key) {
+    setCadenceSelection(prev => {
+      if (prev.includes(key)) {
+        const next = prev.filter(c => c !== key);
+        return next.length > 0 ? next : prev;
+      }
+      return [...prev, key];
+    });
+  }
+
+  function startEditingAgenda() {
+    setAgendaEditItems([...(meeting.agendaTemplate || []), '']);
+    setEditingAgenda(true);
+  }
+
+  async function saveAgendaTemplate() {
+    const filtered = agendaEditItems.filter(a => a.trim());
+    await updateMeeting(meeting.id, { agendaTemplate: filtered });
+    meeting.agendaTemplate = filtered;
+    setEditingAgenda(false);
   }
 
   async function handleAddPreMeetingTask() {
@@ -181,20 +212,35 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
             )}
           </div>
           {editingCadence ? (
-            <select
-              value={meeting.cadence}
-              onChange={e => handleCadenceChange(e.target.value)}
-              onBlur={() => setEditingCadence(false)}
-              className="text-sm text-gray-600 mt-1 border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary-300"
-              autoFocus
-            >
-              {cadenceOptions.map(([key, label]) => (
-                <option key={key} value={key}>{label}</option>
-              ))}
-            </select>
+            <div className="mt-1.5">
+              <div className="flex flex-wrap gap-1">
+                {cadenceOptions.map(([key, label]) => {
+                  const selected = cadenceSelection.includes(key);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => toggleCadenceChip(key)}
+                      className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${
+                        selected
+                          ? 'bg-primary-100 border-primary-300 text-primary-700 font-medium'
+                          : 'bg-white border-gray-200 text-gray-400 hover:border-primary-200'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => handleCadenceChange(cadenceSelection)}
+                className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800 mt-1.5"
+              >
+                <Check size={12} /> Done
+              </button>
+            </div>
           ) : (
             <button
-              onClick={() => setEditingCadence(true)}
+              onClick={startEditingCadence}
               className="text-sm text-gray-500 mt-1 hover:text-primary-600 hover:underline transition-colors"
               title="Click to change frequency"
             >
@@ -393,12 +439,62 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       </div>
 
       {/* Agenda template */}
-      {agendaTemplate.length > 0 && (
-        <div className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
             <ListChecks size={14} className="text-primary-600" />
             Agenda Template
           </h2>
+          {editingAgenda ? (
+            <button
+              onClick={saveAgendaTemplate}
+              className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
+            >
+              <Save size={14} /> Save
+            </button>
+          ) : (
+            <button
+              onClick={startEditingAgenda}
+              className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-primary-600"
+            >
+              <Pencil size={12} /> Edit
+            </button>
+          )}
+        </div>
+        {editingAgenda ? (
+          <div className="space-y-2">
+            {agendaEditItems.map((item, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 w-4 text-right flex-shrink-0">{i + 1}.</span>
+                <input
+                  type="text"
+                  value={item}
+                  onChange={e => {
+                    const updated = [...agendaEditItems];
+                    updated[i] = e.target.value;
+                    setAgendaEditItems(updated);
+                  }}
+                  placeholder="Agenda item..."
+                  className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary-300"
+                />
+                {agendaEditItems.length > 1 && (
+                  <button
+                    onClick={() => setAgendaEditItems(prev => prev.filter((_, idx) => idx !== i))}
+                    className="p-1 text-gray-300 hover:text-red-400"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              onClick={() => setAgendaEditItems(prev => [...prev, ''])}
+              className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 font-medium mt-1"
+            >
+              <Plus size={12} /> Add item
+            </button>
+          </div>
+        ) : agendaTemplate.length > 0 ? (
           <div className="card">
             <ol className="space-y-1.5">
               {agendaTemplate.map((item, i) => (
@@ -409,8 +505,10 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
               ))}
             </ol>
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs text-gray-400">No agenda template. Tap Edit to add recurring agenda items.</p>
+        )}
+      </div>
 
       {/* Past instances */}
       <div className="mb-6">

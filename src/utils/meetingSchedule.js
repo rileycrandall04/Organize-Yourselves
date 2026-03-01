@@ -16,14 +16,33 @@ import {
   format,
   parseISO,
 } from 'date-fns';
+import { normalizeCadence } from '../data/callings';
 
 /**
  * Calculate the next meeting date based on cadence and last instance.
- * @param {string} cadence — One of the MEETING_CADENCES keys
+ * Supports both single cadence strings and arrays of cadences.
+ * @param {string|string[]} cadence — One or more MEETING_CADENCES keys
  * @param {string|null} lastInstanceDate — ISO date string of the last recorded instance
  * @returns {string|null} — YYYY-MM-DD of the next meeting, or null for 'as_needed'
  */
 export function getNextMeetingDate(cadence, lastInstanceDate) {
+  const cadences = normalizeCadence(cadence).filter(c => c && c !== 'as_needed');
+  if (cadences.length === 0) return null;
+
+  // Compute next date for each cadence, return the soonest
+  const dates = cadences
+    .map(c => getNextMeetingDateSingle(c, lastInstanceDate))
+    .filter(Boolean);
+
+  if (dates.length === 0) return null;
+  dates.sort();
+  return dates[0];
+}
+
+/**
+ * Calculate the next meeting date for a single cadence value.
+ */
+function getNextMeetingDateSingle(cadence, lastInstanceDate) {
   if (!cadence || cadence === 'as_needed') return null;
 
   const today = startOfDay(new Date());
@@ -62,9 +81,7 @@ export function getNextMeetingDate(cadence, lastInstanceDate) {
   }
 
   // If no last instance, the "next" from today is the first occurrence
-  // If the calculated date is in the past or today, roll forward
   if (!lastDate) {
-    // No history — show today as next meeting
     return formatDate(today);
   }
 

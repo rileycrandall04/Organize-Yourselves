@@ -12,7 +12,7 @@ import DashboardChat from './DashboardChat';
 import { updateActionItem } from '../db';
 import { formatFriendly, formatMeetingDate, todayStr, thisWeekRange } from '../utils/dates';
 import { isDateToday, isDateTomorrow } from '../utils/meetingSchedule';
-import { MEETING_CADENCES } from '../data/callings';
+import { formatCadenceLabel } from '../data/callings';
 import { useVisibility } from '../hooks/useVisibility';
 
 export default function Dashboard() {
@@ -283,7 +283,7 @@ function TodayMeetingCard({ meeting, onPress }) {
   }, [meeting.id]);
 
   const pendingCount = pendingData ?? 0;
-  const cadenceLabel = MEETING_CADENCES[meeting.cadence] || meeting.cadence;
+  const cadenceLabel = formatCadenceLabel(meeting.cadence);
 
   return (
     <div
@@ -323,7 +323,7 @@ function UpcomingMeetingCard({ meeting, onPress }) {
   }, [meeting.id]);
 
   const pendingCount = pendingData ?? 0;
-  const cadenceLabel = MEETING_CADENCES[meeting.cadence] || meeting.cadence;
+  const cadenceLabel = formatCadenceLabel(meeting.cadence);
   const dateLabel = meeting.nextDate ? formatFriendly(meeting.nextDate) : '';
 
   return (

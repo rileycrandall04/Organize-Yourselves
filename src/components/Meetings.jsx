@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useMeetings, useUserCallings } from '../hooks/useDb';
 import { addMeeting } from '../db';
-import { getCallingConfig, getCallingDisplayTitle, MEETING_CADENCES } from '../data/callings';
+import { getCallingConfig, getCallingDisplayTitle, formatCadenceLabel } from '../data/callings';
 import { Calendar, ChevronRight, Plus, Sparkles } from 'lucide-react';
 import MeetingDetail from './MeetingDetail';
 import AddMeetingForm from './AddMeetingForm';
@@ -140,7 +140,7 @@ export default function Meetings() {
 }
 
 function MeetingCard({ meeting, onPress, isCustom }) {
-  const cadenceLabel = MEETING_CADENCES[meeting.cadence] || meeting.cadence;
+  const cadenceLabel = formatCadenceLabel(meeting.cadence);
 
   return (
     <div

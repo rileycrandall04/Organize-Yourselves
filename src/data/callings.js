@@ -15,6 +15,36 @@ export const MEETING_CADENCES = {
   as_needed: 'As needed',
 };
 
+/** Normalize cadence to always be an array. Handles legacy string values. */
+export function normalizeCadence(cadence) {
+  if (!cadence) return ['monthly'];
+  if (Array.isArray(cadence)) return cadence;
+  return [cadence];
+}
+
+const SUNDAY_PREFIX = {
+  first_sunday: '1st',
+  second_sunday: '2nd',
+  third_sunday: '3rd',
+  fourth_sunday: '4th',
+};
+
+/** Format a cadence (string or array) into a human-readable label. */
+export function formatCadenceLabel(cadence) {
+  const arr = normalizeCadence(cadence);
+  if (arr.length === 1) return MEETING_CADENCES[arr[0]] || arr[0];
+
+  // Check if all are Sunday cadences — combine nicely
+  const allSunday = arr.every(c => c.endsWith('_sunday'));
+  if (allSunday) {
+    const prefixes = arr.map(c => SUNDAY_PREFIX[c]).filter(Boolean);
+    return prefixes.join(' & ') + ' Sunday';
+  }
+
+  // Mixed cadences — join labels
+  return arr.map(c => MEETING_CADENCES[c] || c).join(' + ');
+}
+
 export const ORGANIZATIONS = [
   { key: 'bishopric', label: 'Bishopric' },
   { key: 'elders_quorum', label: 'Elders Quorum' },

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useUserCallings, usePeople } from '../hooks/useDb';
-import { getCallingConfig, getCallingDisplayTitle, MEETING_CADENCES, ORGANIZATIONS } from '../data/callings';
+import { getCallingConfig, getCallingDisplayTitle, MEETING_CADENCES, ORGANIZATIONS, normalizeCadence } from '../data/callings';
 import { X, Plus, Trash2 } from 'lucide-react';
 
 const cadenceOptions = Object.entries(MEETING_CADENCES);
@@ -33,7 +33,7 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
 
   const [name, setName] = useState(editMeeting?.name || '');
   const [callingId, setCallingId] = useState(editMeeting?.callingId || '');
-  const [cadence, setCadence] = useState(editMeeting?.cadence || 'monthly');
+  const [cadence, setCadence] = useState(normalizeCadence(editMeeting?.cadence));
   const [reminderValue, setReminderValue] = useState(
     reminderDaysToValue(editMeeting?.reminderDays)
   );
@@ -165,15 +165,34 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
           {/* Cadence */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">Frequency</label>
-            <select
-              value={cadence}
-              onChange={e => setCadence(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300 bg-white"
-            >
-              {cadenceOptions.map(([key, label]) => (
-                <option key={key} value={key}>{label}</option>
-              ))}
-            </select>
+            <div className="flex flex-wrap gap-1.5">
+              {cadenceOptions.map(([key, label]) => {
+                const selected = cadence.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setCadence(prev => {
+                        if (selected) {
+                          const next = prev.filter(c => c !== key);
+                          return next.length > 0 ? next : prev; // keep at least one
+                        }
+                        return [...prev, key];
+                      });
+                    }}
+                    className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                      selected
+                        ? 'bg-primary-100 border-primary-300 text-primary-700 font-medium'
+                        : 'bg-white border-gray-200 text-gray-500 hover:border-primary-200 hover:text-primary-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">Tap multiple to combine (e.g., 1st & 3rd Sunday).</p>
           </div>
 
           {/* Reminder */}
