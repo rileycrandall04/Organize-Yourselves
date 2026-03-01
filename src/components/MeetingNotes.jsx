@@ -14,7 +14,7 @@ import {
   GripVertical, ListPlus, ChevronDown, Pencil,
 } from 'lucide-react';
 
-export default function MeetingNotes({ instance, meetingName, meetingId, onBack }) {
+export default function MeetingNotes({ instance, meetingName, meetingId, participants, onBack }) {
   const isSacrament = meetingName === 'Sacrament Meeting';
   const { update } = useMeetingInstances(instance.meetingId);
   const { tags: instanceTags, remove: removeTag } = useTagsFromInstance(instance.id);
@@ -577,6 +577,23 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
           </span>
         )}
       </div>
+
+      {/* Participants */}
+      {participants?.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Users2 size={12} className="text-gray-400" />
+            <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Participants</span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {participants.map((p, i) => (
+              <span key={i} className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                {p.name}{p.role ? ` (${p.role})` : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Sacrament Meeting Program */}
       {isSacrament && (

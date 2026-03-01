@@ -156,6 +156,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
         instance={activeInstance}
         meetingName={meeting.name}
         meetingId={meeting.id}
+        participants={meeting.participants}
         onBack={() => setActiveInstance(null)}
       />
     );
