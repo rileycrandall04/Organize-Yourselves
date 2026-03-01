@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useUserCallings } from '../hooks/useDb';
+import { useUserCallings, usePeople } from '../hooks/useDb';
 import { getCallingConfig, MEETING_CADENCES, ORGANIZATIONS } from '../data/callings';
 import { X, Plus, Trash2 } from 'lucide-react';
 
@@ -28,6 +28,7 @@ function valueToReminderDays(value) {
 
 export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
   const { callings } = useUserCallings();
+  const { people } = usePeople();
   const isEditing = !!editMeeting;
 
   const [name, setName] = useState(editMeeting?.name || '');
@@ -41,7 +42,29 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
       ? editMeeting.agendaTemplate.map(t => t)
       : ['']
   );
+  const [participants, setParticipants] = useState(editMeeting?.participants || []);
+  const [participantInput, setParticipantInput] = useState('');
+  const [showPeoplePicker, setShowPeoplePicker] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  function addParticipantFromPerson(person) {
+    if (participants.some(p => p.personId === person.id)) return;
+    setParticipants(prev => [...prev, { personId: person.id, name: person.name, role: '' }]);
+    setParticipantInput('');
+    setShowPeoplePicker(false);
+  }
+
+  function addFreeTextParticipant() {
+    if (!participantInput.trim()) return;
+    if (participants.some(p => p.name.toLowerCase() === participantInput.trim().toLowerCase())) return;
+    setParticipants(prev => [...prev, { personId: null, name: participantInput.trim(), role: '' }]);
+    setParticipantInput('');
+    setShowPeoplePicker(false);
+  }
+
+  function removeParticipant(index) {
+    setParticipants(prev => prev.filter((_, i) => i !== index));
+  }
 
   function handleAddAgendaItem() {
     setAgendaItems([...agendaItems, '']);
@@ -68,6 +91,7 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
         cadence,
         reminderDays: valueToReminderDays(reminderValue),
         agendaTemplate: agendaItems.filter(a => a.trim()),
+        participants,
         source: 'custom',
       };
       if (isEditing) {
@@ -167,6 +191,71 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
             <p className="text-[10px] text-gray-400 mt-1">
               Default: weekly/biweekly = 1 day, monthly = 1 week, quarterly+ = 1 month + 1 week
             </p>
+          </div>
+
+          {/* Participants */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Participants <span className="font-normal text-gray-400">(optional)</span>
+            </label>
+            {participants.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {participants.map((p, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-primary-50 text-primary-700 text-xs rounded-full"
+                  >
+                    {p.name}
+                    <button
+                      type="button"
+                      onClick={() => removeParticipant(i)}
+                      className="text-primary-400 hover:text-red-500"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="relative">
+              <input
+                type="text"
+                value={participantInput}
+                onChange={e => {
+                  setParticipantInput(e.target.value);
+                  setShowPeoplePicker(e.target.value.length >= 2);
+                }}
+                onFocus={() => { if (participantInput.length >= 2) setShowPeoplePicker(true); }}
+                onBlur={() => setTimeout(() => setShowPeoplePicker(false), 150)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addFreeTextParticipant(); } }}
+                placeholder="Type a name..."
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
+              />
+              {showPeoplePicker && (() => {
+                const q = participantInput.toLowerCase();
+                const matches = people.filter(p =>
+                  p.name.toLowerCase().includes(q) &&
+                  !participants.some(pp => pp.personId === p.id)
+                );
+                if (matches.length === 0) return null;
+                return (
+                  <div className="absolute z-20 left-0 right-0 mt-1 max-h-32 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
+                    {matches.slice(0, 8).map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => addParticipantFromPerson(p)}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-primary-50 border-b border-gray-100 last:border-0"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">Type a name and press Enter, or select from the dropdown.</p>
           </div>
 
           {/* Agenda Template */}

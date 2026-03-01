@@ -439,6 +439,20 @@ export async function buildAutoAgenda(meetingId) {
     source: 'template',
   }));
 
+  // 1b. Inject pre-meeting tasks (added by user before starting the meeting)
+  if (meeting.pendingAgendaItems?.length > 0) {
+    for (const item of meeting.pendingAgendaItems) {
+      agendaItems.push({
+        label: item.label,
+        notes: item.notes || '',
+        source: 'pre_meeting',
+      });
+    }
+    // Clear pre-meeting tasks after consumption
+    await db.meetings.update(meetingId, { pendingAgendaItems: [] });
+    syncAfterWrite('meetings', meetingId, await db.meetings.get(meetingId));
+  }
+
   // 2. Get unresolved action items from last instance
   const unresolved = await getUnresolvedActionItems(meetingId);
   if (unresolved.length > 0) {
@@ -553,6 +567,30 @@ export async function buildAutoAgenda(meetingId) {
 
     for (let i = callingItems.length - 1; i >= 0; i--) {
       agendaItems.splice(insertAt, 0, callingItems[i]);
+    }
+  }
+
+  // 7. Get action items assigned to this meeting (via targetMeetingIds)
+  const allActions = await db.actionItems.toArray();
+  const assignedActions = allActions.filter(a =>
+    a.status !== 'complete' &&
+    a.targetMeetingIds?.includes(meetingId)
+  );
+  if (assignedActions.length > 0) {
+    const closingIdx3 = agendaItems.findIndex(
+      a => a.label.toLowerCase().includes('closing prayer')
+    );
+    const insertAt = closingIdx3 >= 0 ? closingIdx3 : agendaItems.length;
+
+    for (let i = assignedActions.length - 1; i >= 0; i--) {
+      const action = assignedActions[i];
+      const assignee = action.assignedTo?.name ? ` (${action.assignedTo.name})` : '';
+      agendaItems.splice(insertAt, 0, {
+        label: `[Action Item] ${action.title}${assignee}`,
+        notes: action.description || '',
+        source: 'assigned_action_item',
+        actionItemId: action.id,
+      });
     }
   }
 
@@ -681,7 +719,54 @@ export async function addCallingSlot(slot) {
 }
 
 export async function updateCallingSlot(id, changes) {
-  await db.callingSlots.update(id, { ...changes, updatedAt: new Date().toISOString() });
+  // Strip undefined values — Dexie ignores undefined, so clearing fields wouldn't save
+  const sanitized = {};
+  for (const [key, val] of Object.entries(changes)) {
+    if (val !== undefined) sanitized[key] = val;
+  }
+  sanitized.updatedAt = new Date().toISOString();
+
+  // Stage-aware side-effects when stage changes via form edit
+  if (sanitized.stage) {
+    const slot = await db.callingSlots.get(id);
+    if (slot && slot.stage !== sanitized.stage) {
+      if (sanitized.stage === 'serving') {
+        sanitized.isOpen = false;
+        sanitized.currentCount = Math.max((slot.currentCount || 0), 1);
+        if (!slot.servedBy && !sanitized.servedBy) {
+          sanitized.servedBy = sanitized.candidateName || slot.candidateName || '';
+          sanitized.servedByPersonId = sanitized.personId || slot.personId || null;
+        }
+        if (!slot.servingSince && !sanitized.servingSince) {
+          sanitized.servingSince = new Date().toISOString();
+        }
+      } else if (sanitized.stage === 'released') {
+        sanitized.isOpen = true;
+        sanitized.servedBy = null;
+        sanitized.servedByPersonId = null;
+        sanitized.servingSince = null;
+        sanitized.candidateName = '';
+        sanitized.personId = null;
+        sanitized.currentCount = Math.max(0, (slot.currentCount || 1) - 1);
+      }
+    }
+  }
+
+  // Clean up stale pipeline action items when stage is manually skipped
+  if (sanitized.stage) {
+    const slot = await db.callingSlots.get(id);
+    if (slot && slot.stage !== sanitized.stage) {
+      const staleActions = await db.actionItems
+        .filter(a => a.callingSlotId === id && a.status !== 'complete')
+        .toArray();
+      for (const action of staleActions) {
+        await db.actionItems.delete(action.id);
+        syncAfterDelete('actionItems', action.id);
+      }
+    }
+  }
+
+  await db.callingSlots.update(id, sanitized);
   const updated = await db.callingSlots.get(id);
   if (updated) syncAfterWrite('callingSlots', id, updated);
 }
@@ -732,7 +817,7 @@ export async function transitionCallingSlot(id, newStage, note = '', extraUpdate
   // Auto-generate action items for this transition
   const autoActions = getAutoActionsForTransition(newStage, { ...slot, ...updates });
   for (const action of autoActions) {
-    await addActionItem(action);
+    await addActionItem({ ...action, callingSlotId: id, pipelineStage: newStage });
   }
 
   return { autoActionCount: autoActions.length, hasCurrentHolder: !!slot.servedBy };
@@ -1099,8 +1184,11 @@ function extractSubtreeForScope(jurisdiction) {
 
 // ── Open Positions ──────────────────────────────────────────
 
-export async function getOpenPositions(orgFilter) {
+export async function getOpenPositions(orgFilter, jurisdiction) {
   let all = await db.callingSlots.toArray();
+  if (jurisdiction) {
+    all = filterSlotsByJurisdiction(all, jurisdiction);
+  }
   if (orgFilter) {
     all = all.filter(s => s.organization === orgFilter);
   }

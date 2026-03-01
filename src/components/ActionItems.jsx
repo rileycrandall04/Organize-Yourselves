@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useActionItems } from '../hooks/useDb';
+import { useActionItems, usePeople } from '../hooks/useDb';
 import { ACTION_VIEWS, CONTEXT_LIST, STATUSES } from '../utils/constants';
 import { todayStr, thisWeekRange, isOverdue } from '../utils/dates';
 import ActionItemRow from './shared/ActionItemRow';
@@ -30,6 +30,31 @@ export default function ActionItems() {
   }, [view]);
 
   const { items, loading, add, update, remove } = useActionItems(filters);
+  const { people } = usePeople();
+
+  // Build a phone lookup map from assignedTo person IDs
+  const phoneMap = useMemo(() => {
+    const map = {};
+    for (const p of people) {
+      if (p.phone) map[p.id] = p.phone;
+    }
+    return map;
+  }, [people]);
+
+  function getPhoneForItem(item) {
+    // Check assignedTo person
+    if (item.assignedTo?.id && phoneMap[item.assignedTo.id]) {
+      return phoneMap[item.assignedTo.id];
+    }
+    // Try to match name from title against people
+    const titleLower = item.title.toLowerCase();
+    for (const p of people) {
+      if (p.phone && titleLower.includes(p.name.toLowerCase())) {
+        return p.phone;
+      }
+    }
+    return null;
+  }
 
   // Apply local search and status filter on top of DB results
   const filtered = useMemo(() => {
@@ -216,6 +241,7 @@ export default function ActionItems() {
                       onToggleStatus={handleToggleStatus}
                       onToggleStar={handleToggleStar}
                       onPress={handlePress}
+                      phoneForPerson={getPhoneForItem(item)}
                     />
                   ))}
                 </div>
@@ -234,6 +260,7 @@ export default function ActionItems() {
               onToggleStatus={handleToggleStatus}
               onToggleStar={handleToggleStar}
               onPress={handlePress}
+              phoneForPerson={getPhoneForItem(item)}
             />
           ))}
         </div>

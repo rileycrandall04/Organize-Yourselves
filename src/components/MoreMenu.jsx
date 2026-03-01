@@ -27,7 +27,7 @@ export default function MoreMenu() {
         <MenuItem icon={Settings} label="Settings" subtitle="Backup, restore, and manage data" onPress={() => navigate('/settings')} />
       </div>
 
-      <p className="text-xs text-gray-300 text-center mt-8">Organize Yourselves v0.8.0</p>
+      <p className="text-xs text-gray-300 text-center mt-8">Organize Yourselves v0.9.0</p>
     </div>
   );
 }

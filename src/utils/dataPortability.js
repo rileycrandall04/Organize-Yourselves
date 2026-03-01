@@ -3,7 +3,7 @@ import db from '../db';
 // ── Constants ────────────────────────────────────────────────
 
 const APP_NAME = 'Organize Yourselves';
-const CURRENT_APP_VERSION = '0.8.0';
+const CURRENT_APP_VERSION = '0.9.0';
 const CURRENT_SCHEMA_VERSION = 6;
 
 const ALL_TABLES = [

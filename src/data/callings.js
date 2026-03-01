@@ -736,3 +736,50 @@ export const JURISDICTION_MAP = {
   temple_fh_leader:    { orgs: ['temple_fh'], scope: 'org' },
 };
 
+// ── Predictive text helpers ───────────────────────────────
+
+// Flat list of all known role names from ORG_TEMPLATES
+export const ALL_ROLE_NAMES = (() => {
+  const names = new Set();
+  for (const [, tmpl] of Object.entries(ORG_TEMPLATES)) {
+    names.add(tmpl.root);
+    for (const child of tmpl.children) {
+      names.add(child.roleName);
+    }
+  }
+  // Add bishopric and other non-template roles
+  names.add('Bishop');
+  names.add('1st Counselor');
+  names.add('2nd Counselor');
+  names.add('Ward Clerk');
+  names.add('Executive Secretary');
+  names.add('Financial Clerk');
+  return [...names].sort();
+})();
+
+// Given a roleName and optionally an organization, return the default presiding officer
+export function getPresidingOfficerForRole(roleName, organization) {
+  if (!roleName) return '';
+  const lower = roleName.toLowerCase();
+
+  // Bishopric members report to Bishop
+  if (lower.includes('counselor') && organization === 'bishopric') return 'Bishop';
+  if (lower.includes('clerk') || lower.includes('secretary')) {
+    if (organization === 'bishopric') return 'Bishop';
+  }
+
+  // Org-level: children report to org president
+  if (organization && ORG_TEMPLATES[organization]) {
+    const root = ORG_TEMPLATES[organization].root;
+    const children = ORG_TEMPLATES[organization].children.map(c => c.roleName.toLowerCase());
+    if (children.some(c => c === lower)) return root;
+  }
+
+  // Organization presidents report to Bishop
+  for (const [, tmpl] of Object.entries(ORG_TEMPLATES)) {
+    if (tmpl.root.toLowerCase() === lower) return 'Bishop';
+  }
+
+  return '';
+}
+

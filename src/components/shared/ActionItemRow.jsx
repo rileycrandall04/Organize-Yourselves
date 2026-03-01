@@ -1,6 +1,9 @@
-import { Star, CheckCircle2, Circle, Clock, Pause } from 'lucide-react';
+import { Star, CheckCircle2, Circle, Clock, Pause, Phone, MessageSquare } from 'lucide-react';
 import PriorityBadge from './PriorityBadge';
 import { formatFriendly, isOverdue } from '../../utils/dates';
+
+const CALL_REGEX = /\b(call|phone)\b/i;
+const TEXT_REGEX = /\b(text|sms|message)\b/i;
 
 const STATUS_ICONS = {
   not_started: Circle,
@@ -9,10 +12,15 @@ const STATUS_ICONS = {
   complete: CheckCircle2,
 };
 
-export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPress }) {
+export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPress, phoneForPerson }) {
   const StatusIcon = STATUS_ICONS[item.status] || Circle;
   const overdue = item.status !== 'complete' && isOverdue(item.dueDate);
   const isComplete = item.status === 'complete';
+
+  // Phone/text link detection
+  const isCallItem = CALL_REGEX.test(item.title);
+  const isTextItem = TEXT_REGEX.test(item.title);
+  const phoneNumber = phoneForPerson || item.phoneNumber || null;
 
   function handleStatusTap(e) {
     e.stopPropagation();
@@ -20,6 +28,13 @@ export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPr
       // Cycle: not_started → in_progress → complete
       const next = isComplete ? 'not_started' : item.status === 'in_progress' ? 'complete' : 'in_progress';
       onToggleStatus(item.id, next);
+    }
+  }
+
+  function handleQuickComplete(e) {
+    e.stopPropagation();
+    if (onToggleStatus) {
+      onToggleStatus(item.id, 'complete');
     }
   }
 
@@ -59,19 +74,59 @@ export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPr
           )}
         </div>
 
-        {(item.priority || item.dueDate) && (
-          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-            {item.priority && item.priority !== 'low' && (
-              <PriorityBadge priority={item.priority} />
-            )}
-            {item.dueDate && (
-              <span className={`text-[11px] ${overdue ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
-                {formatFriendly(item.dueDate)}
-              </span>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          {item.priority && item.priority !== 'low' && (
+            <PriorityBadge priority={item.priority} />
+          )}
+          {item.assignedTo?.name && (
+            <span className="text-[10px] text-primary-600 bg-primary-50 px-1 py-0.5 rounded">
+              {item.assignedTo.name}
+            </span>
+          )}
+          {item.dueDate && (
+            <span className={`text-[11px] ${overdue ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+              {formatFriendly(item.dueDate)}
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Phone/text links */}
+      {!isComplete && phoneNumber && (isCallItem || isTextItem) && (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {isCallItem && (
+            <a
+              href={`tel:${phoneNumber}`}
+              onClick={e => e.stopPropagation()}
+              className="p-1 rounded-lg text-green-600 hover:bg-green-50"
+              title={`Call ${phoneNumber}`}
+            >
+              <Phone size={14} />
+            </a>
+          )}
+          {isTextItem && (
+            <a
+              href={`sms:${phoneNumber}`}
+              onClick={e => e.stopPropagation()}
+              className="p-1 rounded-lg text-blue-600 hover:bg-blue-50"
+              title={`Text ${phoneNumber}`}
+            >
+              <MessageSquare size={14} />
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Quick complete button */}
+      {!isComplete && (
+        <button
+          onClick={handleQuickComplete}
+          className="flex-shrink-0 p-1 rounded-lg text-gray-300 hover:text-green-500 hover:bg-green-50 transition-colors"
+          title="Mark complete"
+        >
+          <CheckCircle2 size={16} />
+        </button>
+      )}
 
       {/* Star toggle */}
       <button onClick={handleStarTap} className="flex-shrink-0">

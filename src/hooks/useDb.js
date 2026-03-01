@@ -310,10 +310,10 @@ export function useOrgTree() {
 
 // ── Phase 4: Open Positions & Service Alerts ────────────────
 
-export function useOpenPositions(orgFilter) {
+export function useOpenPositions(orgFilter, jurisdiction) {
   const positions = useLiveQuery(
-    () => getOpenPositions(orgFilter),
-    [orgFilter]
+    () => getOpenPositions(orgFilter, jurisdiction),
+    [orgFilter, jurisdiction]
   );
   return {
     positions: positions ?? [],
