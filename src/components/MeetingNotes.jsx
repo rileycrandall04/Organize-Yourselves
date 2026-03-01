@@ -27,6 +27,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const [actionTitle, setActionTitle] = useState('');
   const [actionItemIds, setActionItemIds] = useState(instance.actionItemIds || []);
   const [showPriorTasks, setShowPriorTasks] = useState(false);
+  const [newAgendaLabel, setNewAgendaLabel] = useState('');
 
   // Focus Families state
   const [focusFamilies, setFocusFamilies] = useState(instance.focusFamilies || []);
@@ -329,7 +330,19 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     });
   }
 
-  // --- Add Prior Tasks ---
+  // --- Add Agenda Items ---
+
+  function handleAddAgendaItem() {
+    if (!newAgendaLabel.trim()) return;
+    setAgendaItems(prev => [...prev, { label: newAgendaLabel.trim(), notes: '', source: 'manual' }]);
+    setNewAgendaLabel('');
+    setDirty(true);
+  }
+
+  function handleRemoveAgendaItem(index) {
+    setAgendaItems(prev => prev.filter((_, i) => i !== index));
+    setDirty(true);
+  }
 
   function handleAddPriorItems(items) {
     setAgendaItems(prev => [...prev, ...items]);
@@ -611,13 +624,15 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
               Agenda
             </h2>
             {!isCompleted && (
-              <button
-                onClick={() => setShowPriorTasks(true)}
-                className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
-              >
-                <ListPlus size={14} />
-                Add Prior Tasks
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowPriorTasks(true)}
+                  className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-primary-600"
+                >
+                  <ListPlus size={14} />
+                  Prior
+                </button>
+              </div>
             )}
           </div>
           <div className="space-y-1.5">
@@ -710,6 +725,11 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
                                 <ArrowUpRight size={10} /> Tag
                               </button>
                             )}
+                            {!isCompleted && (
+                              <button onClick={e => { e.stopPropagation(); handleRemoveAgendaItem(i); }} className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-red-500">
+                                <Trash2 size={10} /> Remove
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -719,17 +739,58 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
               );
             })}
           </div>
+          {/* Inline add new agenda item */}
+          {!isCompleted && (
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="text"
+                value={newAgendaLabel}
+                onChange={e => setNewAgendaLabel(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleAddAgendaItem(); }}
+                placeholder="Add discussion item..."
+                className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary-300 placeholder:text-gray-300"
+              />
+              <button
+                onClick={handleAddAgendaItem}
+                disabled={!newAgendaLabel.trim()}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 disabled:opacity-30 disabled:hover:text-primary-600"
+              >
+                <Plus size={14} /> Add
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Add Prior Tasks button when no agenda items */}
+      {/* Add items when no agenda items exist */}
       {!isSacrament && agendaItems.length === 0 && !isCompleted && (
         <div className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
+            <FileText size={14} className="text-primary-600" />
+            Agenda
+          </h2>
+          <div className="flex items-center gap-2 mb-2">
+            <input
+              type="text"
+              value={newAgendaLabel}
+              onChange={e => setNewAgendaLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddAgendaItem(); }}
+              placeholder="Add discussion item..."
+              className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary-300 placeholder:text-gray-300"
+            />
+            <button
+              onClick={handleAddAgendaItem}
+              disabled={!newAgendaLabel.trim()}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 disabled:opacity-30 disabled:hover:text-primary-600"
+            >
+              <Plus size={14} /> Add
+            </button>
+          </div>
           <button
             onClick={() => setShowPriorTasks(true)}
-            className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:text-primary-600 hover:border-primary-200 transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-xs text-gray-400 hover:text-primary-600 hover:border-primary-200 transition-colors"
           >
-            <ListPlus size={16} /> Add Prior Tasks
+            <ListPlus size={14} /> Add Prior Tasks
           </button>
         </div>
       )}
