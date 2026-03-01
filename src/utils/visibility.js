@@ -1,4 +1,4 @@
-import { JURISDICTION_MAP } from '../data/callings';
+import { JURISDICTION_MAP, isCustomCalling } from '../data/callings';
 
 // Determine what the user can see/edit based on their callings
 export function getJurisdiction(userCallings) {
@@ -11,6 +11,15 @@ export function getJurisdiction(userCallings) {
   const visibleOrgs = new Set();
 
   for (const uc of userCallings) {
+    // Custom callings get ward-level scope so they can manage all orgs
+    if (isCustomCalling(uc.callingKey)) {
+      if (scopePriority['ward'] > scopePriority[bestScope]) {
+        bestScope = 'ward';
+      }
+      visibleOrgs.add('*');
+      continue;
+    }
+
     const jurisdiction = JURISDICTION_MAP[uc.callingKey];
     if (!jurisdiction) continue;
 
@@ -162,7 +171,7 @@ export function getHighestRole(userCallings) {
   let highestPriority = -1;
 
   for (const uc of userCallings) {
-    const p = rolePriority[uc.callingKey] || 0;
+    const p = rolePriority[uc.callingKey] || (isCustomCalling(uc.callingKey) ? 1 : 0);
     if (p > highestPriority) {
       highestPriority = p;
       highest = uc;
