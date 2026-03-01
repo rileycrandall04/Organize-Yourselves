@@ -7,6 +7,7 @@ import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, C
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { dismissBackupReminder } from '../db';
 import ActionItemRow from './shared/ActionItemRow';
+import DashboardChat from './DashboardChat';
 import { updateActionItem } from '../db';
 import { formatFriendly, formatMeetingDate, todayStr, thisWeekRange } from '../utils/dates';
 
@@ -92,6 +93,9 @@ export default function Dashboard() {
 
       {/* Quick Capture */}
       <QuickCapture onAdd={addInboxItem} />
+
+      {/* AI Agent */}
+      <DashboardChat />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 gap-3 mb-6">

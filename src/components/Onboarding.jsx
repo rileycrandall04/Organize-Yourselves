@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useProfile, useUserCallings } from '../hooks/useDb';
 import { getCallingList, getCallingConfig, getOrgLabel } from '../data/callings';
 import { ORGANIZATIONS } from '../data/callings';
-import { addMeeting, addResponsibility, initializeOrgChartForRole } from '../db';
+import { addMeeting, addResponsibility, initializeOrgChartForRole, autoPopulateUserSlot } from '../db';
 
 export default function Onboarding() {
   const { save: saveProfile } = useProfile();
@@ -67,8 +67,12 @@ export default function Onboarding() {
           }
         }
       }
-      // Auto-initialize org chart scoped to the user's highest-priority calling
-      await initializeOrgChartForRole(selectedCallings[0]);
+      // Auto-initialize org chart for each selected calling
+      for (const key of selectedCallings) {
+        await initializeOrgChartForRole(key);
+        // Auto-populate user into their own calling slot
+        await autoPopulateUserSlot(key, name.trim());
+      }
     } catch (err) {
       console.error('Onboarding error:', err);
       setSaving(false);

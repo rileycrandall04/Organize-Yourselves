@@ -34,33 +34,27 @@ export function getJurisdiction(userCallings) {
   };
 }
 
-// Filter org tree by jurisdiction — only show the user's subtree
+// Filter org tree by jurisdiction — only show the user's org subtrees
+// Promotes matching subtrees to root level so non-matching parents don't create phantom org groups
 export function filterTreeByJurisdiction(tree, jurisdiction) {
   if (!jurisdiction || !jurisdiction.canEdit) return [];
   if (jurisdiction.visibleOrgs.includes('*')) return tree;
 
-  function nodeMatchesOrg(node) {
-    return jurisdiction.visibleOrgs.includes(node.organization);
-  }
-
-  function filterNode(node) {
-    // If this node's org matches, include it and all children
-    if (nodeMatchesOrg(node)) {
-      return { ...node };
-    }
-    // Otherwise, check if any children match — if so, include this as a structural parent
-    if (node.children && node.children.length > 0) {
-      const filteredChildren = node.children
-        .map(filterNode)
-        .filter(Boolean);
-      if (filteredChildren.length > 0) {
-        return { ...node, children: filteredChildren };
+  function collectMatchingSubtrees(nodes) {
+    const result = [];
+    for (const node of nodes) {
+      if (jurisdiction.visibleOrgs.includes(node.organization)) {
+        // This node's org matches — include it and all its children
+        result.push({ ...node });
+      } else if (node.children && node.children.length > 0) {
+        // This node doesn't match, but check if children match
+        result.push(...collectMatchingSubtrees(node.children));
       }
     }
-    return null;
+    return result;
   }
 
-  return tree.map(filterNode).filter(Boolean);
+  return collectMatchingSubtrees(tree);
 }
 
 // Determine which nodes should auto-expand vs collapse
