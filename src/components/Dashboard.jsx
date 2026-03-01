@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProfile, useDashboardStats, useInbox, useActionItems, useMeetings, useUserCallings, usePipelineSummary, useMeetingNoteTags, useMinisteringSummary } from '../hooks/useDb';
+import { useProfile, useDashboardStats, useInbox, useActionItems, useUpcomingMeetings, useUserCallings, usePipelineSummary, useMeetingNoteTags, useMinisteringSummary } from '../hooks/useDb';
 import { getTagsForMeeting, getUnresolvedActionItems } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X, Heart, Users } from 'lucide-react';
+import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X, Heart, Users, Play } from 'lucide-react';
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { dismissBackupReminder } from '../db';
 import ActionItemRow from './shared/ActionItemRow';
 import DashboardChat from './DashboardChat';
 import { updateActionItem } from '../db';
 import { formatFriendly, formatMeetingDate, todayStr, thisWeekRange } from '../utils/dates';
+import { isDateToday, isDateTomorrow } from '../utils/meetingSchedule';
+import { MEETING_CADENCES } from '../data/callings';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -18,8 +20,12 @@ export default function Dashboard() {
   const { add: addInboxItem } = useInbox();
   const { items: focusItems, update: updateAction } = useActionItems({ excludeComplete: true });
   const { callings } = useUserCallings();
-  const { meetings } = useMeetings();
+  const { meetings: upcomingMeetings } = useUpcomingMeetings();
   const { summary: pipelineSummary } = usePipelineSummary();
+
+  // Split meetings into today's and upcoming
+  const todaysMeetings = upcomingMeetings.filter(m => isDateToday(m.nextDate));
+  const futureMeetings = upcomingMeetings.filter(m => m.nextDate && !isDateToday(m.nextDate));
   const { summary: ministeringSummary } = useMinisteringSummary();
   const { daysSinceExport, shouldShowReminder } = useLastExportDate();
 
@@ -131,21 +137,43 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Upcoming Meetings */}
-      {meetings.length > 0 && (
+      {/* Today's Meetings */}
+      {todaysMeetings.length > 0 && (
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-              <Calendar size={14} className="text-primary-600" />
-              Your Meetings
+              <Calendar size={14} className="text-indigo-600" />
+              Today's Meetings
             </h2>
             <button onClick={() => navigate('/meetings')} className="text-xs text-primary-600 flex items-center gap-0.5">
               View all <ChevronRight size={12} />
             </button>
           </div>
           <div className="space-y-2">
-            {meetings.slice(0, 4).map(meeting => (
-              <MeetingCardWithPrep key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings')} />
+            {todaysMeetings.map(meeting => (
+              <TodayMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings')} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Next Up / Upcoming Meetings */}
+      {futureMeetings.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+              <Calendar size={14} className="text-primary-600" />
+              {todaysMeetings.length > 0 ? 'Coming Up' : 'Upcoming Meetings'}
+            </h2>
+            {todaysMeetings.length === 0 && (
+              <button onClick={() => navigate('/meetings')} className="text-xs text-primary-600 flex items-center gap-0.5">
+                View all <ChevronRight size={12} />
+              </button>
+            )}
+          </div>
+          <div className="space-y-2">
+            {futureMeetings.slice(0, 4).map(meeting => (
+              <UpcomingMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings')} />
             ))}
           </div>
         </div>
@@ -230,7 +258,7 @@ export default function Dashboard() {
       )}
 
       {/* Empty state when no focus items or meetings */}
-      {focus.length === 0 && meetings.length === 0 && (
+      {focus.length === 0 && upcomingMeetings.length === 0 && (
         <div className="card text-center text-gray-400 py-8">
           <CheckSquare size={32} className="mx-auto mb-2 text-gray-300" />
           <p className="text-sm">No focus items yet. Star or set action items to high priority and they'll show up here.</p>
@@ -240,10 +268,9 @@ export default function Dashboard() {
   );
 }
 
-// ── Meeting Card with Prep Indicator ────────────────────────
+// ── Today's Meeting Card (prominent, with Start button) ─────
 
-function MeetingCardWithPrep({ meeting, onPress }) {
-  // Check for pending prep items (tags + carry-forward)
+function TodayMeetingCard({ meeting, onPress }) {
   const pendingData = useLiveQuery(async () => {
     const tags = await getTagsForMeeting(meeting.id);
     const unresolved = await getUnresolvedActionItems(meeting.id);
@@ -251,6 +278,48 @@ function MeetingCardWithPrep({ meeting, onPress }) {
   }, [meeting.id]);
 
   const pendingCount = pendingData ?? 0;
+  const cadenceLabel = MEETING_CADENCES[meeting.cadence] || meeting.cadence;
+
+  return (
+    <div
+      onClick={onPress}
+      className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 cursor-pointer hover:border-indigo-300 transition-colors"
+    >
+      <div className="flex items-center gap-3">
+        <div className="p-2 rounded-lg bg-indigo-100">
+          <Calendar size={16} className="text-indigo-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-indigo-900 truncate">{meeting.name}</p>
+          <p className="text-xs text-indigo-600">{cadenceLabel}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {pendingCount > 0 && (
+            <span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded-full font-medium">
+              {pendingCount} prep
+            </span>
+          )}
+          <div className="p-1.5 rounded-lg bg-indigo-600 text-white">
+            <Play size={12} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Upcoming Meeting Card (with calculated next date) ───────
+
+function UpcomingMeetingCard({ meeting, onPress }) {
+  const pendingData = useLiveQuery(async () => {
+    const tags = await getTagsForMeeting(meeting.id);
+    const unresolved = await getUnresolvedActionItems(meeting.id);
+    return tags.length + unresolved.length;
+  }, [meeting.id]);
+
+  const pendingCount = pendingData ?? 0;
+  const cadenceLabel = MEETING_CADENCES[meeting.cadence] || meeting.cadence;
+  const dateLabel = meeting.nextDate ? formatFriendly(meeting.nextDate) : '';
 
   return (
     <div
@@ -262,11 +331,14 @@ function MeetingCardWithPrep({ meeting, onPress }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900 truncate">{meeting.name}</p>
-        <p className="text-xs text-gray-500">{meeting.cadence}</p>
+        <p className="text-xs text-gray-500">
+          {cadenceLabel}
+          {dateLabel && <span className="text-primary-600"> · {dateLabel}</span>}
+        </p>
       </div>
       {pendingCount > 0 && (
         <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
-          {pendingCount} pending
+          {pendingCount} prep
         </span>
       )}
     </div>

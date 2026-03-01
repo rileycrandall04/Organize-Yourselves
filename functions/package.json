@@ -1,0 +1,12 @@
+{
+  "name": "organize-yourselves-functions",
+  "description": "Cloud Functions for Organize Yourselves meeting reminders",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0"
+  }
+}
