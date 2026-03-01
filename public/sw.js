@@ -13,13 +13,13 @@
 
 const CACHE_NAME = 'organize-yourselves-v1';
 
-// Core app shell files to precache on install
+// Core app shell files to precache on install (relative to SW scope)
 const APP_SHELL = [
-  '/',
-  '/manifest.json',
-  '/icon.svg',
-  '/icon-192.png',
-  '/icon-512.png',
+  './',
+  './manifest.json',
+  './icon.svg',
+  './icon-192.png',
+  './icon-512.png',
 ];
 
 // --- Install: precache app shell ---
@@ -90,7 +90,9 @@ async function networkFirst(request) {
     if (cached) return cached;
 
     // For navigation, try to serve the cached index page
-    const fallback = await caches.match('/');
+    // Use self.registration.scope to handle GitHub Pages base path
+    const scope = self.registration ? self.registration.scope : self.location.origin + '/';
+    const fallback = await caches.match(scope);
     if (fallback) return fallback;
 
     return new Response('Offline — please reconnect and try again.', {
