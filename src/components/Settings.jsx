@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useProfile, useUserCallings } from '../hooks/useDb';
 import { useDataStats, useLastExportDate } from '../hooks/useDataPortability';
 import { getCallingConfig, getCallingList, ORGANIZATIONS, ORG_PRESIDENT_MAP, getOrgLabel } from '../data/callings';
-import { addMeeting, addResponsibility, updateLastExportDate, syncAssignmentMeetings, updateCallingAssignments, saveProfile as saveProfileDb, initializeOrgChartForRole } from '../db';
+import { addMeeting, addResponsibility, updateLastExportDate, syncAssignmentMeetings, updateCallingAssignments, saveProfile as saveProfileDb, initializeOrgChartForRole, autoPopulateUserSlot } from '../db';
 import db from '../db';
 import {
   exportAllData, downloadJsonFile, getExportFilename,
@@ -110,10 +110,11 @@ export default function Settings({ onBack }) {
         });
       }
     }
-    // Auto-initialize org chart if this is the user's first calling
-    const slotCount = await db.callingSlots.count();
-    if (slotCount === 0) {
-      await initializeOrgChartForRole(key);
+    // Auto-initialize org chart for this role (creates missing org slots)
+    await initializeOrgChartForRole(key);
+    // Auto-populate user into their own calling slot
+    if (profile?.name) {
+      await autoPopulateUserSlot(key, profile.name);
     }
     setAddCallingOpen(false);
     setSearch('');

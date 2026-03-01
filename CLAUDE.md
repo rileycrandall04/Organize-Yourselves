@@ -15,12 +15,12 @@ A personal productivity app for LDS church leaders to organize their calling res
 - **Icons:** lucide-react
 - **Dates:** date-fns
 - **Routing:** react-router-dom (BrowserRouter)
-- **AI:** Optional Anthropic/OpenAI integration via `src/utils/ai.js`
+- **AI:** Optional Anthropic/OpenAI integration via `src/utils/ai.js` + `src/utils/aiTools.js`
 - **No backend needed** — all data stored locally in IndexedDB
 - **Dev server:** port 3001 via `.claude/launch.json`
 - **GitHub:** `rileycrandall04/Organize-Yourselves`
 
-## Current Version: v0.4.0
+## Current Version: v0.5.0
 
 ## What's Built (Complete Feature Set)
 
@@ -70,20 +70,44 @@ A personal productivity app for LDS church leaders to organize their calling res
 - localStorage flag prevents re-showing
 - Skip button available
 
+### Dashboard AI Agent (PR #7 — v0.5.0)
+- Full agentic AI on Dashboard with tool_use (Anthropic) / function calling (OpenAI)
+- DashboardChat component with conversation history, action badges, suggested chips
+- AI can **read AND write** app data via 8 tools:
+  - `create_action_item` — create tasks with priority, context, due date
+  - `complete_action_item` — mark tasks complete by title search
+  - `list_action_items` — query tasks (all, overdue, high priority, due today)
+  - `advance_calling` — advance a calling to the next pipeline stage
+  - `add_person` — add to People directory
+  - `add_inbox_item` — quick-capture ideas
+  - `add_journal_entry` — record spiritual impressions
+  - `get_dashboard_summary` — full app overview (stats, pipeline, meetings)
+- Multi-turn agentic loop (up to 5 iterations)
+- `buildDashboardContext()` provides full app state to AI
+- `executeAiTool()` executor routes tool calls to db functions
+- Only visible when AI is configured
+
+### Jurisdiction & Auto-Populate Fixes (PR #7 — v0.5.0)
+- Fixed `filterTreeByJurisdiction()` — promotes matching org subtrees to root level (no phantom org folders)
+- Fixed `initializeOrgChartForRole()` — allows adding missing org slots for org-scoped callings
+- Added `autoPopulateUserSlot()` — auto-places user into their calling slot as "Serving"
+- Wired auto-populate into both Onboarding and Settings flows
+
 ## Key Architecture Decisions
 
 1. **Offline-first:** All data in IndexedDB via Dexie.js. No network required for core functionality.
 2. **Mobile-first responsive:** Designed for phone use but works on desktop.
 3. **Non-confidential data only:** Workflow management, NOT case management.
 4. **Handbook-derived defaults:** Each calling pre-loaded with responsibilities and meetings.
-5. **AI optional:** Works fully without AI; API key adds summaries, suggestions, and chat.
+5. **AI optional:** Works fully without AI; API key adds summaries, suggestions, and agentic chat.
+6. **AI tool_use pattern:** Anthropic tool_use / OpenAI function_calling for agentic data writes.
 
 ## Key Files & Data Model
 
 ### Database (`src/db.js`)
 - 4 schema versions (v1 base → v4 enhanced pipeline)
 - Key tables: `profile`, `userCallings`, `callingSlots`, `meetings`, `meetingInstances`, `actionItems`, `inbox`, `journal`, `people`, `meetingNoteTags`
-- Key functions: `buildAutoAgenda()`, `getCallingPipelineAgendaItems()`, `transitionCallingSlot()`, `getAutoActionsForTransition()`, `syncCallingNotesFromMeeting()`
+- Key functions: `buildAutoAgenda()`, `getCallingPipelineAgendaItems()`, `transitionCallingSlot()`, `getAutoActionsForTransition()`, `syncCallingNotesFromMeeting()`, `autoPopulateUserSlot()`
 
 ### Calling Config (`src/data/callings.js`)
 - `PRESIDENCY_ROLES`: Maps 6 org keys → role name arrays
@@ -98,10 +122,20 @@ A personal productivity app for LDS church leaders to organize their calling res
 - `CALLING_PRIORITIES`: high and low only (no medium)
 - `DISPLAY_STAGE_GROUPS`: 5 user-friendly categories mapping 9 granular stages
 
-### AI (`src/utils/ai.js`)
+### AI (`src/utils/ai.js` + `src/utils/aiTools.js`)
 - Supports Anthropic (Claude) and OpenAI providers
 - `callAi()` core function, `callingChatMessage()`, `summarizeMeetingNotes()`, `suggestActionItems()`
+- `callAiWithTools()` agentic loop with tool execution (up to 5 turns)
+- `buildDashboardContext()` builds full app state for AI context
+- `AI_TOOLS_ANTHROPIC` / `AI_TOOLS_OPENAI` tool definitions (8 tools)
+- `executeAiTool()` routes tool calls to db functions
 - Config stored in localStorage
+
+### Visibility (`src/utils/visibility.js`)
+- `getJurisdiction()` determines user's visible orgs and scope
+- `filterTreeByJurisdiction()` promotes matching subtrees to root (no phantom parents)
+- `getDefaultExpandState()` uses "2 lines of authority" rule
+- `getHighestRole()`, `isBishopric()` helper functions
 
 ## Project Structure
 
@@ -115,6 +149,7 @@ src/
 │   └── callings.js            ← Calling configs, org hierarchy, templates
 ├── components/
 │   ├── Dashboard.jsx
+│   ├── DashboardChat.jsx      ← AI agent on homepage (tool_use)
 │   ├── ActionItems.jsx
 │   ├── Meetings.jsx
 │   ├── MeetingNotes.jsx       ← Agenda, notes, focus families, selection toolbar
@@ -145,9 +180,12 @@ src/
 ├── hooks/
 │   └── useDb.js               ← Reactive hooks (useLiveQuery)
 └── utils/
-    ├── ai.js                  ← AI provider abstraction
+    ├── ai.js                  ← AI provider abstraction + agentic tool loop
+    ├── aiTools.js             ← AI tool definitions + executeAiTool()
     ├── dates.js               ← Date formatting helpers
-    └── constants.js           ← Enums, stage config, display groups
+    ├── constants.js           ← Enums, stage config, display groups
+    ├── visibility.js          ← Jurisdiction filtering, expand state
+    └── orgGrouping.js         ← Flatten tree into org-keyed groups
 ```
 
 ## Git History (PRs merged to master)
@@ -158,6 +196,7 @@ src/
 4. **PR #4** — Pipeline UX defaults (org view, collapse sections, open positions)
 5. **PR #5** — Presidency tiers, workflow redesign, meeting integration
 6. **PR #6** — Meeting intelligence, AI chat, pipeline enhancements, UI compaction, tutorial (v0.4.0)
+7. **PR #7** — Dashboard AI agent, jurisdiction fix, auto-populate user slot (v0.5.0)
 
 ## UX Principles
 
@@ -169,7 +208,7 @@ src/
 
 ## Notes for Future Sessions
 
-- Build passes cleanly: `npx vite build` (1736 modules, ~559 KB gzipped ~156 KB)
+- Build passes cleanly: `npx vite build` (1738 modules, ~574 KB gzipped ~160 KB)
 - Dev server: `npm run dev` on port 3001
 - Always use `preview_snapshot` instead of `preview_screenshot` for visual verification
 - Bottom nav: Home, Actions, Meetings, Pipeline, More
@@ -177,3 +216,7 @@ src/
 - `getReportsToForOrg()` scopes parent options per auxiliary
 - Tutorial uses localStorage key `tutorial_completed`
 - AI config uses localStorage key `organize_ai_config`
+- `filterTreeByJurisdiction()` promotes matching org subtrees (no phantom parents)
+- `autoPopulateUserSlot()` places user into their calling slot on setup
+- Dashboard AI agent uses `callAiWithTools()` with up to 5 agentic turns
+- AI tools defined in `src/utils/aiTools.js` — 8 tools for read/write operations

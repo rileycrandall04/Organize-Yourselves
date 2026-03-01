@@ -765,15 +765,27 @@ export async function initializeOrgChart() {
 // Bishop → full ward tree, EQ President → EQ subtree only, etc.
 
 export async function initializeOrgChartForRole(callingKey) {
-  const existing = await db.callingSlots.count();
-  if (existing > 0) return false;
-
   const jurisdiction = JURISDICTION_MAP[callingKey];
   if (!jurisdiction) return false;
 
   // Extract the relevant subtree from ORG_HIERARCHY based on scope
   const subtree = extractSubtreeForScope(jurisdiction);
   if (!subtree || subtree.length === 0) return false;
+
+  const existing = await db.callingSlots.toArray();
+
+  // For full-access scopes (ward/stake), only init if nothing exists
+  if (jurisdiction.orgs.includes('*')) {
+    if (existing.length > 0) return false;
+  }
+
+  // For org-scoped callings, only create slots for orgs that don't exist yet
+  const existingOrgs = new Set(existing.map(s => s.organization));
+  const newNodes = jurisdiction.orgs.includes('*')
+    ? subtree
+    : subtree.filter(node => !existingOrgs.has(node.organization));
+
+  if (newNodes.length === 0) return false;
 
   async function createNode(node, parentId, sortOrder) {
     const count = node.expectedCount || 1;
@@ -812,10 +824,27 @@ export async function initializeOrgChartForRole(callingKey) {
     return lastId;
   }
 
-  for (let i = 0; i < subtree.length; i++) {
-    await createNode(subtree[i], null, i);
+  for (let i = 0; i < newNodes.length; i++) {
+    await createNode(newNodes[i], null, i);
   }
   return true;
+}
+
+// Auto-populate the user into their own calling slot
+export async function autoPopulateUserSlot(callingKey, userName) {
+  const slots = await db.callingSlots.toArray();
+  const match = slots.find(s => s.callingKey === callingKey);
+  if (!match || match.servedBy) return; // don't overwrite existing person
+
+  await db.callingSlots.update(match.id, {
+    candidateName: userName,
+    servedBy: userName,
+    stage: 'serving',
+    servingSince: new Date().toISOString(),
+    isOpen: false,
+    currentCount: 1,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 // Helper: extract the relevant portion of ORG_HIERARCHY for a jurisdiction

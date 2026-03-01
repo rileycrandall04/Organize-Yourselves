@@ -147,6 +147,212 @@ export async function callingChatMessage(userMessage, slots) {
   return callAi(CALLING_SYSTEM_PROMPT, fullMessage);
 }
 
+// ── Agentic Tool-Use Call ────────────────────────────────────
+
+/**
+ * Call the AI with tool definitions and execute a multi-turn agentic loop.
+ * The AI can call tools, receive results, and continue until it produces a final text response.
+ * Returns { text, actions[] } where actions is a log of tool calls made.
+ */
+export async function callAiWithTools(systemPrompt, messages, tools, toolExecutor) {
+  const config = getAiConfig();
+  if (!config?.provider || !config?.apiKey) {
+    throw new Error('AI not configured. Go to Settings to set up your API key.');
+  }
+
+  const { provider, apiKey, model } = config;
+  const providerConfig = PROVIDERS[provider];
+  const selectedModel = model || providerConfig.defaultModel;
+
+  if (provider === 'anthropic') {
+    return callAnthropicWithTools(apiKey, selectedModel, systemPrompt, messages, tools, toolExecutor);
+  } else if (provider === 'openai') {
+    return callOpenAIWithTools(apiKey, selectedModel, systemPrompt, messages, tools, toolExecutor);
+  }
+
+  throw new Error(`Unknown provider: ${provider}`);
+}
+
+async function callAnthropicWithTools(apiKey, model, systemPrompt, messages, tools, toolExecutor) {
+  const actions = [];
+  let currentMessages = [...messages];
+  const MAX_ITERATIONS = 5;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: currentMessages,
+        tools,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Anthropic API error (${res.status}): ${err}`);
+    }
+
+    const data = await res.json();
+
+    // Check if the response contains tool_use blocks
+    const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
+    const textBlocks = (data.content || []).filter(b => b.type === 'text');
+
+    if (toolUseBlocks.length === 0) {
+      // No more tool calls — return the final text
+      return {
+        text: textBlocks.map(b => b.text).join('\n') || '',
+        actions,
+      };
+    }
+
+    // Execute each tool call
+    const toolResults = [];
+    for (const block of toolUseBlocks) {
+      const result = await toolExecutor(block.name, block.input);
+      actions.push({ tool: block.name, input: block.input, result });
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: JSON.stringify(result),
+      });
+    }
+
+    // Append assistant response + tool results to messages
+    currentMessages = [
+      ...currentMessages,
+      { role: 'assistant', content: data.content },
+      { role: 'user', content: toolResults },
+    ];
+  }
+
+  // Exceeded max iterations — return whatever we have
+  return {
+    text: 'I completed several actions but reached my processing limit. Please check the results.',
+    actions,
+  };
+}
+
+async function callOpenAIWithTools(apiKey, model, systemPrompt, messages, openaiTools, toolExecutor) {
+  const actions = [];
+  let currentMessages = [
+    { role: 'system', content: systemPrompt },
+    ...messages,
+  ];
+  const MAX_ITERATIONS = 5;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 1024,
+        messages: currentMessages,
+        tools: openaiTools,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`OpenAI API error (${res.status}): ${err}`);
+    }
+
+    const data = await res.json();
+    const choice = data.choices?.[0];
+    if (!choice) throw new Error('No response from OpenAI');
+
+    const msg = choice.message;
+    currentMessages.push(msg);
+
+    if (!msg.tool_calls || msg.tool_calls.length === 0) {
+      // No tool calls — return final text
+      return {
+        text: msg.content || '',
+        actions,
+      };
+    }
+
+    // Execute each tool call
+    for (const tc of msg.tool_calls) {
+      const toolInput = JSON.parse(tc.function.arguments);
+      const result = await toolExecutor(tc.function.name, toolInput);
+      actions.push({ tool: tc.function.name, input: toolInput, result });
+      currentMessages.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        content: JSON.stringify(result),
+      });
+    }
+  }
+
+  return {
+    text: 'I completed several actions but reached my processing limit. Please check the results.',
+    actions,
+  };
+}
+
+// ── Dashboard Context Builder ───────────────────────────────
+
+export function buildDashboardContext(data) {
+  const lines = [];
+
+  if (data.profile) {
+    lines.push(`User: ${data.profile.name}`);
+  }
+
+  if (data.callings?.length > 0) {
+    lines.push(`Callings: ${data.callings.map(c => c.callingKey).join(', ')}`);
+  }
+
+  if (data.stats) {
+    lines.push(`\nAction Items: ${data.stats.totalActive} active, ${data.stats.overdue} overdue, ${data.stats.dueToday} due today, ${data.stats.highPriority} high priority`);
+    lines.push(`Inbox: ${data.stats.inboxCount} unprocessed`);
+  }
+
+  if (data.actionItems?.length > 0) {
+    lines.push('\nTop Action Items:');
+    for (const item of data.actionItems.slice(0, 10)) {
+      lines.push(`- ${item.title} [${item.priority}]${item.dueDate ? ` due ${item.dueDate}` : ''}`);
+    }
+  }
+
+  if (data.meetings?.length > 0) {
+    lines.push(`\nMeetings (${data.meetings.length}):`);
+    for (const m of data.meetings.slice(0, 8)) {
+      lines.push(`- ${m.name} (${m.cadence})`);
+    }
+  }
+
+  if (data.pipeline) {
+    lines.push(`\nPipeline: ${data.pipeline.total} total slots, ${data.pipeline.active} active, ${data.pipeline.openPositions} open positions`);
+  }
+
+  if (data.slots?.length > 0) {
+    const activeSlots = data.slots.filter(s => s.stage && !['serving', 'released', 'identified'].includes(s.stage));
+    if (activeSlots.length > 0) {
+      lines.push('\nActive Pipeline Items:');
+      for (const s of activeSlots) {
+        lines.push(`- ${s.roleName}: ${s.stage}${s.candidateName ? ` (${s.candidateName})` : ''}`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // ── Meeting Features ─────────────────────────────────────────
 
 const MEETING_SYSTEM_PROMPT = `You are a helpful assistant for a leader in The Church of Jesus Christ of Latter-day Saints. You help summarize meeting notes and suggest action items. Be concise, practical, and spiritually sensitive. Use a warm but professional tone.`;
