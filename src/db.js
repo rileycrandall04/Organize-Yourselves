@@ -1,6 +1,18 @@
 import Dexie from 'dexie';
 import { getCallingConfig, getPresidentForOrg, ORG_HIERARCHY, ORG_TEMPLATES, JURISDICTION_MAP } from './data/callings';
 import { CALLING_STAGES, CALL_STAGE_ORDER } from './utils/constants';
+import { getNextMeetingDate } from './utils/meetingSchedule';
+
+// Debounce Firestore sync to avoid rapid-fire writes.
+// Uses dynamic import to break circular dependency (firestoreSync imports db).
+let _syncTimer = null;
+function debouncedSync() {
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(async () => {
+    const { syncMeetingSchedule } = await import('./utils/firestoreSync');
+    syncMeetingSchedule();
+  }, 2000);
+}
 
 const db = new Dexie('CallingOrganizer');
 
@@ -144,21 +156,27 @@ export async function getMeetings(callingId) {
 }
 
 export async function addMeeting(meeting) {
-  return await db.meetings.add(meeting);
+  const id = await db.meetings.add(meeting);
+  debouncedSync();
+  return id;
 }
 
 export async function updateMeeting(id, changes) {
-  return await db.meetings.update(id, changes);
+  const result = await db.meetings.update(id, changes);
+  debouncedSync();
+  return result;
 }
 
 export async function deleteMeeting(id) {
-  return await db.meetings.delete(id);
+  await db.meetings.delete(id);
+  debouncedSync();
 }
 
 export async function deleteMeetingWithInstances(id) {
   const instances = await db.meetingInstances.where('meetingId').equals(id).toArray();
   await db.meetingInstances.bulkDelete(instances.map(i => i.id));
   await db.meetings.delete(id);
+  debouncedSync();
 }
 
 // Meeting Instances
@@ -170,14 +188,52 @@ export async function getMeetingInstances(meetingId, limit = 10) {
 }
 
 export async function addMeetingInstance(instance) {
-  return await db.meetingInstances.add({
+  const id = await db.meetingInstances.add({
     ...instance,
     status: instance.status || 'scheduled',
   });
+  debouncedSync(); // Next date changes when a new instance is recorded
+  return id;
 }
 
 export async function updateMeetingInstance(id, changes) {
   return await db.meetingInstances.update(id, changes);
+}
+
+// ── Upcoming Meetings (calculated next dates) ────────────────
+
+export async function getUpcomingMeetings() {
+  const allMeetings = await db.meetings.toArray();
+  const results = [];
+
+  for (const meeting of allMeetings) {
+    // Get the latest instance to determine last meeting date
+    const instances = await db.meetingInstances
+      .where('meetingId').equals(meeting.id)
+      .reverse()
+      .sortBy('date');
+    const latestInstance = instances[0] || null;
+    const lastInstanceDate = latestInstance?.date || null;
+
+    // Calculate next date from cadence + last instance
+    const nextDate = getNextMeetingDate(meeting.cadence, lastInstanceDate);
+
+    results.push({
+      ...meeting,
+      nextDate,
+      lastInstanceDate,
+    });
+  }
+
+  // Sort: meetings with dates first (soonest first), then null-date meetings
+  results.sort((a, b) => {
+    if (a.nextDate && b.nextDate) return a.nextDate.localeCompare(b.nextDate);
+    if (a.nextDate) return -1;
+    if (b.nextDate) return 1;
+    return 0;
+  });
+
+  return results;
 }
 
 // Action Items

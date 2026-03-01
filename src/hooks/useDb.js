@@ -22,6 +22,7 @@ import db, {
   getMeetingInstances,
   addMeetingInstance,
   updateMeetingInstance,
+  getUpcomingMeetings,
   getActionItems,
   addActionItem,
   updateActionItem,
@@ -144,6 +145,16 @@ export function useMeetingInstances(meetingId) {
     loading: instances === undefined,
     add: addMeetingInstance,
     update: updateMeetingInstance,
+  };
+}
+
+// ── Upcoming Meetings (with calculated next dates) ──────────
+
+export function useUpcomingMeetings() {
+  const meetings = useLiveQuery(() => getUpcomingMeetings());
+  return {
+    meetings: meetings ?? [],
+    loading: meetings === undefined,
   };
 }
 

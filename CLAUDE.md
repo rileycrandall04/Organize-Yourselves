@@ -16,11 +16,12 @@ A personal productivity app for LDS church leaders to organize their calling res
 - **Dates:** date-fns
 - **Routing:** react-router-dom (BrowserRouter)
 - **AI:** Optional Anthropic/OpenAI integration via `src/utils/ai.js` + `src/utils/aiTools.js`
-- **No backend needed** — all data stored locally in IndexedDB
+- **Notifications:** Firebase SDK v12 (FCM + Firestore) — optional, for push notifications
+- **No backend needed** — all data stored locally in IndexedDB (Firebase optional for notifications)
 - **Dev server:** port 3001 via `.claude/launch.json`
 - **GitHub:** `rileycrandall04/Organize-Yourselves`
 
-## Current Version: v0.5.0
+## Current Version: v0.6.0
 
 ## What's Built (Complete Feature Set)
 
@@ -73,15 +74,7 @@ A personal productivity app for LDS church leaders to organize their calling res
 ### Dashboard AI Agent (PR #7 — v0.5.0)
 - Full agentic AI on Dashboard with tool_use (Anthropic) / function calling (OpenAI)
 - DashboardChat component with conversation history, action badges, suggested chips
-- AI can **read AND write** app data via 8 tools:
-  - `create_action_item` — create tasks with priority, context, due date
-  - `complete_action_item` — mark tasks complete by title search
-  - `list_action_items` — query tasks (all, overdue, high priority, due today)
-  - `advance_calling` — advance a calling to the next pipeline stage
-  - `add_person` — add to People directory
-  - `add_inbox_item` — quick-capture ideas
-  - `add_journal_entry` — record spiritual impressions
-  - `get_dashboard_summary` — full app overview (stats, pipeline, meetings)
+- AI can **read AND write** all app data via 28 tools covering every feature area
 - Multi-turn agentic loop (up to 5 iterations)
 - `buildDashboardContext()` provides full app state to AI
 - `executeAiTool()` executor routes tool calls to db functions
@@ -93,6 +86,18 @@ A personal productivity app for LDS church leaders to organize their calling res
 - Added `autoPopulateUserSlot()` — auto-places user into their calling slot as "Serving"
 - Wired auto-populate into both Onboarding and Settings flows
 
+### Upcoming Meetings & Push Notifications (PR #8 — v0.6.0)
+- Dashboard redesigned: "Today's Meetings" banner (indigo, with Play icon) + "Coming Up" section
+- `getNextMeetingDate(cadence, lastInstanceDate)` — calculates next occurrence for all 11 cadences
+- `getUpcomingMeetings()` in db.js + `useUpcomingMeetings()` hook
+- Firebase SDK for push notifications (FCM)
+- Firebase config stored in localStorage (Settings UI)
+- FCM service worker at `public/firebase-messaging-sw.js`
+- Notification permission + token management in `src/utils/notifications.js`
+- Firestore sync for meeting schedule data (`src/utils/firestoreSync.js`)
+- Cloud Function `sendDailyMeetingReminders` at `functions/index.js`
+- Debounced Firestore sync on meeting create/update/delete/instance
+
 ## Key Architecture Decisions
 
 1. **Offline-first:** All data in IndexedDB via Dexie.js. No network required for core functionality.
@@ -101,6 +106,7 @@ A personal productivity app for LDS church leaders to organize their calling res
 4. **Handbook-derived defaults:** Each calling pre-loaded with responsibilities and meetings.
 5. **AI optional:** Works fully without AI; API key adds summaries, suggestions, and agentic chat.
 6. **AI tool_use pattern:** Anthropic tool_use / OpenAI function_calling for agentic data writes.
+7. **Firebase optional:** Notifications require Firebase (FCM + Firestore + Cloud Functions). All app data stays in IndexedDB; only meeting schedule + FCM token synced to Firestore.
 
 ## Key Files & Data Model
 
@@ -181,11 +187,22 @@ src/
 │   └── useDb.js               ← Reactive hooks (useLiveQuery)
 └── utils/
     ├── ai.js                  ← AI provider abstraction + agentic tool loop
-    ├── aiTools.js             ← AI tool definitions + executeAiTool()
+    ├── aiTools.js             ← AI tool definitions (28 tools) + executeAiTool()
     ├── dates.js               ← Date formatting helpers
     ├── constants.js           ← Enums, stage config, display groups
     ├── visibility.js          ← Jurisdiction filtering, expand state
-    └── orgGrouping.js         ← Flatten tree into org-keyed groups
+    ├── orgGrouping.js         ← Flatten tree into org-keyed groups
+    ├── meetingSchedule.js     ← Next meeting date calculation (11 cadences)
+    ├── firebase.js            ← Firebase config + lazy initialization
+    ├── notifications.js       ← FCM permission, token, foreground handler
+    └── firestoreSync.js       ← Sync meeting data to Firestore for Cloud Functions
+public/
+├── firebase-messaging-sw.js  ← Background push notification handler
+├── sw.js                      ← PWA offline caching service worker
+└── manifest.json
+functions/
+├── index.js                   ← Cloud Function: sendDailyMeetingReminders
+└── package.json
 ```
 
 ## Git History (PRs merged to master)
@@ -197,6 +214,8 @@ src/
 5. **PR #5** — Presidency tiers, workflow redesign, meeting integration
 6. **PR #6** — Meeting intelligence, AI chat, pipeline enhancements, UI compaction, tutorial (v0.4.0)
 7. **PR #7** — Dashboard AI agent, jurisdiction fix, auto-populate user slot (v0.5.0)
+8. **PR #8** — Expanded AI tools (8 → 28 covering all features)
+9. **PR #9** — Upcoming meetings on Dashboard + Firebase push notifications (v0.6.0)
 
 ## UX Principles
 
@@ -219,4 +238,11 @@ src/
 - `filterTreeByJurisdiction()` promotes matching org subtrees (no phantom parents)
 - `autoPopulateUserSlot()` places user into their calling slot on setup
 - Dashboard AI agent uses `callAiWithTools()` with up to 5 agentic turns
-- AI tools defined in `src/utils/aiTools.js` — 8 tools for read/write operations
+- AI tools defined in `src/utils/aiTools.js` — 28 tools for read/write operations
+- Firebase config uses localStorage key `organize_firebase_config`
+- Notification state uses localStorage key `organize_notifications`
+- Device ID uses localStorage key `organize_device_id`
+- `meetingSchedule.js` handles all 11 cadences including nth-Sunday
+- Firestore sync is debounced (2s) and triggered on meeting CRUD + instance creation
+- Cloud Function runs daily at 7 PM UTC — user should adjust timezone in schedule
+- Firebase setup requires: Firebase project, Cloud Messaging, Firestore, Blaze plan, VAPID key
