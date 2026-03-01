@@ -609,6 +609,30 @@ export function getCallingConfig(key) {
   return CALLINGS[key] || null;
 }
 
+// ── Custom Calling Helpers ────────────────────────────────────
+// Custom callings use keys like "custom_1234567890" and store their
+// title on the userCalling record as `customTitle`.
+
+export function isCustomCalling(callingKey) {
+  return callingKey?.startsWith('custom_');
+}
+
+export function generateCustomCallingKey() {
+  return `custom_${Date.now()}`;
+}
+
+/**
+ * Get the display title for a calling — works for both predefined and custom.
+ * For custom callings, reads the customTitle from the userCalling record.
+ */
+export function getCallingDisplayTitle(userCalling) {
+  if (isCustomCalling(userCalling.callingKey)) {
+    return userCalling.customTitle || 'Custom Calling';
+  }
+  const config = getCallingConfig(userCalling.callingKey);
+  return config?.title || userCalling.callingKey;
+}
+
 // Helper: Get organization label
 export function getOrgLabel(key) {
   return ORGANIZATIONS.find(o => o.key === key)?.label || key;

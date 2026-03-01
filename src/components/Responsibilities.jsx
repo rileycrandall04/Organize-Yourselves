@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useUserCallings, useResponsibilities } from '../hooks/useDb';
-import { getCallingConfig } from '../data/callings';
+import { getCallingConfig, getCallingDisplayTitle } from '../data/callings';
 import { CADENCE_LIST } from '../utils/constants';
 import Modal from './shared/Modal';
 import {
@@ -31,7 +31,6 @@ export default function Responsibilities({ onBack }) {
       {callings.length > 1 && (
         <div className="flex gap-1.5 overflow-x-auto pb-3 -mx-4 px-4 no-scrollbar mb-2">
           {callings.map(uc => {
-            const config = getCallingConfig(uc.callingKey);
             const active = callingKey === uc.callingKey;
             return (
               <button
@@ -42,7 +41,7 @@ export default function Responsibilities({ onBack }) {
                     ? 'bg-primary-700 text-white'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
-                {config?.title || uc.callingKey}
+                {getCallingDisplayTitle(uc)}
               </button>
             );
           })}

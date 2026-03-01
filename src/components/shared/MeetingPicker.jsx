@@ -1,5 +1,5 @@
 import { useMeetings, useUserCallings } from '../../hooks/useDb';
-import { getCallingConfig } from '../../data/callings';
+import { getCallingDisplayTitle } from '../../data/callings';
 import Modal from './Modal';
 import { Calendar, X } from 'lucide-react';
 
@@ -33,13 +33,12 @@ export default function MeetingPicker({
   // Group meetings by calling, excluding specified IDs
   const groups = callings
     .map(uc => {
-      const config = getCallingConfig(uc.callingKey);
       const callingMeetings = meetings.filter(
         m => m.callingId === uc.callingKey && !excludeIds.includes(m.id)
       );
       return {
         key: uc.callingKey,
-        label: config?.title || uc.callingKey,
+        label: getCallingDisplayTitle(uc),
         meetings: callingMeetings,
       };
     })

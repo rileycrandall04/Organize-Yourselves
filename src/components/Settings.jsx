@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useProfile, useUserCallings } from '../hooks/useDb';
 import { useDataStats, useLastExportDate } from '../hooks/useDataPortability';
-import { getCallingConfig, getCallingList, ORGANIZATIONS, ORG_PRESIDENT_MAP, getOrgLabel } from '../data/callings';
+import { getCallingConfig, getCallingList, ORGANIZATIONS, ORG_PRESIDENT_MAP, getOrgLabel, isCustomCalling, generateCustomCallingKey, getCallingDisplayTitle } from '../data/callings';
 import { addMeeting, addResponsibility, updateLastExportDate, syncAssignmentMeetings, updateCallingAssignments, saveProfile as saveProfileDb, initializeOrgChartForRole, autoPopulateUserSlot } from '../db';
 import db from '../db';
 import {
@@ -13,7 +13,7 @@ import {
 import { seedTestData } from '../utils/testSeeder';
 import Modal from './shared/Modal';
 import {
-  ArrowLeft, Settings as SettingsIcon, UserCircle, Church, Trash2, Plus,
+  ArrowLeft, Settings as SettingsIcon, UserCircle, Church, Trash2, Plus, X,
   AlertTriangle, Download, Upload, BarChart3, Share2, Info,
   ChevronRight, ChevronDown, CheckCircle2, Database, Sparkles, Eye, EyeOff,
   Bell, BellOff, LogOut,
@@ -43,6 +43,8 @@ export default function Settings({ onBack }) {
   // Calling management
   const [addCallingOpen, setAddCallingOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customTitle, setCustomTitle] = useState('');
 
   // Export state
   const [exporting, setExporting] = useState(false);
@@ -129,6 +131,16 @@ export default function Settings({ onBack }) {
     }
     setAddCallingOpen(false);
     setSearch('');
+  }
+
+  async function handleAddCustomCalling() {
+    if (!customTitle.trim()) return;
+    const key = generateCustomCallingKey();
+    await addCalling({ callingKey: key, customTitle: customTitle.trim() });
+    // No seeded meetings, responsibilities, or org chart — blank slate
+    setCustomTitle('');
+    setShowCustomInput(false);
+    setAddCallingOpen(false);
   }
 
   // Check if a calling is a counselor type (can have org assignments)
@@ -351,6 +363,7 @@ export default function Settings({ onBack }) {
         <div className="space-y-2">
           {callings.map(uc => {
             const config = getCallingConfig(uc.callingKey);
+            const isCustom = isCustomCalling(uc.callingKey);
             const isCounselor = isCounselorCalling(uc.callingKey);
             const currentAssignments = uc.organizationAssignments || [];
 
@@ -358,10 +371,14 @@ export default function Settings({ onBack }) {
               <div key={uc.id} className="card">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <Church size={18} className="text-primary-600" />
+                    <Church size={18} className={isCustom ? 'text-emerald-600' : 'text-primary-600'} />
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{config?.title || uc.callingKey}</p>
-                      <p className="text-xs text-gray-500">{config?.organization || ''}</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {getCallingDisplayTitle(uc)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {isCustom ? 'Custom Calling' : (config?.organization || '')}
+                      </p>
                     </div>
                   </div>
                   {callings.length > 1 && (
@@ -616,15 +633,52 @@ export default function Settings({ onBack }) {
       </Modal>
 
       {/* Add calling */}
-      <Modal open={addCallingOpen} onClose={() => { setAddCallingOpen(false); setSearch(''); }} title="Add Calling" size="lg">
+      <Modal open={addCallingOpen} onClose={() => { setAddCallingOpen(false); setSearch(''); setShowCustomInput(false); setCustomTitle(''); }} title="Add Calling" size="lg">
         <div>
+          {/* Custom Calling Option */}
+          <div className="mb-4">
+            {showCustomInput ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customTitle}
+                  onChange={e => setCustomTitle(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAddCustomCalling(); }}
+                  placeholder="e.g., Activity Committee Chair"
+                  className="input-field flex-1 text-sm"
+                  autoFocus
+                />
+                <button
+                  onClick={handleAddCustomCalling}
+                  disabled={!customTitle.trim()}
+                  className="btn-primary text-sm px-3"
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setShowCustomInput(false); setCustomTitle(''); }}
+                  className="btn-secondary text-sm px-2"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowCustomInput(true)}
+                className="w-full text-left px-3 py-2.5 rounded-lg text-sm border-2 border-dashed border-gray-300 text-gray-500 hover:border-emerald-300 hover:text-emerald-600 transition-colors flex items-center gap-2"
+              >
+                <Plus size={16} />
+                Create Custom Calling
+              </button>
+            )}
+          </div>
+
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search callings..."
             className="input-field mb-3"
-            autoFocus
           />
           <div className="space-y-4 max-h-[50vh] overflow-y-auto">
             {filteredAvailable.length === 0 ? (

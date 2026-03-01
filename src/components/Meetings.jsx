@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useMeetings, useUserCallings } from '../hooks/useDb';
 import { addMeeting } from '../db';
-import { getCallingConfig, MEETING_CADENCES } from '../data/callings';
+import { getCallingConfig, getCallingDisplayTitle, MEETING_CADENCES } from '../data/callings';
 import { Calendar, ChevronRight, Plus, Sparkles } from 'lucide-react';
 import MeetingDetail from './MeetingDetail';
 import AddMeetingForm from './AddMeetingForm';
@@ -25,10 +25,9 @@ export default function Meetings() {
 
   // Group meetings by calling, plus a "Custom Meetings" group
   const grouped = callings.map(uc => {
-    const config = getCallingConfig(uc.callingKey);
     return {
       callingKey: uc.callingKey,
-      title: config?.title || uc.callingKey,
+      title: getCallingDisplayTitle(uc),
       meetings: meetings.filter(m => m.callingId === uc.callingKey),
     };
   }).filter(g => g.meetings.length > 0);

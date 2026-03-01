@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useUserCallings, usePeople } from '../hooks/useDb';
-import { getCallingConfig, MEETING_CADENCES, ORGANIZATIONS } from '../data/callings';
+import { getCallingConfig, getCallingDisplayTitle, MEETING_CADENCES, ORGANIZATIONS } from '../data/callings';
 import { X, Plus, Trash2 } from 'lucide-react';
 
 const cadenceOptions = Object.entries(MEETING_CADENCES);
@@ -110,8 +110,8 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
     const org = ORGANIZATIONS.find(o => o.key === config?.organization);
     return {
       key: uc.callingKey,
-      title: config?.title || uc.callingKey,
-      orgLabel: org?.label || '',
+      title: getCallingDisplayTitle(uc),
+      orgLabel: org?.label || 'Custom',
     };
   });
 
