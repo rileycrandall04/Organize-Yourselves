@@ -1,24 +1,33 @@
 import { useState } from 'react';
-import { useMeetingInstances, useMeetingNoteTags } from '../hooks/useDb';
-import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, deleteMeetingWithInstances } from '../db';
+import { useMeetingInstances, useMeetingNoteTags, useOngoingTasks, useMinisteringPlans } from '../hooks/useDb';
+import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, deleteMeetingWithInstances, addOngoingTask, addMinisteringPlan } from '../db';
 import { MEETING_CADENCES } from '../data/callings';
 import { todayStr, formatMeetingDate } from '../utils/dates';
 import { MEETING_STATUSES } from '../utils/constants';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ArrowLeft, Calendar, Plus, Clock, CheckCircle2, ListChecks, FileText,
-  ArrowUpRight, RotateCw, Pencil, Trash2,
+  ArrowUpRight, RotateCw, Pencil, Trash2, Target, Heart,
 } from 'lucide-react';
 import MeetingNotes from './MeetingNotes';
 import AddMeetingForm from './AddMeetingForm';
+import Modal from './shared/Modal';
 
 export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const { instances, loading, add: addInstance } = useMeetingInstances(meeting.id);
   const { tags: pendingTags } = useMeetingNoteTags(meeting.id);
+  const { tasks: ongoingTasks } = useOngoingTasks(meeting.id);
+  const { plans: ministeringPlans } = useMinisteringPlans();
   const [activeInstance, setActiveInstance] = useState(null);
   const [creating, setCreating] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [showAddPlan, setShowAddPlan] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newPlanPerson, setNewPlanPerson] = useState('');
+  const [newPlanFamily, setNewPlanFamily] = useState('');
+  const [newPlanDesc, setNewPlanDesc] = useState('');
 
   // Get unresolved action items from last instance (for pending count)
   const unresolvedItems = useLiveQuery(
@@ -47,7 +56,6 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       };
 
       if (isSacrament) {
-        // Sacrament meetings use structured programData instead of agenda items
         newInstance.agendaItems = [];
         newInstance.programData = {
           presiding: '',
@@ -68,7 +76,6 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           notes: '',
         };
       } else {
-        // Use auto-agenda builder for other meetings
         const autoAgenda = await buildAutoAgenda(meeting.id);
         newInstance.agendaItems = autoAgenda;
       }
@@ -83,7 +90,6 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   async function handleEditSave(meetingData) {
     const { id, ...changes } = meetingData;
     await updateMeeting(meeting.id, changes);
-    // Update the local meeting object so the UI reflects changes
     Object.assign(meeting, changes);
   }
 
@@ -92,11 +98,32 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     onMeetingDeleted?.();
   }
 
+  async function handleAddTask() {
+    if (!newTaskTitle.trim()) return;
+    await addOngoingTask({ meetingId: meeting.id, title: newTaskTitle.trim() });
+    setNewTaskTitle('');
+    setShowAddTask(false);
+  }
+
+  async function handleAddPlan() {
+    if (!newPlanPerson.trim()) return;
+    await addMinisteringPlan({
+      personName: newPlanPerson.trim(),
+      familyName: newPlanFamily.trim() || null,
+      description: newPlanDesc.trim() || '',
+    });
+    setNewPlanPerson('');
+    setNewPlanFamily('');
+    setNewPlanDesc('');
+    setShowAddPlan(false);
+  }
+
   if (activeInstance) {
     return (
       <MeetingNotes
         instance={activeInstance}
         meetingName={meeting.name}
+        meetingId={meeting.id}
         onBack={() => setActiveInstance(null)}
       />
     );
@@ -195,6 +222,77 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
         </div>
       )}
 
+      {/* Ongoing Tasks */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            <Target size={14} className="text-green-600" />
+            Ongoing Tasks ({ongoingTasks.length})
+          </h2>
+          <button
+            onClick={() => setShowAddTask(true)}
+            className="flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-800"
+          >
+            <Plus size={14} />
+            Add
+          </button>
+        </div>
+        {ongoingTasks.length === 0 ? (
+          <p className="text-xs text-gray-400">No ongoing tasks. Tasks appear on every agenda until dismissed.</p>
+        ) : (
+          <div className="space-y-2">
+            {ongoingTasks.map(task => (
+              <div key={task.id} className="card !p-2.5 border-l-2 border-l-green-300">
+                <p className="text-xs font-medium text-gray-800">{task.title}</p>
+                {task.updates?.length > 0 && (
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    Last update: {new Date(task.updates[task.updates.length - 1].date).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Ministering Plans */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            <Heart size={14} className="text-teal-600" />
+            Ministering Plans ({ministeringPlans.length})
+          </h2>
+          <button
+            onClick={() => setShowAddPlan(true)}
+            className="flex items-center gap-1 text-xs font-medium text-teal-600 hover:text-teal-800"
+          >
+            <Plus size={14} />
+            Add
+          </button>
+        </div>
+        {ministeringPlans.length === 0 ? (
+          <p className="text-xs text-gray-400">No ministering plans. Plans appear on all meeting agendas until completed.</p>
+        ) : (
+          <div className="space-y-2">
+            {ministeringPlans.map(plan => (
+              <div key={plan.id} className="card !p-2.5 border-l-2 border-l-teal-300">
+                <p className="text-xs font-medium text-gray-800">
+                  {plan.personName}{plan.familyName ? ` ${plan.familyName} Family` : ''}
+                </p>
+                {plan.description && (
+                  <p className="text-[10px] text-gray-500 mt-0.5">{plan.description}</p>
+                )}
+                {plan.updates?.length > 0 && (
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    Last update: {new Date(plan.updates[plan.updates.length - 1].date).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Agenda template */}
       {agendaTemplate.length > 0 && (
         <div className="mb-6">
@@ -276,6 +374,58 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           onClose={() => setShowEditForm(false)}
         />
       )}
+
+      {/* Add Ongoing Task modal */}
+      <Modal open={showAddTask} onClose={() => setShowAddTask(false)} title="Add Ongoing Task" size="sm">
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={newTaskTitle}
+            onChange={e => setNewTaskTitle(e.target.value)}
+            placeholder="Task or project name..."
+            className="input-field"
+            autoFocus
+          />
+          <p className="text-xs text-gray-400">This task will appear on every agenda for this meeting until dismissed.</p>
+          <div className="flex gap-3">
+            <button onClick={handleAddTask} disabled={!newTaskTitle.trim()} className="btn-primary flex-1">Create</button>
+            <button onClick={() => setShowAddTask(false)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Ministering Plan modal */}
+      <Modal open={showAddPlan} onClose={() => setShowAddPlan(false)} title="Add Ministering Plan" size="sm">
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={newPlanPerson}
+            onChange={e => setNewPlanPerson(e.target.value)}
+            placeholder="Individual name..."
+            className="input-field"
+            autoFocus
+          />
+          <input
+            type="text"
+            value={newPlanFamily}
+            onChange={e => setNewPlanFamily(e.target.value)}
+            placeholder="Family name (optional)..."
+            className="input-field"
+          />
+          <textarea
+            value={newPlanDesc}
+            onChange={e => setNewPlanDesc(e.target.value)}
+            placeholder="What service is planned? (optional)"
+            rows={2}
+            className="input-field"
+          />
+          <p className="text-xs text-gray-400">This plan will appear on ALL meeting agendas until completed.</p>
+          <div className="flex gap-3">
+            <button onClick={handleAddPlan} disabled={!newPlanPerson.trim()} className="btn-primary flex-1">Create</button>
+            <button onClick={() => setShowAddPlan(false)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

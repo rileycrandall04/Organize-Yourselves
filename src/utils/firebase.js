@@ -1,37 +1,46 @@
 /**
  * Firebase configuration and initialization.
- * Config is stored in localStorage (like AI config) so the user
- * can enter their Firebase project details through Settings.
+ * Config is hardcoded — Firebase web API keys are designed to be public.
+ * Security is enforced via Firestore rules, not key secrecy.
  */
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { getFirestore } from 'firebase/firestore';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+} from 'firebase/auth';
 
-const FIREBASE_CONFIG_KEY = 'organize_firebase_config';
+// ── Hardcoded Firebase Config ───────────────────────────────
 
-// ── Config Management (localStorage) ─────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyA6L5TqBG6tAODLI_BsCqXG-NVnHYY9KkA',
+  authDomain: 'organize-yourselves.firebaseapp.com',
+  projectId: 'organize-yourselves',
+  storageBucket: 'organize-yourselves.firebasestorage.app',
+  messagingSenderId: '148134450489',
+  appId: '1:148134450489:web:e8d744d1ede81004c084e8',
+  vapidKey: 'BDK5ul9kYOrgyEnBpgr5rqxhbxptlbz2_d9F8lMwM8zoFLpwUbx_Wq70jVVnaBpi6rGMi9U_21pvJb2YOZyjqi8',
+};
 
 export function getFirebaseConfig() {
-  try {
-    const raw = localStorage.getItem(FIREBASE_CONFIG_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveFirebaseConfig(config) {
-  localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
-}
-
-export function clearFirebaseConfig() {
-  localStorage.removeItem(FIREBASE_CONFIG_KEY);
+  return FIREBASE_CONFIG;
 }
 
 export function isFirebaseConfigured() {
-  const config = getFirebaseConfig();
-  return !!(config?.apiKey && config?.projectId && config?.messagingSenderId);
+  return true;
 }
+
+export function getVapidKey() {
+  return FIREBASE_CONFIG.vapidKey;
+}
+
+// No-ops for backward compatibility
+export function saveFirebaseConfig() {}
+export function clearFirebaseConfig() {}
 
 // ── Lazy Firebase Initialization ─────────────────────────────
 
@@ -42,13 +51,10 @@ let _firestore = null;
 export function getFirebaseApp() {
   if (_app) return _app;
 
-  const config = getFirebaseConfig();
-  if (!config) return null;
-
   if (getApps().length > 0) {
     _app = getApp();
   } else {
-    _app = initializeApp(config);
+    _app = initializeApp(FIREBASE_CONFIG);
   }
   return _app;
 }
@@ -78,11 +84,39 @@ export function getFirebaseFirestore() {
   return _firestore;
 }
 
-// Reset instances when config changes
-export function resetFirebaseInstances() {
-  _app = null;
-  _messaging = null;
-  _firestore = null;
+// ── Auth ─────────────────────────────────────────────────────
+
+let _auth = null;
+
+export function getFirebaseAuth() {
+  if (_auth) return _auth;
+
+  const app = getFirebaseApp();
+  if (!app) return null;
+
+  _auth = getAuth(app);
+  return _auth;
+}
+
+export async function signInWithGoogle() {
+  const auth = getFirebaseAuth();
+  if (!auth) throw new Error('Firebase not initialized');
+
+  const provider = new GoogleAuthProvider();
+  const result = await signInWithPopup(auth, provider);
+  return result.user;
+}
+
+export async function signOutUser() {
+  const auth = getFirebaseAuth();
+  if (!auth) return;
+  await firebaseSignOut(auth);
+}
+
+export function onAuthChange(callback) {
+  const auth = getFirebaseAuth();
+  if (!auth) return () => {};
+  return onAuthStateChanged(auth, callback);
 }
 
 // Re-export for convenience

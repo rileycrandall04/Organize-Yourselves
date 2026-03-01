@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useMeetings, useUserCallings } from '../hooks/useDb';
 import { addMeeting } from '../db';
 import { getCallingConfig, MEETING_CADENCES } from '../data/callings';
@@ -7,10 +8,20 @@ import MeetingDetail from './MeetingDetail';
 import AddMeetingForm from './AddMeetingForm';
 
 export default function Meetings() {
+  const location = useLocation();
   const { callings } = useUserCallings();
   const { meetings, loading } = useMeetings();
   const [selectedMeeting, setSelectedMeeting] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // Auto-select meeting if navigated from Dashboard with meeting ID
+  useEffect(() => {
+    const openMeetingId = location.state?.openMeetingId;
+    if (openMeetingId && meetings.length > 0 && !selectedMeeting) {
+      const found = meetings.find(m => m.id === openMeetingId);
+      if (found) setSelectedMeeting(found);
+    }
+  }, [location.state?.openMeetingId, meetings]);
 
   // Group meetings by calling, plus a "Custom Meetings" group
   const grouped = callings.map(uc => {

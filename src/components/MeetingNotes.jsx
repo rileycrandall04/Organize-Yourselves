@@ -1,18 +1,20 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
-import { addActionItem, addMeetingNoteTag, syncCallingNotesFromMeeting } from '../db';
+import { addActionItem, addMeetingNoteTag, syncCallingNotesFromMeeting, addOngoingTaskUpdate, addMinisteringPlanUpdate, updateActionItem, dismissOngoingTask, completeMinisteringPlan } from '../db';
 import { formatFull } from '../utils/dates';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import Modal from './shared/Modal';
 import MeetingPicker from './shared/MeetingPicker';
 import SacramentProgram from './SacramentProgram';
 import AiButton, { AiResultCard } from './shared/AiButton';
+import AddPriorTasksModal from './AddPriorTasksModal';
 import {
   ArrowLeft, Save, CheckCircle2, Plus, MessageSquare, FileText,
   ArrowUpRight, X, CheckSquare, Clock, Users2, Trash2,
+  GripVertical, ListPlus,
 } from 'lucide-react';
 
-export default function MeetingNotes({ instance, meetingName, onBack }) {
+export default function MeetingNotes({ instance, meetingName, meetingId, onBack }) {
   const isSacrament = meetingName === 'Sacrament Meeting';
   const { update } = useMeetingInstances(instance.meetingId);
   const { tags: instanceTags, remove: removeTag } = useTagsFromInstance(instance.id);
@@ -24,19 +26,24 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
   const [quickActionOpen, setQuickActionOpen] = useState(false);
   const [actionTitle, setActionTitle] = useState('');
   const [actionItemIds, setActionItemIds] = useState(instance.actionItemIds || []);
+  const [showPriorTasks, setShowPriorTasks] = useState(false);
 
   // Focus Families state
   const [focusFamilies, setFocusFamilies] = useState(instance.focusFamilies || []);
 
   // Text selection toolbar state
-  const [selectionToolbar, setSelectionToolbar] = useState(null); // { text, top, left }
+  const [selectionToolbar, setSelectionToolbar] = useState(null);
   const containerRef = useRef(null);
+
+  // Drag state
+  const [dragIndex, setDragIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
 
   // Note tagging state
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [tagAgendaIndex, setTagAgendaIndex] = useState(null);
   const [tagPickerForGeneral, setTagPickerForGeneral] = useState(false);
-  const [tagFromSelection, setTagFromSelection] = useState(null); // selected text to tag
+  const [tagFromSelection, setTagFromSelection] = useState(null);
 
   // AI state
   const aiEnabled = isAiConfigured();
@@ -45,6 +52,8 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+
+  const isCompleted = instance.status === 'completed';
 
   async function handleAiSummarize() {
     setAiSummaryLoading(true);
@@ -113,8 +122,28 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
     setSaving(true);
     try {
       await update(instance.id, { notes, agendaItems, actionItemIds, focusFamilies, status: 'completed' });
-      // Sync calling pipeline notes back to calling slots
       await syncCallingNotesFromMeeting(agendaItems, instance.date, meetingName);
+
+      // Save ongoing task updates and ministering plan updates
+      for (const item of agendaItems) {
+        if (item.source === 'ongoing_task' && item.ongoingTaskId && item.notes?.trim()) {
+          await addOngoingTaskUpdate(item.ongoingTaskId, {
+            text: item.notes.trim(),
+            instanceId: instance.id,
+          });
+        }
+        if (item.source === 'ministering_plan' && item.ministeringPlanId && item.notes?.trim()) {
+          await addMinisteringPlanUpdate(item.ministeringPlanId, {
+            text: item.notes.trim(),
+            instanceId: instance.id,
+            meetingName,
+          });
+        }
+        if (item.source === 'completed_followup' && item.actionItemId) {
+          await updateActionItem(item.actionItemId, { followUpShown: true });
+        }
+      }
+
       setDirty(false);
       onBack();
     } finally {
@@ -132,6 +161,24 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
     await update(instance.id, { actionItemIds: [...actionItemIds, id] });
     setActionTitle('');
     setQuickActionOpen(false);
+  }
+
+  async function handleDismissOngoingTask(index) {
+    const item = agendaItems[index];
+    if (item?.ongoingTaskId) {
+      await dismissOngoingTask(item.ongoingTaskId);
+      setAgendaItems(prev => prev.filter((_, i) => i !== index));
+      setDirty(true);
+    }
+  }
+
+  async function handleCompleteMinisteringPlan(index) {
+    const item = agendaItems[index];
+    if (item?.ministeringPlanId) {
+      await completeMinisteringPlan(item.ministeringPlanId);
+      setAgendaItems(prev => prev.filter((_, i) => i !== index));
+      setDirty(true);
+    }
   }
 
   // --- Focus Families ---
@@ -155,6 +202,49 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
     setDirty(true);
   }
 
+  // --- Drag & Drop ---
+
+  function handleDragStart(e, index) {
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDragOver(e, index) {
+    e.preventDefault();
+    setDragOverIndex(index);
+  }
+
+  function handleDrop(e, dropIndex) {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === dropIndex) {
+      setDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+    setAgendaItems(prev => {
+      const updated = [...prev];
+      const [moved] = updated.splice(dragIndex, 1);
+      updated.splice(dropIndex, 0, moved);
+      return updated;
+    });
+    setDirty(true);
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }
+
+  function handleDragEnd() {
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }
+
+  // --- Add Prior Tasks ---
+
+  function handleAddPriorItems(items) {
+    setAgendaItems(prev => [...prev, ...items]);
+    setDirty(true);
+    setShowPriorTasks(false);
+  }
+
   // --- Text Selection Toolbar ---
 
   const handleTextSelect = useCallback((e) => {
@@ -166,7 +256,6 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
       setSelectionToolbar(null);
       return;
     }
-    // Position toolbar relative to the container
     const containerRect = containerRef.current?.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
     if (!containerRect) return;
@@ -232,13 +321,12 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
   }
 
   async function handleTagMeeting(meeting) {
-    // If tagging from text selection, use that text
     if (tagFromSelection) {
       await addMeetingNoteTag({
         sourceMeetingInstanceId: instance.id,
         targetMeetingId: meeting.id,
         text: tagFromSelection.trim(),
-        agendaItemIndex: -2, // -2 = from selection highlight
+        agendaItemIndex: -2,
       });
       setTagFromSelection(null);
       setTagPickerOpen(false);
@@ -259,8 +347,8 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
     setTagPickerOpen(false);
   }
 
-  function getMeetingName(meetingId) {
-    const mtg = allMeetings.find(m => m.id === meetingId);
+  function getMeetingNameById(id) {
+    const mtg = allMeetings.find(m => m.id === id);
     return mtg?.name || 'Meeting';
   }
 
@@ -268,8 +356,37 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
     return instanceTags.filter(t => t.agendaItemIndex === index);
   }
 
+  function getSourceClass(source) {
+    switch (source) {
+      case 'carry_forward': return 'border-l-2 border-l-amber-300';
+      case 'tagged_note': return 'border-l-2 border-l-indigo-300';
+      case 'calling_pipeline': return 'border-l-2 border-l-purple-300';
+      case 'ongoing_task': return 'border-l-2 border-l-green-300';
+      case 'ministering_plan': return 'border-l-2 border-l-teal-300';
+      case 'completed_followup': return 'border-l-2 border-l-green-300';
+      default: return '';
+    }
+  }
+
+  function getSourceBadge(item) {
+    switch (item.source) {
+      case 'carry_forward':
+        return <span className="badge bg-amber-100 text-amber-700 text-[9px] flex-shrink-0">Carry Forward</span>;
+      case 'tagged_note':
+        return <span className="badge bg-indigo-100 text-indigo-700 text-[9px] flex-shrink-0">Tagged Note</span>;
+      case 'calling_pipeline':
+        return <span className="badge bg-purple-100 text-purple-700 text-[9px] flex-shrink-0">Calling</span>;
+      case 'ongoing_task':
+        return <span className="badge bg-green-100 text-green-700 text-[9px] flex-shrink-0">Ongoing</span>;
+      case 'ministering_plan':
+        return <span className="badge bg-teal-100 text-teal-700 text-[9px] flex-shrink-0">Ministering</span>;
+      case 'completed_followup':
+        return <span className="badge bg-green-100 text-green-700 text-[9px] flex-shrink-0">Completed</span>;
+      default: return null;
+    }
+  }
+
   const generalNoteTags = instanceTags.filter(t => t.agendaItemIndex === -1);
-  const isCompleted = instance.status === 'completed';
 
   return (
     <div ref={containerRef} className="px-4 pt-6 pb-24 max-w-lg mx-auto relative">
@@ -322,49 +439,56 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
         )}
       </div>
 
-      {/* Sacrament Meeting Program (structured form) */}
+      {/* Sacrament Meeting Program */}
       {isSacrament && (
         <div className="mb-6">
-          <SacramentProgram
-            instance={instance}
-            onUpdate={update}
-            disabled={isCompleted}
-          />
+          <SacramentProgram instance={instance} onUpdate={update} disabled={isCompleted} />
         </div>
       )}
 
-      {/* Agenda items with inline notes + tagging (non-sacrament meetings) */}
+      {/* Agenda items with drag reorder */}
       {!isSacrament && agendaItems.length > 0 && (
         <div className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
-            <FileText size={14} className="text-primary-600" />
-            Agenda
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+              <FileText size={14} className="text-primary-600" />
+              Agenda
+            </h2>
+            {!isCompleted && (
+              <button
+                onClick={() => setShowPriorTasks(true)}
+                className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
+              >
+                <ListPlus size={14} />
+                Add Prior Tasks
+              </button>
+            )}
+          </div>
           <div className="space-y-2">
             {agendaItems.map((item, i) => {
               const itemTags = getAgendaItemTags(i);
-              const sourceClass = item.source === 'carry_forward'
-                ? 'border-l-2 border-l-amber-300'
-                : item.source === 'tagged_note'
-                  ? 'border-l-2 border-l-indigo-300'
-                  : item.source === 'calling_pipeline'
-                    ? 'border-l-2 border-l-purple-300'
-                    : '';
+              const sourceClass = getSourceClass(item.source);
+              const isCompletedFollowup = item.source === 'completed_followup';
 
               return (
-                <div key={i} className={`card !p-2.5 ${sourceClass}`}>
+                <div
+                  key={i}
+                  className={`card !p-2.5 ${sourceClass} ${dragOverIndex === i ? 'ring-2 ring-primary-300' : ''} ${dragIndex === i ? 'opacity-50' : ''}`}
+                  draggable={!isCompleted}
+                  onDragStart={e => handleDragStart(e, i)}
+                  onDragOver={e => handleDragOver(e, i)}
+                  onDrop={e => handleDrop(e, i)}
+                  onDragEnd={handleDragEnd}
+                >
                   <div className="flex items-start gap-1.5 mb-1.5">
+                    {!isCompleted && (
+                      <GripVertical size={12} className="text-gray-300 mt-0.5 cursor-grab flex-shrink-0" />
+                    )}
                     <span className="text-[10px] text-gray-400 mt-0.5 w-3 text-right flex-shrink-0">{i + 1}.</span>
-                    <span className="text-xs font-medium text-gray-800 flex-1">{item.label}</span>
-                    {item.source === 'carry_forward' && (
-                      <span className="badge bg-amber-100 text-amber-700 text-[9px] flex-shrink-0">Carry Forward</span>
-                    )}
-                    {item.source === 'tagged_note' && (
-                      <span className="badge bg-indigo-100 text-indigo-700 text-[9px] flex-shrink-0">Tagged Note</span>
-                    )}
-                    {item.source === 'calling_pipeline' && (
-                      <span className="badge bg-purple-100 text-purple-700 text-[9px] flex-shrink-0">Calling</span>
-                    )}
+                    <span className={`text-xs font-medium text-gray-800 flex-1 ${isCompletedFollowup ? 'line-through text-gray-500' : ''}`}>
+                      {item.label}
+                    </span>
+                    {getSourceBadge(item)}
                     {item.snoozed && (
                       <span className="badge bg-gray-100 text-gray-500 text-[9px] flex-shrink-0">Snoozed</span>
                     )}
@@ -381,13 +505,12 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
                         className="input-field text-xs"
                         disabled={isCompleted}
                       />
-                      {/* Tag controls + chips + snooze */}
                       <div className="flex items-center justify-between mt-1">
                         <div className="flex gap-1 flex-wrap">
                           {itemTags.map(tag => (
                             <span key={tag.id} className="inline-flex items-center gap-0.5 badge bg-indigo-50 text-indigo-600 text-[9px]">
                               <ArrowUpRight size={8} />
-                              {getMeetingName(tag.targetMeetingId)}
+                              {getMeetingNameById(tag.targetMeetingId)}
                               {!isCompleted && (
                                 <button onClick={() => removeTag(tag.id)} className="ml-0.5 hover:text-red-500">
                                   <X size={8} />
@@ -397,22 +520,24 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
                           ))}
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
+                          {!isCompleted && item.source === 'ongoing_task' && (
+                            <button onClick={() => handleDismissOngoingTask(i)} className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:text-amber-700">
+                              <X size={10} /> Dismiss
+                            </button>
+                          )}
+                          {!isCompleted && item.source === 'ministering_plan' && (
+                            <button onClick={() => handleCompleteMinisteringPlan(i)} className="flex items-center gap-0.5 text-[10px] text-teal-500 hover:text-teal-700">
+                              <CheckCircle2 size={10} /> Complete
+                            </button>
+                          )}
                           {!isCompleted && item.source === 'calling_pipeline' && (
-                            <button
-                              onClick={() => snoozeAgendaItem(i)}
-                              className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:text-amber-700"
-                            >
-                              <Clock size={10} />
-                              Snooze
+                            <button onClick={() => snoozeAgendaItem(i)} className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:text-amber-700">
+                              <Clock size={10} /> Snooze
                             </button>
                           )}
                           {!isCompleted && item.notes?.trim() && (
-                            <button
-                              onClick={() => openTagPicker(i)}
-                              className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700"
-                            >
-                              <ArrowUpRight size={10} />
-                              Tag
+                            <button onClick={() => openTagPicker(i)} className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700">
+                              <ArrowUpRight size={10} /> Tag
                             </button>
                           )}
                         </div>
@@ -423,6 +548,18 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Add Prior Tasks button when no agenda items */}
+      {!isSacrament && agendaItems.length === 0 && !isCompleted && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowPriorTasks(true)}
+            className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:text-primary-600 hover:border-primary-200 transition-colors"
+          >
+            <ListPlus size={16} /> Add Prior Tasks
+          </button>
         </div>
       )}
 
@@ -445,7 +582,7 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
             {generalNoteTags.map(tag => (
               <span key={tag.id} className="inline-flex items-center gap-0.5 badge bg-indigo-50 text-indigo-600 text-[10px]">
                 <ArrowUpRight size={8} />
-                {getMeetingName(tag.targetMeetingId)}
+                {getMeetingNameById(tag.targetMeetingId)}
                 {!isCompleted && (
                   <button onClick={() => removeTag(tag.id)} className="ml-0.5 hover:text-red-500">
                     <X size={8} />
@@ -455,18 +592,14 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
             ))}
           </div>
           {!isCompleted && notes.trim() && (
-            <button
-              onClick={openGeneralTagPicker}
-              className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700 flex-shrink-0"
-            >
-              <ArrowUpRight size={10} />
-              Tag for another meeting
+            <button onClick={openGeneralTagPicker} className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700 flex-shrink-0">
+              <ArrowUpRight size={10} /> Tag for another meeting
             </button>
           )}
         </div>
       </div>
 
-      {/* Focus Families / Individuals */}
+      {/* Focus Families */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
@@ -474,12 +607,8 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
             Focus Families / Individuals
           </h2>
           {!isCompleted && (
-            <button
-              onClick={addFocusFamily}
-              className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
-            >
-              <Plus size={14} />
-              Add
+            <button onClick={addFocusFamily} className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800">
+              <Plus size={14} /> Add
             </button>
           )}
         </div>
@@ -491,60 +620,31 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
             {focusFamilies.map((ff, i) => (
               <div key={i} className="card !p-2.5">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <input
-                    type="text"
-                    value={ff.name}
-                    onChange={e => updateFocusFamily(i, 'name', e.target.value)}
-                    placeholder="Family or individual name..."
-                    className="input-field text-xs flex-1 !py-1"
-                    disabled={isCompleted}
-                  />
+                  <input type="text" value={ff.name} onChange={e => updateFocusFamily(i, 'name', e.target.value)} placeholder="Family or individual name..." className="input-field text-xs flex-1 !py-1" disabled={isCompleted} />
                   {!isCompleted && (
-                    <button
-                      onClick={() => removeFocusFamily(i)}
-                      className="text-gray-400 hover:text-red-500 flex-shrink-0"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    <button onClick={() => removeFocusFamily(i)} className="text-gray-400 hover:text-red-500 flex-shrink-0"><Trash2 size={12} /></button>
                   )}
                 </div>
-                <textarea
-                  value={ff.notes}
-                  onChange={e => updateFocusFamily(i, 'notes', e.target.value)}
-                  placeholder="Discussion notes..."
-                  rows={1}
-                  className="input-field text-xs"
-                  disabled={isCompleted}
-                />
+                <textarea value={ff.notes} onChange={e => updateFocusFamily(i, 'notes', e.target.value)} placeholder="Discussion notes..." rows={1} className="input-field text-xs" disabled={isCompleted} />
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Action items created from this meeting */}
+      {/* Action items */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Action Items ({actionItemIds.length})
-          </h2>
+          <h2 className="text-sm font-semibold text-gray-900">Action Items ({actionItemIds.length})</h2>
           {!isCompleted && (
-            <button
-              onClick={() => setQuickActionOpen(true)}
-              className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
-            >
-              <Plus size={14} />
-              Quick Add
+            <button onClick={() => setQuickActionOpen(true)} className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800">
+              <Plus size={14} /> Quick Add
             </button>
           )}
         </div>
-        {actionItemIds.length === 0 && (
-          <p className="text-xs text-gray-400">No action items from this meeting yet.</p>
-        )}
+        {actionItemIds.length === 0 && <p className="text-xs text-gray-400">No action items from this meeting yet.</p>}
         {actionItemIds.length > 0 && (
-          <p className="text-xs text-gray-500">
-            {actionItemIds.length} action item{actionItemIds.length !== 1 ? 's' : ''} created. View them on the Actions tab.
-          </p>
+          <p className="text-xs text-gray-500">{actionItemIds.length} action item{actionItemIds.length !== 1 ? 's' : ''} created. View them on the Actions tab.</p>
         )}
       </div>
 
@@ -555,10 +655,7 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
             <ArrowUpRight size={14} className="text-indigo-500" />
             Tagged Notes ({instanceTags.length})
           </h2>
-          <p className="text-xs text-gray-500">
-            {instanceTags.length} note{instanceTags.length !== 1 ? 's' : ''} tagged for other meetings.
-            They will appear in those meetings' next agendas.
-          </p>
+          <p className="text-xs text-gray-500">{instanceTags.length} note{instanceTags.length !== 1 ? 's' : ''} tagged for other meetings.</p>
         </div>
       )}
 
@@ -566,53 +663,23 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
       {aiEnabled && hasContent && (
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
-            <AiButton
-              onClick={handleAiSummarize}
-              label="Summarize"
-              loading={aiSummaryLoading}
-              disabled={aiSuggestionsLoading}
-            />
-            <AiButton
-              onClick={handleAiSuggest}
-              label="Suggest Actions"
-              loading={aiSuggestionsLoading}
-              disabled={aiSummaryLoading}
-            />
+            <AiButton onClick={handleAiSummarize} label="Summarize" loading={aiSummaryLoading} disabled={aiSuggestionsLoading} />
+            <AiButton onClick={handleAiSuggest} label="Suggest Actions" loading={aiSuggestionsLoading} disabled={aiSummaryLoading} />
           </div>
-          {aiError && (
-            <p className="text-xs text-red-500 mb-2">{aiError}</p>
-          )}
-          <AiResultCard
-            title="Meeting Summary"
-            content={aiSummary}
-            onClose={() => setAiSummary(null)}
-          />
-          <AiResultCard
-            title="Suggested Action Items"
-            content={aiSuggestions}
-            onClose={() => setAiSuggestions(null)}
-          />
+          {aiError && <p className="text-xs text-red-500 mb-2">{aiError}</p>}
+          <AiResultCard title="Meeting Summary" content={aiSummary} onClose={() => setAiSummary(null)} />
+          <AiResultCard title="Suggested Action Items" content={aiSuggestions} onClose={() => setAiSuggestions(null)} />
         </div>
       )}
 
       {/* Bottom actions */}
       {!isCompleted && (
         <div className="flex gap-3">
-          <button
-            onClick={handleSave}
-            disabled={!dirty || saving}
-            className="btn-secondary flex-1 flex items-center justify-center gap-1.5"
-          >
-            <Save size={16} />
-            {saving ? 'Saving...' : 'Save Draft'}
+          <button onClick={handleSave} disabled={!dirty || saving} className="btn-secondary flex-1 flex items-center justify-center gap-1.5">
+            <Save size={16} /> {saving ? 'Saving...' : 'Save Draft'}
           </button>
-          <button
-            onClick={handleFinalize}
-            disabled={saving}
-            className="btn-primary flex-1 flex items-center justify-center gap-1.5"
-          >
-            <CheckCircle2 size={16} />
-            Finalize
+          <button onClick={handleFinalize} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-1.5">
+            <CheckCircle2 size={16} /> Finalize
           </button>
         </div>
       )}
@@ -620,34 +687,26 @@ export default function MeetingNotes({ instance, meetingName, onBack }) {
       {/* Quick action item modal */}
       <Modal open={quickActionOpen} onClose={() => setQuickActionOpen(false)} title="Quick Action Item" size="sm">
         <div className="space-y-3">
-          <input
-            type="text"
-            value={actionTitle}
-            onChange={e => setActionTitle(e.target.value)}
-            placeholder="What needs to be done?"
-            className="input-field"
-            autoFocus
-          />
-          <p className="text-xs text-gray-400">Creates a basic action item linked to this meeting. You can add details later from the Actions tab.</p>
+          <input type="text" value={actionTitle} onChange={e => setActionTitle(e.target.value)} placeholder="What needs to be done?" className="input-field" autoFocus />
+          <p className="text-xs text-gray-400">Creates a basic action item linked to this meeting.</p>
           <div className="flex gap-3">
-            <button onClick={handleCreateAction} disabled={!actionTitle.trim()} className="btn-primary flex-1">
-              Create
-            </button>
-            <button onClick={() => setQuickActionOpen(false)} className="btn-secondary flex-1">
-              Cancel
-            </button>
+            <button onClick={handleCreateAction} disabled={!actionTitle.trim()} className="btn-primary flex-1">Create</button>
+            <button onClick={() => setQuickActionOpen(false)} className="btn-secondary flex-1">Cancel</button>
           </div>
         </div>
       </Modal>
 
       {/* Meeting tag picker */}
-      <MeetingPicker
-        open={tagPickerOpen}
-        onClose={() => setTagPickerOpen(false)}
-        onSelect={handleTagMeeting}
-        excludeIds={[instance.meetingId]}
-        title="Tag for Meeting"
-      />
+      <MeetingPicker open={tagPickerOpen} onClose={() => setTagPickerOpen(false)} onSelect={handleTagMeeting} excludeIds={[instance.meetingId]} title="Tag for Meeting" />
+
+      {/* Add Prior Tasks modal */}
+      {showPriorTasks && (
+        <AddPriorTasksModal
+          onClose={() => setShowPriorTasks(false)}
+          onAdd={handleAddPriorItems}
+          currentMeetingId={meetingId || instance.meetingId}
+        />
+      )}
     </div>
   );
 }

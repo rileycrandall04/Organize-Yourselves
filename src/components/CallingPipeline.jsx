@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCallingSlots, usePeople } from '../hooks/useDb';
+import { useVisibility } from '../hooks/useVisibility';
 import { transitionCallingSlot, startRelease } from '../db';
 import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES, DISPLAY_STAGE_GROUPS } from '../utils/constants';
 import { ORGANIZATIONS } from '../data/callings';
@@ -19,7 +20,8 @@ import CallingChat from './CallingChat';
 
 export default function CallingPipeline({ onBack }) {
   const navigate = useNavigate();
-  const { slots, loading, add, update, remove } = useCallingSlots();
+  const { jurisdiction } = useVisibility();
+  const { slots, loading, add, update, remove } = useCallingSlots({}, jurisdiction);
   const { people } = usePeople();
   const [view, setView] = useState('orgchart'); // 'list' | 'kanban' | 'orgchart'
   const [pipelineTab, setPipelineTab] = useState('call'); // 'call' | 'release'

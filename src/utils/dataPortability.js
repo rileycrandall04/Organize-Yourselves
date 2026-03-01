@@ -3,8 +3,8 @@ import db from '../db';
 // ── Constants ────────────────────────────────────────────────
 
 const APP_NAME = 'Organize Yourselves';
-const CURRENT_APP_VERSION = '0.3.0';
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_APP_VERSION = '0.8.0';
+const CURRENT_SCHEMA_VERSION = 6;
 
 const ALL_TABLES = [
   'profile',
@@ -21,6 +21,10 @@ const ALL_TABLES = [
   'events',
   'receipts',
   'meetingNoteTags',
+  'ministeringCompanionships',
+  'ministeringInterviews',
+  'ongoingTasks',
+  'ministeringPlans',
 ];
 
 const TABLE_LABELS = {
@@ -38,6 +42,10 @@ const TABLE_LABELS = {
   events: 'Events',
   receipts: 'Receipts',
   meetingNoteTags: 'Meeting Tags',
+  ministeringCompanionships: 'Ministering Companionships',
+  ministeringInterviews: 'Ministering Interviews',
+  ongoingTasks: 'Ongoing Tasks',
+  ministeringPlans: 'Ministering Plans',
 };
 
 // ── Export ────────────────────────────────────────────────────

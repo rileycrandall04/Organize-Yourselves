@@ -14,6 +14,21 @@ function debouncedSync() {
   }, 2000);
 }
 
+// Cloud sync helper — fire-and-forget push after each Dexie write
+async function syncAfterWrite(tableName, id, data) {
+  try {
+    const { pushToCloud } = await import('./utils/cloudSync');
+    pushToCloud(tableName, id, data);
+  } catch {}
+}
+
+async function syncAfterDelete(tableName, id) {
+  try {
+    const { deleteFromCloud } = await import('./utils/cloudSync');
+    deleteFromCloud(tableName, id);
+  } catch {}
+}
+
 const db = new Dexie('CallingOrganizer');
 
 db.version(1).stores({
@@ -75,6 +90,17 @@ db.version(4).stores({
   ministeringInterviews: '++id, companionshipId, date',
 });
 
+// Phase 5: Per-meeting reminder preferences
+db.version(5).stores({
+  meetings: '++id, callingId, name, cadence, agendaTemplate, participants, reminderDays',
+});
+
+// Phase 6: Ongoing tasks, ministering plans, cloud sync
+db.version(6).stores({
+  ongoingTasks: '++id, meetingId, title, status, createdAt',
+  ministeringPlans: '++id, personName, familyName, status, createdAt',
+});
+
 // ── Helper functions ────────────────────────────────────────
 
 // Profile
@@ -85,9 +111,13 @@ export async function getProfile() {
 export async function saveProfile(profile) {
   const existing = await getProfile();
   if (existing) {
-    return await db.profile.update(existing.id, profile);
+    await db.profile.update(existing.id, profile);
+    syncAfterWrite('profile', existing.id, { ...existing, ...profile });
+    return;
   }
-  return await db.profile.add(profile);
+  const id = await db.profile.add(profile);
+  syncAfterWrite('profile', id, { ...profile, id });
+  return id;
 }
 
 // User Callings
@@ -96,14 +126,15 @@ export async function getUserCallings() {
 }
 
 export async function addUserCalling(calling) {
-  return await db.userCallings.add({
-    ...calling,
-    startDate: new Date().toISOString(),
-  });
+  const data = { ...calling, startDate: new Date().toISOString() };
+  const id = await db.userCallings.add(data);
+  syncAfterWrite('userCallings', id, { ...data, id });
+  return id;
 }
 
 export async function removeUserCalling(id) {
-  return await db.userCallings.delete(id);
+  await db.userCallings.delete(id);
+  syncAfterDelete('userCallings', id);
 }
 
 // Responsibilities
@@ -112,15 +143,20 @@ export async function getResponsibilities(callingId) {
 }
 
 export async function addResponsibility(resp) {
-  return await db.responsibilities.add(resp);
+  const id = await db.responsibilities.add(resp);
+  syncAfterWrite('responsibilities', id, { ...resp, id });
+  return id;
 }
 
 export async function updateResponsibility(id, changes) {
-  return await db.responsibilities.update(id, changes);
+  await db.responsibilities.update(id, changes);
+  const updated = await db.responsibilities.get(id);
+  if (updated) syncAfterWrite('responsibilities', id, updated);
 }
 
 export async function deleteResponsibility(id) {
-  return await db.responsibilities.delete(id);
+  await db.responsibilities.delete(id);
+  syncAfterDelete('responsibilities', id);
 }
 
 // People
@@ -129,15 +165,20 @@ export async function getPeople() {
 }
 
 export async function addPerson(person) {
-  return await db.people.add(person);
+  const id = await db.people.add(person);
+  syncAfterWrite('people', id, { ...person, id });
+  return id;
 }
 
 export async function updatePerson(id, changes) {
-  return await db.people.update(id, changes);
+  await db.people.update(id, changes);
+  const updated = await db.people.get(id);
+  if (updated) syncAfterWrite('people', id, updated);
 }
 
 export async function deletePerson(id) {
-  return await db.people.delete(id);
+  await db.people.delete(id);
+  syncAfterDelete('people', id);
 }
 
 export async function searchPeople(query) {
@@ -157,18 +198,22 @@ export async function getMeetings(callingId) {
 
 export async function addMeeting(meeting) {
   const id = await db.meetings.add(meeting);
+  syncAfterWrite('meetings', id, { ...meeting, id });
   debouncedSync();
   return id;
 }
 
 export async function updateMeeting(id, changes) {
   const result = await db.meetings.update(id, changes);
+  const updated = await db.meetings.get(id);
+  if (updated) syncAfterWrite('meetings', id, updated);
   debouncedSync();
   return result;
 }
 
 export async function deleteMeeting(id) {
   await db.meetings.delete(id);
+  syncAfterDelete('meetings', id);
   debouncedSync();
 }
 
@@ -188,16 +233,17 @@ export async function getMeetingInstances(meetingId, limit = 10) {
 }
 
 export async function addMeetingInstance(instance) {
-  const id = await db.meetingInstances.add({
-    ...instance,
-    status: instance.status || 'scheduled',
-  });
-  debouncedSync(); // Next date changes when a new instance is recorded
+  const data = { ...instance, status: instance.status || 'scheduled' };
+  const id = await db.meetingInstances.add(data);
+  syncAfterWrite('meetingInstances', id, { ...data, id });
+  debouncedSync();
   return id;
 }
 
 export async function updateMeetingInstance(id, changes) {
-  return await db.meetingInstances.update(id, changes);
+  await db.meetingInstances.update(id, changes);
+  const updated = await db.meetingInstances.get(id);
+  if (updated) syncAfterWrite('meetingInstances', id, updated);
 }
 
 // ── Upcoming Meetings (calculated next dates) ────────────────
@@ -274,24 +320,30 @@ export async function getActionItems(filters = {}) {
 }
 
 export async function addActionItem(item) {
-  return await db.actionItems.add({
+  const data = {
     ...item,
     status: item.status || 'not_started',
     priority: item.priority || 'low',
     createdAt: new Date().toISOString(),
     targetMeetingIds: item.targetMeetingIds || [],
-  });
+  };
+  const id = await db.actionItems.add(data);
+  syncAfterWrite('actionItems', id, { ...data, id });
+  return id;
 }
 
 export async function updateActionItem(id, changes) {
   if (changes.status === 'complete' && !changes.completedAt) {
     changes.completedAt = new Date().toISOString();
   }
-  return await db.actionItems.update(id, changes);
+  await db.actionItems.update(id, changes);
+  const updated = await db.actionItems.get(id);
+  if (updated) syncAfterWrite('actionItems', id, updated);
 }
 
 export async function deleteActionItem(id) {
-  return await db.actionItems.delete(id);
+  await db.actionItems.delete(id);
+  syncAfterDelete('actionItems', id);
 }
 
 // Quick Capture Inbox
@@ -300,29 +352,30 @@ export async function getInboxItems() {
 }
 
 export async function addInboxItem(text) {
-  return await db.inbox.add({
-    text,
-    createdAt: new Date().toISOString(),
-    processed: 0,
-  });
+  const data = { text, createdAt: new Date().toISOString(), processed: 0 };
+  const id = await db.inbox.add(data);
+  syncAfterWrite('inbox', id, { ...data, id });
+  return id;
 }
 
 export async function markInboxProcessed(id) {
-  return await db.inbox.update(id, { processed: 1 });
+  await db.inbox.update(id, { processed: 1 });
+  const updated = await db.inbox.get(id);
+  if (updated) syncAfterWrite('inbox', id, updated);
 }
 
 export async function deleteInboxItem(id) {
-  return await db.inbox.delete(id);
+  await db.inbox.delete(id);
+  syncAfterDelete('inbox', id);
 }
 
 // ── Meeting Note Tags (Phase 2: cross-meeting intelligence) ──
 
 export async function addMeetingNoteTag(tag) {
-  return await db.meetingNoteTags.add({
-    ...tag,
-    consumed: 0,
-    createdAt: new Date().toISOString(),
-  });
+  const data = { ...tag, consumed: 0, createdAt: new Date().toISOString() };
+  const id = await db.meetingNoteTags.add(data);
+  syncAfterWrite('meetingNoteTags', id, { ...data, id });
+  return id;
 }
 
 export async function getTagsForMeeting(targetMeetingId) {
@@ -339,11 +392,14 @@ export async function getTagsFromInstance(sourceMeetingInstanceId) {
 }
 
 export async function deleteMeetingNoteTag(id) {
-  return await db.meetingNoteTags.delete(id);
+  await db.meetingNoteTags.delete(id);
+  syncAfterDelete('meetingNoteTags', id);
 }
 
 export async function markTagConsumed(id) {
-  return await db.meetingNoteTags.update(id, { consumed: 1 });
+  await db.meetingNoteTags.update(id, { consumed: 1 });
+  const updated = await db.meetingNoteTags.get(id);
+  if (updated) syncAfterWrite('meetingNoteTags', id, updated);
 }
 
 // ── Auto-Agenda Builder (Phase 2) ────────────────────────────
@@ -386,7 +442,6 @@ export async function buildAutoAgenda(meetingId) {
   // 2. Get unresolved action items from last instance
   const unresolved = await getUnresolvedActionItems(meetingId);
   if (unresolved.length > 0) {
-    // Insert after "Follow-up" item if it exists, otherwise at position 2
     const followUpIdx = agendaItems.findIndex(
       a => a.label.toLowerCase().includes('follow-up') || a.label.toLowerCase().includes('action items')
     );
@@ -402,16 +457,71 @@ export async function buildAutoAgenda(meetingId) {
     }
   }
 
-  // 3. Get tagged notes from other meetings
+  // 2b. Get recently completed follow-ups
+  const completedFollowUps = await getCompletedFollowUps(meetingId);
+  if (completedFollowUps.length > 0) {
+    const followUpIdx = agendaItems.findIndex(
+      a => a.label.toLowerCase().includes('follow-up') || a.label.toLowerCase().includes('action items')
+    );
+    const insertAt = followUpIdx >= 0 ? followUpIdx + 1 : Math.min(2, agendaItems.length);
+
+    for (let i = completedFollowUps.length - 1; i >= 0; i--) {
+      agendaItems.splice(insertAt, 0, {
+        label: `[Completed] ${completedFollowUps[i].title}`,
+        notes: '',
+        source: 'completed_followup',
+        actionItemId: completedFollowUps[i].id,
+      });
+    }
+  }
+
+  // 3. Get ongoing tasks for this meeting
+  const ongoingTasks = await getOngoingTasks(meetingId);
+  if (ongoingTasks.length > 0) {
+    const closingIdx = agendaItems.findIndex(a => a.label.toLowerCase().includes('closing prayer'));
+    const insertAt = closingIdx >= 0 ? closingIdx : agendaItems.length;
+
+    for (let i = ongoingTasks.length - 1; i >= 0; i--) {
+      const task = ongoingTasks[i];
+      const lastUpdate = task.updates?.length > 0 ? task.updates[task.updates.length - 1].text : '';
+      agendaItems.splice(insertAt, 0, {
+        label: `[Ongoing] ${task.title}`,
+        notes: lastUpdate,
+        source: 'ongoing_task',
+        ongoingTaskId: task.id,
+      });
+    }
+  }
+
+  // 4. Get active ministering plans (available to ALL meetings)
+  const ministeringPlans = await getActiveMinisteringPlans();
+  if (ministeringPlans.length > 0) {
+    const closingIdx = agendaItems.findIndex(a => a.label.toLowerCase().includes('closing prayer'));
+    const insertAt = closingIdx >= 0 ? closingIdx : agendaItems.length;
+
+    for (let i = ministeringPlans.length - 1; i >= 0; i--) {
+      const plan = ministeringPlans[i];
+      const label = plan.familyName
+        ? `[Ministering] ${plan.personName} ${plan.familyName} Family`
+        : `[Ministering] ${plan.personName}`;
+      const lastUpdate = plan.updates?.length > 0 ? plan.updates[plan.updates.length - 1].text : '';
+      agendaItems.splice(insertAt, 0, {
+        label,
+        notes: lastUpdate,
+        source: 'ministering_plan',
+        ministeringPlanId: plan.id,
+      });
+    }
+  }
+
+  // 5. Get tagged notes from other meetings
   const tags = await getTagsForMeeting(meetingId);
   if (tags.length > 0) {
-    // Insert before closing prayer if exists, otherwise at end
     const closingIdx = agendaItems.findIndex(
       a => a.label.toLowerCase().includes('closing prayer')
     );
     const insertAt = closingIdx >= 0 ? closingIdx : agendaItems.length;
 
-    // Get source meeting names for display
     for (let i = tags.length - 1; i >= 0; i--) {
       const tag = tags[i];
       let sourceName = 'another meeting';
@@ -429,12 +539,11 @@ export async function buildAutoAgenda(meetingId) {
         source: 'tagged_note',
         sourceNoteTagId: tag.id,
       });
-      // Mark tag as consumed
       await markTagConsumed(tag.id);
     }
   }
 
-  // 4. Get active calling pipeline items for meetings with jurisdiction
+  // 6. Get active calling pipeline items for meetings with jurisdiction
   const callingItems = await getCallingPipelineAgendaItems(meetingId);
   if (callingItems.length > 0) {
     const closingIdx2 = agendaItems.findIndex(
@@ -448,6 +557,29 @@ export async function buildAutoAgenda(meetingId) {
   }
 
   return agendaItems;
+}
+
+/**
+ * Get completed follow-up action items for a meeting.
+ * These are action items from past instances of this meeting
+ * that have been completed since the last instance, and haven't
+ * been acknowledged yet.
+ */
+export async function getCompletedFollowUps(meetingId) {
+  const allInstances = await db.meetingInstances
+    .where('meetingId').equals(meetingId)
+    .toArray();
+  if (allInstances.length === 0) return [];
+
+  const instanceIds = new Set(allInstances.map(i => i.id));
+  const allActions = await db.actionItems.toArray();
+
+  return allActions.filter(item =>
+    item.status === 'complete' &&
+    item.sourceMeetingInstanceId &&
+    instanceIds.has(item.sourceMeetingInstanceId) &&
+    !item.followUpShown
+  );
 }
 
 /**
@@ -512,7 +644,7 @@ export async function syncCallingNotesFromMeeting(agendaItems, instanceDate, mee
 
 // ── Calling Slots / Pipeline (Phase 2) ───────────────────────
 
-export async function getCallingSlots(filters = {}) {
+export async function getCallingSlots(filters = {}, jurisdiction) {
   let items;
   if (filters.organization) {
     items = await db.callingSlots.where('organization').equals(filters.organization).toArray();
@@ -521,11 +653,14 @@ export async function getCallingSlots(filters = {}) {
   } else {
     items = await db.callingSlots.toArray();
   }
+  if (jurisdiction) {
+    items = filterSlotsByJurisdiction(items, jurisdiction);
+  }
   return items;
 }
 
 export async function addCallingSlot(slot) {
-  return await db.callingSlots.add({
+  const data = {
     priority: 'low',
     isOpen: true,
     expectedCount: 1,
@@ -539,18 +674,21 @@ export async function addCallingSlot(slot) {
     history: slot.history || [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  });
+  };
+  const id = await db.callingSlots.add(data);
+  syncAfterWrite('callingSlots', id, { ...data, id });
+  return id;
 }
 
 export async function updateCallingSlot(id, changes) {
-  return await db.callingSlots.update(id, {
-    ...changes,
-    updatedAt: new Date().toISOString(),
-  });
+  await db.callingSlots.update(id, { ...changes, updatedAt: new Date().toISOString() });
+  const updated = await db.callingSlots.get(id);
+  if (updated) syncAfterWrite('callingSlots', id, updated);
 }
 
 export async function deleteCallingSlot(id) {
-  return await db.callingSlots.delete(id);
+  await db.callingSlots.delete(id);
+  syncAfterDelete('callingSlots', id);
 }
 
 export async function transitionCallingSlot(id, newStage, note = '', extraUpdates = {}) {
@@ -638,8 +776,11 @@ function getAutoActionsForTransition(newStage, slot) {
   }
 }
 
-export async function getPipelineSummary() {
-  const all = await db.callingSlots.toArray();
+export async function getPipelineSummary(jurisdiction) {
+  let all = await db.callingSlots.toArray();
+  if (jurisdiction) {
+    all = filterSlotsByJurisdiction(all, jurisdiction);
+  }
   const inPipeline = all.filter(s => s.stage && !['serving', 'released'].includes(s.stage));
   const needsAction = inPipeline.filter(s =>
     ['identified', 'extended', 'sustained'].includes(s.stage)
@@ -656,6 +797,13 @@ export async function getPipelineSummary() {
     releasesInProgress: releasesInProgress.length,
     candidatesPending,
   };
+}
+
+/** Filter calling slots by jurisdiction (visible orgs). */
+function filterSlotsByJurisdiction(slots, jurisdiction) {
+  if (!jurisdiction || !jurisdiction.visibleOrgs || !jurisdiction.canEdit) return [];
+  if (jurisdiction.visibleOrgs.includes('*')) return slots;
+  return slots.filter(s => jurisdiction.visibleOrgs.includes(s.organization));
 }
 
 // ── Backup Metadata (no schema change — stored on profile row) ──
@@ -684,10 +832,10 @@ export async function getJournalEntries(limit = 20) {
 }
 
 export async function addJournalEntry(entry) {
-  return await db.journal.add({
-    ...entry,
-    date: new Date().toISOString(),
-  });
+  const data = { ...entry, date: new Date().toISOString() };
+  const id = await db.journal.add(data);
+  syncAfterWrite('journal', id, { ...data, id });
+  return id;
 }
 
 // Lessons
@@ -706,7 +854,9 @@ export async function getLessons(filters = {}) {
 }
 
 export async function addLesson(lesson) {
-  return await db.lessons.add(lesson);
+  const id = await db.lessons.add(lesson);
+  syncAfterWrite('lessons', id, { ...lesson, id });
+  return id;
 }
 
 // Stats helpers
@@ -1108,28 +1258,31 @@ export async function getMinisteringCompanionships(type) {
 }
 
 export async function addMinisteringCompanionship(comp) {
-  return await db.ministeringCompanionships.add({
+  const data = {
     ...comp,
     status: comp.status || 'active',
     assignedFamilyIds: comp.assignedFamilyIds || [],
     assignedFamilyNames: comp.assignedFamilyNames || [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  });
+  };
+  const id = await db.ministeringCompanionships.add(data);
+  syncAfterWrite('ministeringCompanionships', id, { ...data, id });
+  return id;
 }
 
 export async function updateMinisteringCompanionship(id, changes) {
-  return await db.ministeringCompanionships.update(id, {
-    ...changes,
-    updatedAt: new Date().toISOString(),
-  });
+  await db.ministeringCompanionships.update(id, { ...changes, updatedAt: new Date().toISOString() });
+  const updated = await db.ministeringCompanionships.get(id);
+  if (updated) syncAfterWrite('ministeringCompanionships', id, updated);
 }
 
 export async function deleteMinisteringCompanionship(id) {
-  // Also delete related interviews
   const interviews = await db.ministeringInterviews.where('companionshipId').equals(id).toArray();
+  for (const i of interviews) syncAfterDelete('ministeringInterviews', i.id);
   await db.ministeringInterviews.bulkDelete(interviews.map(i => i.id));
-  return await db.ministeringCompanionships.delete(id);
+  await db.ministeringCompanionships.delete(id);
+  syncAfterDelete('ministeringCompanionships', id);
 }
 
 export async function getMinisteringInterviews(companionshipId) {
@@ -1140,14 +1293,16 @@ export async function getMinisteringInterviews(companionshipId) {
 }
 
 export async function addMinisteringInterview(interview) {
-  return await db.ministeringInterviews.add({
-    ...interview,
-    date: interview.date || new Date().toISOString(),
-  });
+  const data = { ...interview, date: interview.date || new Date().toISOString() };
+  const id = await db.ministeringInterviews.add(data);
+  syncAfterWrite('ministeringInterviews', id, { ...data, id });
+  return id;
 }
 
 export async function updateMinisteringInterview(id, changes) {
-  return await db.ministeringInterviews.update(id, changes);
+  await db.ministeringInterviews.update(id, changes);
+  const updated = await db.ministeringInterviews.get(id);
+  if (updated) syncAfterWrite('ministeringInterviews', id, updated);
 }
 
 // ── Ministering Summary (for Dashboard) ──────────────────────
@@ -1194,6 +1349,88 @@ export async function getMinisteringSummary() {
     unassignedFamilies,
     overdueInterviews,
   };
+}
+
+// ── Ongoing Tasks (Phase 6) ─────────────────────────────────
+
+export async function getOngoingTasks(meetingId) {
+  if (meetingId) {
+    return await db.ongoingTasks.where('meetingId').equals(meetingId).filter(t => t.status === 'active').toArray();
+  }
+  return await db.ongoingTasks.where('status').equals('active').toArray();
+}
+
+export async function getAllOngoingTasks() {
+  return await db.ongoingTasks.where('status').equals('active').toArray();
+}
+
+export async function addOngoingTask(task) {
+  const data = {
+    ...task,
+    status: 'active',
+    updates: [],
+    createdAt: new Date().toISOString(),
+  };
+  const id = await db.ongoingTasks.add(data);
+  syncAfterWrite('ongoingTasks', id, { ...data, id });
+  return id;
+}
+
+export async function addOngoingTaskUpdate(id, update) {
+  const task = await db.ongoingTasks.get(id);
+  if (!task) return;
+  const updates = [...(task.updates || []), { ...update, date: new Date().toISOString() }];
+  await db.ongoingTasks.update(id, { updates });
+  syncAfterWrite('ongoingTasks', id, { ...task, updates });
+}
+
+export async function dismissOngoingTask(id) {
+  await db.ongoingTasks.update(id, { status: 'dismissed' });
+  const updated = await db.ongoingTasks.get(id);
+  if (updated) syncAfterWrite('ongoingTasks', id, updated);
+}
+
+export async function deleteOngoingTask(id) {
+  await db.ongoingTasks.delete(id);
+  syncAfterDelete('ongoingTasks', id);
+}
+
+// ── Ministering Plans (Phase 6) ─────────────────────────────
+
+export async function getActiveMinisteringPlans() {
+  return await db.ministeringPlans.where('status').equals('active').toArray();
+}
+
+export async function addMinisteringPlan(plan) {
+  const data = {
+    ...plan,
+    status: 'active',
+    updates: [],
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+  };
+  const id = await db.ministeringPlans.add(data);
+  syncAfterWrite('ministeringPlans', id, { ...data, id });
+  return id;
+}
+
+export async function addMinisteringPlanUpdate(id, update) {
+  const plan = await db.ministeringPlans.get(id);
+  if (!plan) return;
+  const updates = [...(plan.updates || []), { ...update, date: new Date().toISOString() }];
+  await db.ministeringPlans.update(id, { updates });
+  syncAfterWrite('ministeringPlans', id, { ...plan, updates });
+}
+
+export async function completeMinisteringPlan(id) {
+  await db.ministeringPlans.update(id, { status: 'completed', completedAt: new Date().toISOString() });
+  const updated = await db.ministeringPlans.get(id);
+  if (updated) syncAfterWrite('ministeringPlans', id, updated);
+}
+
+export async function deleteMinisteringPlan(id) {
+  await db.ministeringPlans.delete(id);
+  syncAfterDelete('ministeringPlans', id);
 }
 
 export default db;

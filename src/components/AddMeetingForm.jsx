@@ -5,6 +5,27 @@ import { X, Plus, Trash2 } from 'lucide-react';
 
 const cadenceOptions = Object.entries(MEETING_CADENCES);
 
+const REMINDER_OPTIONS = [
+  { value: 'default', label: 'Default (based on frequency)' },
+  { value: '1', label: '1 day before' },
+  { value: '7', label: '1 week before' },
+  { value: '30', label: '1 month before' },
+  { value: '30,7', label: '1 month + 1 week before' },
+  { value: 'none', label: 'None' },
+];
+
+function reminderDaysToValue(reminderDays) {
+  if (reminderDays === null || reminderDays === undefined) return 'default';
+  if (Array.isArray(reminderDays) && reminderDays.length === 0) return 'none';
+  return reminderDays.join(',');
+}
+
+function valueToReminderDays(value) {
+  if (value === 'default') return null;
+  if (value === 'none') return [];
+  return value.split(',').map(Number);
+}
+
 export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
   const { callings } = useUserCallings();
   const isEditing = !!editMeeting;
@@ -12,6 +33,9 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
   const [name, setName] = useState(editMeeting?.name || '');
   const [callingId, setCallingId] = useState(editMeeting?.callingId || '');
   const [cadence, setCadence] = useState(editMeeting?.cadence || 'monthly');
+  const [reminderValue, setReminderValue] = useState(
+    reminderDaysToValue(editMeeting?.reminderDays)
+  );
   const [agendaItems, setAgendaItems] = useState(
     editMeeting?.agendaTemplate?.length
       ? editMeeting.agendaTemplate.map(t => t)
@@ -42,6 +66,7 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
         name: name.trim(),
         callingId: callingId || null,
         cadence,
+        reminderDays: valueToReminderDays(reminderValue),
         agendaTemplate: agendaItems.filter(a => a.trim()),
         source: 'custom',
       };
@@ -125,6 +150,23 @@ export default function AddMeetingForm({ onSave, onClose, editMeeting }) {
                 <option key={key} value={key}>{label}</option>
               ))}
             </select>
+          </div>
+
+          {/* Reminder */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reminder</label>
+            <select
+              value={reminderValue}
+              onChange={e => setReminderValue(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300 bg-white"
+            >
+              {REMINDER_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-gray-400 mt-1">
+              Default: weekly/biweekly = 1 day, monthly = 1 week, quarterly+ = 1 month + 1 week
+            </p>
           </div>
 
           {/* Agenda Template */}
