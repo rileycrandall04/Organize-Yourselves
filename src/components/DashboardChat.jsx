@@ -5,13 +5,23 @@ import { AI_TOOLS_ANTHROPIC, AI_TOOLS_OPENAI, executeAiTool } from '../utils/aiT
 import { useProfile, useDashboardStats, useUserCallings, useMeetings, usePipelineSummary } from '../hooks/useDb';
 import { useActionItems, useCallingSlots } from '../hooks/useDb';
 
-const SYSTEM_PROMPT = `You are a helpful assistant for a leader in The Church of Jesus Christ of Latter-day Saints. You help manage their calling responsibilities, action items, people, and meetings.
+const SYSTEM_PROMPT = `You are a helpful assistant for a leader in The Church of Jesus Christ of Latter-day Saints. You help manage their calling responsibilities, action items, people, meetings, ministering, and all other aspects of their calling.
 
-You have access to tools that let you create action items, mark tasks complete, add people, capture inbox items, record journal entries, advance callings in the pipeline, and view dashboard summaries.
+You have full access to read and write all app data through tools. You can:
+- Action items: create, update, complete, list (with filters for overdue, starred, high priority, etc.)
+- Meetings: list, create, update, delete, and start meeting instances
+- People: add, update, search/list people in the directory
+- Calling pipeline: advance callings, set specific stages, update slot details, add candidates, start releases, list slots with filters
+- Inbox: add, list, and process inbox items
+- Journal: add entries, list recent entries
+- Responsibilities: list and add responsibilities for callings
+- Ministering: list companionships, add companionships, record interviews
+- Lessons/talks: add and list saved materials
+- Dashboard: get full summary, get service alerts
 
 When the user asks you to do something, use the appropriate tool. Be concise and warm in your responses. After taking actions, briefly confirm what you did. Use simple formatting with line breaks and dashes for lists.
 
-If the user asks about their data (action items, meetings, pipeline), use the get_dashboard_summary or list_action_items tool first, then answer based on the results.`;
+If the user asks about their data, use the relevant listing tool first (get_dashboard_summary, list_action_items, list_calling_slots, list_meetings, etc.) then answer based on the results.`;
 
 const SUGGESTED_ACTIONS = [
   { label: 'What needs my attention?', icon: '📋' },
@@ -247,14 +257,48 @@ function ChatBubble({ message }) {
 function ActionBadge({ action }) {
   const success = action.result?.success;
   const toolLabels = {
+    // Action Items
     create_action_item: 'Task created',
+    update_action_item: 'Task updated',
     complete_action_item: 'Task completed',
-    advance_calling: 'Calling advanced',
+    list_action_items: 'Listed tasks',
+    // Meetings
+    list_meetings: 'Listed meetings',
+    create_meeting: 'Meeting created',
+    update_meeting: 'Meeting updated',
+    delete_meeting: 'Meeting deleted',
+    start_meeting_instance: 'Meeting started',
+    // People
     add_person: 'Person added',
+    update_person: 'Person updated',
+    list_people: 'Listed people',
+    // Calling Pipeline
+    advance_calling: 'Calling advanced',
+    set_calling_stage: 'Stage set',
+    update_calling_slot: 'Calling updated',
+    list_calling_slots: 'Listed callings',
+    add_calling_candidate: 'Candidate added',
+    start_calling_release: 'Release started',
+    // Inbox
     add_inbox_item: 'Inbox captured',
+    list_inbox: 'Listed inbox',
+    process_inbox_item: 'Inbox processed',
+    // Journal
     add_journal_entry: 'Journal saved',
-    list_action_items: 'Listed items',
+    list_journal_entries: 'Listed journal',
+    // Responsibilities
+    list_responsibilities: 'Listed duties',
+    add_responsibility: 'Duty added',
+    // Ministering
+    list_ministering: 'Listed ministering',
+    add_ministering_companionship: 'Comp. created',
+    add_ministering_interview: 'Interview recorded',
+    // Lessons
+    add_lesson: 'Lesson saved',
+    list_lessons: 'Listed lessons',
+    // Dashboard
     get_dashboard_summary: 'Summary loaded',
+    get_service_alerts: 'Alerts checked',
   };
 
   const label = toolLabels[action.tool] || action.tool;
