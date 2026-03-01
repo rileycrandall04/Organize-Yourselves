@@ -4,8 +4,8 @@ import { CALLING_PRIORITIES } from '../utils/constants';
 import { getOrgLabel, ORGANIZATIONS } from '../data/callings';
 import { AlertTriangle, ChevronDown, ChevronRight, Clock, UserPlus, Users } from 'lucide-react';
 
-export default function NeedsDashboard({ onSelectSlot, onAddCandidate, onOrgFilter, activeOrgFilter }) {
-  const { positions, loading } = useOpenPositions();
+export default function NeedsDashboard({ onSelectSlot, onAddCandidate, onOrgFilter, activeOrgFilter, jurisdiction }) {
+  const { positions, loading } = useOpenPositions(null, jurisdiction);
   const { alerts } = useServiceAlerts();
   const [expanded, setExpanded] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);

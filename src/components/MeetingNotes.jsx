@@ -11,7 +11,7 @@ import AddPriorTasksModal from './AddPriorTasksModal';
 import {
   ArrowLeft, Save, CheckCircle2, Plus, MessageSquare, FileText,
   ArrowUpRight, X, CheckSquare, Clock, Users2, Trash2,
-  GripVertical, ListPlus,
+  GripVertical, ListPlus, ChevronDown,
 } from 'lucide-react';
 
 export default function MeetingNotes({ instance, meetingName, meetingId, onBack }) {
@@ -38,6 +38,14 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
   // Drag state
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
+
+  // Touch drag state
+  const touchStartY = useRef(null);
+  const touchDragIndex = useRef(null);
+  const touchClone = useRef(null);
+
+  // Expandable agenda items (collapsed by default)
+  const [expandedItems, setExpandedItems] = useState(new Set());
 
   // Note tagging state
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
@@ -156,6 +164,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
     const id = await addActionItem({
       title: actionTitle.trim(),
       sourceMeetingInstanceId: instance.id,
+      targetMeetingIds: [meetingId || instance.meetingId],
     });
     setActionItemIds(prev => [...prev, id]);
     await update(instance.id, { actionItemIds: [...actionItemIds, id] });
@@ -235,6 +244,87 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
   function handleDragEnd() {
     setDragIndex(null);
     setDragOverIndex(null);
+  }
+
+  // --- Touch Drag & Drop (mobile) ---
+
+  function handleTouchStart(e, index) {
+    const touch = e.touches[0];
+    touchStartY.current = touch.clientY;
+    touchDragIndex.current = index;
+
+    // Create a visual clone element
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    const clone = el.cloneNode(true);
+    clone.style.position = 'fixed';
+    clone.style.left = `${rect.left}px`;
+    clone.style.top = `${rect.top}px`;
+    clone.style.width = `${rect.width}px`;
+    clone.style.opacity = '0.85';
+    clone.style.zIndex = '50';
+    clone.style.pointerEvents = 'none';
+    clone.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+    clone.style.transform = 'scale(1.02)';
+    document.body.appendChild(clone);
+    touchClone.current = clone;
+    setDragIndex(index);
+  }
+
+  function handleTouchMove(e, _index) {
+    if (touchDragIndex.current === null) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+
+    // Move clone
+    if (touchClone.current) {
+      const dy = touch.clientY - touchStartY.current;
+      const origRect = e.currentTarget.parentElement?.children[touchDragIndex.current]?.getBoundingClientRect();
+      if (origRect) {
+        touchClone.current.style.top = `${origRect.top + dy}px`;
+      }
+    }
+
+    // Determine which item we're over
+    const elements = e.currentTarget.parentElement?.children;
+    if (!elements) return;
+    for (let i = 0; i < elements.length; i++) {
+      const rect = elements[i].getBoundingClientRect();
+      if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+        setDragOverIndex(i);
+        break;
+      }
+    }
+  }
+
+  function handleTouchEnd() {
+    if (touchDragIndex.current !== null && dragOverIndex !== null && touchDragIndex.current !== dragOverIndex) {
+      setAgendaItems(prev => {
+        const updated = [...prev];
+        const [moved] = updated.splice(touchDragIndex.current, 1);
+        updated.splice(dragOverIndex, 0, moved);
+        return updated;
+      });
+      setDirty(true);
+    }
+    // Clean up
+    if (touchClone.current) {
+      document.body.removeChild(touchClone.current);
+      touchClone.current = null;
+    }
+    touchDragIndex.current = null;
+    touchStartY.current = null;
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }
+
+  function toggleExpandItem(index) {
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   }
 
   // --- Add Prior Tasks ---
@@ -364,6 +454,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
       case 'ongoing_task': return 'border-l-2 border-l-green-300';
       case 'ministering_plan': return 'border-l-2 border-l-teal-300';
       case 'completed_followup': return 'border-l-2 border-l-green-300';
+      case 'pre_meeting': return 'border-l-2 border-l-blue-300';
+      case 'assigned_action_item': return 'border-l-2 border-l-sky-300';
       default: return '';
     }
   }
@@ -382,6 +474,10 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
         return <span className="badge bg-teal-100 text-teal-700 text-[9px] flex-shrink-0">Ministering</span>;
       case 'completed_followup':
         return <span className="badge bg-green-100 text-green-700 text-[9px] flex-shrink-0">Completed</span>;
+      case 'pre_meeting':
+        return <span className="badge bg-blue-100 text-blue-700 text-[9px] flex-shrink-0">Pre-Meeting</span>;
+      case 'assigned_action_item':
+        return <span className="badge bg-sky-100 text-sky-700 text-[9px] flex-shrink-0">Action Item</span>;
       default: return null;
     }
   }
@@ -464,85 +560,100 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
               </button>
             )}
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {agendaItems.map((item, i) => {
               const itemTags = getAgendaItemTags(i);
               const sourceClass = getSourceClass(item.source);
               const isCompletedFollowup = item.source === 'completed_followup';
+              const isExpanded = expandedItems.has(i);
+              const hasNotes = !!item.notes?.trim();
 
               return (
                 <div
                   key={i}
-                  className={`card !p-2.5 ${sourceClass} ${dragOverIndex === i ? 'ring-2 ring-primary-300' : ''} ${dragIndex === i ? 'opacity-50' : ''}`}
+                  className={`card !p-2 ${sourceClass} ${dragOverIndex === i ? 'ring-2 ring-primary-300' : ''} ${dragIndex === i ? 'opacity-50' : ''}`}
                   draggable={!isCompleted}
                   onDragStart={e => handleDragStart(e, i)}
                   onDragOver={e => handleDragOver(e, i)}
                   onDrop={e => handleDrop(e, i)}
                   onDragEnd={handleDragEnd}
+                  onTouchStart={!isCompleted ? e => handleTouchStart(e, i) : undefined}
+                  onTouchMove={!isCompleted ? e => handleTouchMove(e, i) : undefined}
+                  onTouchEnd={!isCompleted ? handleTouchEnd : undefined}
                 >
-                  <div className="flex items-start gap-1.5 mb-1.5">
+                  <div
+                    className="flex items-center gap-1.5 cursor-pointer"
+                    onClick={() => toggleExpandItem(i)}
+                  >
                     {!isCompleted && (
-                      <GripVertical size={12} className="text-gray-300 mt-0.5 cursor-grab flex-shrink-0" />
+                      <GripVertical size={11} className="text-gray-300 cursor-grab flex-shrink-0" />
                     )}
-                    <span className="text-[10px] text-gray-400 mt-0.5 w-3 text-right flex-shrink-0">{i + 1}.</span>
+                    <span className="text-[10px] text-gray-400 w-3 text-right flex-shrink-0">{i + 1}.</span>
                     <span className={`text-xs font-medium text-gray-800 flex-1 ${isCompletedFollowup ? 'line-through text-gray-500' : ''}`}>
                       {item.label}
                     </span>
+                    {hasNotes && !isExpanded && (
+                      <span className="w-1.5 h-1.5 bg-primary-400 rounded-full flex-shrink-0" title="Has notes" />
+                    )}
                     {getSourceBadge(item)}
                     {item.snoozed && (
                       <span className="badge bg-gray-100 text-gray-500 text-[9px] flex-shrink-0">Snoozed</span>
                     )}
+                    <ChevronDown size={12} className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                   </div>
-                  {item.snoozed ? (
-                    <p className="text-[10px] text-gray-400 italic">Snoozed — will reappear in next meeting</p>
-                  ) : (
-                    <>
-                      <textarea
-                        value={item.notes}
-                        onChange={e => updateAgendaNote(i, e.target.value)}
-                        placeholder="Notes..."
-                        rows={1}
-                        className="input-field text-xs"
-                        disabled={isCompleted}
-                      />
-                      <div className="flex items-center justify-between mt-1">
-                        <div className="flex gap-1 flex-wrap">
-                          {itemTags.map(tag => (
-                            <span key={tag.id} className="inline-flex items-center gap-0.5 badge bg-indigo-50 text-indigo-600 text-[9px]">
-                              <ArrowUpRight size={8} />
-                              {getMeetingNameById(tag.targetMeetingId)}
-                              {!isCompleted && (
-                                <button onClick={() => removeTag(tag.id)} className="ml-0.5 hover:text-red-500">
-                                  <X size={8} />
-                                </button>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {!isCompleted && item.source === 'ongoing_task' && (
-                            <button onClick={() => handleDismissOngoingTask(i)} className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:text-amber-700">
-                              <X size={10} /> Dismiss
-                            </button>
-                          )}
-                          {!isCompleted && item.source === 'ministering_plan' && (
-                            <button onClick={() => handleCompleteMinisteringPlan(i)} className="flex items-center gap-0.5 text-[10px] text-teal-500 hover:text-teal-700">
-                              <CheckCircle2 size={10} /> Complete
-                            </button>
-                          )}
-                          {!isCompleted && item.source === 'calling_pipeline' && (
-                            <button onClick={() => snoozeAgendaItem(i)} className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:text-amber-700">
-                              <Clock size={10} /> Snooze
-                            </button>
-                          )}
-                          {!isCompleted && item.notes?.trim() && (
-                            <button onClick={() => openTagPicker(i)} className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700">
-                              <ArrowUpRight size={10} /> Tag
-                            </button>
-                          )}
+                  {isExpanded && (
+                    item.snoozed ? (
+                      <p className="text-[10px] text-gray-400 italic mt-1.5 ml-6">Snoozed — will reappear in next meeting</p>
+                    ) : (
+                      <div className="mt-1.5 ml-6">
+                        <textarea
+                          value={item.notes}
+                          onChange={e => updateAgendaNote(i, e.target.value)}
+                          placeholder="Notes..."
+                          rows={2}
+                          className="input-field text-xs"
+                          disabled={isCompleted}
+                          onClick={e => e.stopPropagation()}
+                        />
+                        <div className="flex items-center justify-between mt-1">
+                          <div className="flex gap-1 flex-wrap">
+                            {itemTags.map(tag => (
+                              <span key={tag.id} className="inline-flex items-center gap-0.5 badge bg-indigo-50 text-indigo-600 text-[9px]">
+                                <ArrowUpRight size={8} />
+                                {getMeetingNameById(tag.targetMeetingId)}
+                                {!isCompleted && (
+                                  <button onClick={e => { e.stopPropagation(); removeTag(tag.id); }} className="ml-0.5 hover:text-red-500">
+                                    <X size={8} />
+                                  </button>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {!isCompleted && item.source === 'ongoing_task' && (
+                              <button onClick={e => { e.stopPropagation(); handleDismissOngoingTask(i); }} className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:text-amber-700">
+                                <X size={10} /> Dismiss
+                              </button>
+                            )}
+                            {!isCompleted && item.source === 'ministering_plan' && (
+                              <button onClick={e => { e.stopPropagation(); handleCompleteMinisteringPlan(i); }} className="flex items-center gap-0.5 text-[10px] text-teal-500 hover:text-teal-700">
+                                <CheckCircle2 size={10} /> Complete
+                              </button>
+                            )}
+                            {!isCompleted && item.source === 'calling_pipeline' && (
+                              <button onClick={e => { e.stopPropagation(); snoozeAgendaItem(i); }} className="flex items-center gap-0.5 text-[10px] text-amber-500 hover:text-amber-700">
+                                <Clock size={10} /> Snooze
+                              </button>
+                            )}
+                            {!isCompleted && item.notes?.trim() && (
+                              <button onClick={e => { e.stopPropagation(); openTagPicker(i); }} className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700">
+                                <ArrowUpRight size={10} /> Tag
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </>
+                    )
                   )}
                 </div>
               );
@@ -562,42 +673,6 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
           </button>
         </div>
       )}
-
-      {/* General notes */}
-      <div className="mb-6">
-        <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
-          <MessageSquare size={14} className="text-primary-600" />
-          General Notes
-        </h2>
-        <textarea
-          value={notes}
-          onChange={e => updateNotes(e.target.value)}
-          placeholder="Meeting notes, impressions, follow-up thoughts..."
-          rows={4}
-          className="input-field"
-          disabled={isCompleted}
-        />
-        <div className="flex items-center justify-between mt-1.5">
-          <div className="flex gap-1 flex-wrap">
-            {generalNoteTags.map(tag => (
-              <span key={tag.id} className="inline-flex items-center gap-0.5 badge bg-indigo-50 text-indigo-600 text-[10px]">
-                <ArrowUpRight size={8} />
-                {getMeetingNameById(tag.targetMeetingId)}
-                {!isCompleted && (
-                  <button onClick={() => removeTag(tag.id)} className="ml-0.5 hover:text-red-500">
-                    <X size={8} />
-                  </button>
-                )}
-              </span>
-            ))}
-          </div>
-          {!isCompleted && notes.trim() && (
-            <button onClick={openGeneralTagPicker} className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700 flex-shrink-0">
-              <ArrowUpRight size={10} /> Tag for another meeting
-            </button>
-          )}
-        </div>
-      </div>
 
       {/* Focus Families */}
       <div className="mb-6">
@@ -646,6 +721,42 @@ export default function MeetingNotes({ instance, meetingName, meetingId, onBack 
         {actionItemIds.length > 0 && (
           <p className="text-xs text-gray-500">{actionItemIds.length} action item{actionItemIds.length !== 1 ? 's' : ''} created. View them on the Actions tab.</p>
         )}
+      </div>
+
+      {/* General notes (at bottom, after agenda and action items) */}
+      <div className="mb-6">
+        <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
+          <MessageSquare size={14} className="text-primary-600" />
+          General Notes
+        </h2>
+        <textarea
+          value={notes}
+          onChange={e => updateNotes(e.target.value)}
+          placeholder="Meeting notes, impressions, follow-up thoughts..."
+          rows={4}
+          className="input-field"
+          disabled={isCompleted}
+        />
+        <div className="flex items-center justify-between mt-1.5">
+          <div className="flex gap-1 flex-wrap">
+            {generalNoteTags.map(tag => (
+              <span key={tag.id} className="inline-flex items-center gap-0.5 badge bg-indigo-50 text-indigo-600 text-[10px]">
+                <ArrowUpRight size={8} />
+                {getMeetingNameById(tag.targetMeetingId)}
+                {!isCompleted && (
+                  <button onClick={() => removeTag(tag.id)} className="ml-0.5 hover:text-red-500">
+                    <X size={8} />
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+          {!isCompleted && notes.trim() && (
+            <button onClick={openGeneralTagPicker} className="flex items-center gap-0.5 text-[10px] text-indigo-500 hover:text-indigo-700 flex-shrink-0">
+              <ArrowUpRight size={10} /> Tag for another meeting
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tags summary */}

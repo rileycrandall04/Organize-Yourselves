@@ -6,6 +6,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X, Heart, Users, Play } from 'lucide-react';
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { dismissBackupReminder } from '../db';
+import { useAuth } from '../hooks/useAuth';
 import ActionItemRow from './shared/ActionItemRow';
 import DashboardChat from './DashboardChat';
 import { updateActionItem } from '../db';
@@ -30,13 +31,15 @@ export default function Dashboard() {
   const futureMeetings = upcomingMeetings.filter(m => m.nextDate && !isDateToday(m.nextDate));
   const { summary: ministeringSummary } = useMinisteringSummary();
   const { daysSinceExport, shouldShowReminder } = useLastExportDate();
+  const { user: authUser } = useAuth();
+  const isCloudSynced = !!authUser;
 
   // Show ministering card for EQ pres, RS pres, bishopric
   const ministeringCallings = ['eq_president', 'rs_president', 'bishop', 'bishopric_1st', 'bishopric_2nd'];
   const showMinistering = callings.some(c => ministeringCallings.includes(c.callingKey));
   const [reminderDismissed, setReminderDismissed] = useState(false);
 
-  const showBackupBanner = shouldShowReminder && !reminderDismissed;
+  const showBackupBanner = shouldShowReminder && !reminderDismissed && !isCloudSynced;
 
   async function handleDismissReminder() {
     setReminderDismissed(true);

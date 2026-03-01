@@ -7,7 +7,7 @@ import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITI
 import { ORGANIZATIONS } from '../data/callings';
 import Modal from './shared/Modal';
 import {
-  ArrowLeft, GitBranch, Plus, ArrowRight, RotateCcw, List, LayoutGrid,
+  ArrowLeft, GitBranch, Plus, ArrowRight, RotateCcw, List, LayoutGrid, BarChart3,
   ChevronDown, ChevronRight, AlertTriangle, Users, Clock, UserPlus,
   Check, X,
 } from 'lucide-react';
@@ -530,6 +530,7 @@ export default function CallingPipeline({ onBack }) {
               { key: 'list', icon: List, label: 'List' },
               { key: 'kanban', icon: LayoutGrid, label: 'Board' },
               { key: 'orgchart', icon: Users, label: 'Org' },
+              { key: 'report', icon: BarChart3, label: 'Report' },
             ].map(({ key, icon: Icon, label }) => (
               <button
                 key={key}
@@ -545,15 +546,13 @@ export default function CallingPipeline({ onBack }) {
               </button>
             ))}
           </div>
-          {view !== 'orgchart' && (
-            <button
-              onClick={() => openAdd()}
-              className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-800"
-            >
-              <Plus size={16} />
-              Add
-            </button>
-          )}
+          <button
+            onClick={() => openAdd()}
+            className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-800"
+          >
+            <Plus size={16} />
+            Add
+          </button>
         </div>
       </div>
 
@@ -565,6 +564,7 @@ export default function CallingPipeline({ onBack }) {
           setOrgFilter(orgFilter === orgKey ? null : orgKey);
         }}
         activeOrgFilter={orgFilter}
+        jurisdiction={jurisdiction}
       />
 
       {activeCount > 0 && (
@@ -659,6 +659,8 @@ export default function CallingPipeline({ onBack }) {
           orgFilter={orgFilter}
           onClearOrgFilter={() => setOrgFilter(null)}
         />
+      ) : view === 'report' ? (
+        <ServiceReport slots={slots} onSlotPress={openEdit} getOrgLabel={getOrgLabel} />
       ) : view === 'kanban' ? (
         <KanbanView
           slotsByStage={slotsByStage}
@@ -909,6 +911,62 @@ function ListView({ slotsByStage, displayStages, onSlotPress, onAdvance, onDecli
   );
 }
 
+// ── Service Report ──────────────────────────────────────────
+
+function ServiceReport({ slots, onSlotPress, getOrgLabel }) {
+  const servingSlots = slots
+    .filter(s => s.stage === 'serving' && s.servingSince)
+    .map(s => {
+      const start = new Date(s.servingSince);
+      const months = Math.round((Date.now() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44));
+      return { ...s, servedMonths: months, startDate: start };
+    })
+    .sort((a, b) => b.servedMonths - a.servedMonths);
+
+  if (servingSlots.length === 0) {
+    return (
+      <div className="card text-center text-gray-400 py-12">
+        <BarChart3 size={40} className="mx-auto mb-3 text-gray-300" />
+        <p className="text-sm">No one currently serving in your jurisdiction.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+        <span className="flex-1">Calling</span>
+        <span className="w-28 text-right">Person</span>
+        <span className="w-16 text-right">Months</span>
+        <span className="w-20 text-right">Since</span>
+      </div>
+      {servingSlots.map(slot => (
+        <div
+          key={slot.id}
+          onClick={() => onSlotPress(slot)}
+          className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-gray-900 truncate">{slot.roleName}</p>
+            <p className="text-[10px] text-gray-400">{getOrgLabel(slot.organization)}</p>
+          </div>
+          <span className="w-28 text-right text-xs text-gray-600 truncate">{slot.servedBy || '—'}</span>
+          <span className={`w-16 text-right text-xs font-medium ${
+            slot.recommendedServiceMonths && (slot.recommendedServiceMonths - slot.servedMonths) <= 3
+              ? 'text-amber-600' : 'text-gray-700'
+          }`}>
+            {slot.servedMonths}
+            {slot.recommendedServiceMonths ? `/${slot.recommendedServiceMonths}` : ''}
+          </span>
+          <span className="w-20 text-right text-[10px] text-gray-400">
+            {slot.startDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Slot Card ───────────────────────────────────────────────
 
 function SlotCard({ slot, onPress, onAdvance, onDecline, onReturn, onBeginRelease, onAddCandidate, getOrgLabel, getNextStage, compact }) {
@@ -943,7 +1001,7 @@ function SlotCard({ slot, onPress, onAdvance, onDecline, onReturn, onBeginReleas
             <p className={`text-gray-400 ${compact ? 'text-[10px]' : 'text-[11px]'}`}>
               {getOrgLabel(slot.organization)}
             </p>
-            {serviceInfo && (
+            {serviceInfo > 0 && (
               <span className="text-[10px] text-gray-300">
                 &middot; {serviceInfo}mo
               </span>

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import Modal from './shared/Modal';
 import MeetingPicker from './shared/MeetingPicker';
 import { PRIORITY_LIST, CONTEXT_LIST, CADENCE_LIST } from '../utils/constants';
-import { useMeetings } from '../hooks/useDb';
-import { Star, Trash2, RotateCw, Calendar } from 'lucide-react';
+import { useMeetings, usePeople } from '../hooks/useDb';
+import { Star, Trash2, RotateCw, Calendar, UserCircle, X } from 'lucide-react';
 
 const EMPTY_FORM = {
   title: '',
@@ -23,12 +23,18 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
   const [targetMeetingIds, setTargetMeetingIds] = useState([]);
+  const [assignedTo, setAssignedTo] = useState(null);
+  const [assigneeInput, setAssigneeInput] = useState('');
+  const [showAssigneePicker, setShowAssigneePicker] = useState(false);
   const { meetings: allMeetings } = useMeetings();
+  const { people } = usePeople();
 
   useEffect(() => {
     if (open) {
       setForm(item ? { ...EMPTY_FORM, ...item } : EMPTY_FORM);
       setTargetMeetingIds(item?.targetMeetingIds || []);
+      setAssignedTo(item?.assignedTo || null);
+      setAssigneeInput('');
       setConfirmDelete(false);
     }
   }, [open, item]);
@@ -52,6 +58,7 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
         isRecurring: form.isRecurring,
         recurringCadence: form.isRecurring ? form.recurringCadence : undefined,
         targetMeetingIds: targetMeetingIds.length > 0 ? targetMeetingIds : [],
+        assignedTo: assignedTo || null,
       };
       await onSave(data, item?.id);
       onClose();
@@ -135,6 +142,67 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
             onChange={e => set('dueDate', e.target.value)}
             className="input-field"
           />
+        </div>
+
+        {/* Assigned To */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Assigned To</label>
+          {assignedTo ? (
+            <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg">
+              <UserCircle size={16} className="text-primary-500" />
+              <span className="text-sm text-gray-800 flex-1">{assignedTo.name}</span>
+              <button type="button" onClick={() => setAssignedTo(null)} className="text-gray-400 hover:text-red-500">
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <input
+                type="text"
+                value={assigneeInput}
+                onChange={e => {
+                  setAssigneeInput(e.target.value);
+                  setShowAssigneePicker(e.target.value.length >= 2);
+                }}
+                onFocus={() => { if (assigneeInput.length >= 2) setShowAssigneePicker(true); }}
+                onBlur={() => setTimeout(() => setShowAssigneePicker(false), 150)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && assigneeInput.trim()) {
+                    e.preventDefault();
+                    setAssignedTo({ type: 'person', id: null, name: assigneeInput.trim() });
+                    setAssigneeInput('');
+                    setShowAssigneePicker(false);
+                  }
+                }}
+                placeholder="Type a name or press Enter for free text..."
+                className="input-field"
+              />
+              {showAssigneePicker && (() => {
+                const q = assigneeInput.toLowerCase();
+                const matches = people.filter(p => p.name.toLowerCase().includes(q));
+                if (matches.length === 0) return null;
+                return (
+                  <div className="absolute z-20 left-0 right-0 mt-1 max-h-32 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
+                    {matches.slice(0, 8).map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          setAssignedTo({ type: 'person', id: p.id, name: p.name });
+                          setAssigneeInput('');
+                          setShowAssigneePicker(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-primary-50 border-b border-gray-100 last:border-0"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
 
         {/* Star toggle */}

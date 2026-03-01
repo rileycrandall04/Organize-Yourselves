@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Modal from './shared/Modal';
 import { CALLING_STAGES, CALL_STAGE_ORDER, RELEASE_STAGE_ORDER, CALLING_PRIORITIES } from '../utils/constants';
-import { ORGANIZATIONS, REPORTS_TO_ROLES, getReportsToForOrg } from '../data/callings';
+import { ORGANIZATIONS, REPORTS_TO_ROLES, getReportsToForOrg, ALL_ROLE_NAMES, getPresidingOfficerForRole } from '../data/callings';
 import { usePeople } from '../hooks/useDb';
 import { Trash2, Users } from 'lucide-react';
 
@@ -54,6 +54,14 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
     }
   }, [open, slot, parentSlotId, prefilledOrganization]);
 
+  // Auto-populate presiding officer when role name matches a known calling
+  useEffect(() => {
+    if (!isEdit && form.roleName && !form.presidingOfficer) {
+      const suggested = getPresidingOfficerForRole(form.roleName, form.organization);
+      if (suggested) setForm(prev => ({ ...prev, presidingOfficer: suggested }));
+    }
+  }, [form.roleName, form.organization, isEdit]);
+
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
   }
@@ -70,18 +78,18 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
     setSaving(true);
     try {
       const data = {
-        organization: form.organization || undefined,
+        organization: form.organization || '',
         roleName: form.roleName.trim(),
-        candidateName: form.candidateName.trim() || undefined,
-        personId: form.personId || undefined,
+        candidateName: form.candidateName.trim() || '',
+        personId: form.personId || null,
         stage: form.stage,
-        notes: form.notes.trim() || undefined,
+        notes: form.notes.trim() || '',
         parentSlotId: form.parentSlotId || null,
         priority: form.priority || 'low',
         expectedCount: parseInt(form.expectedCount) || 1,
         recommendedServiceMonths: form.recommendedServiceMonths ? parseInt(form.recommendedServiceMonths) : null,
-        releaseTarget: form.releaseTarget.trim() || undefined,
-        presidingOfficer: form.presidingOfficer.trim() || undefined,
+        releaseTarget: form.releaseTarget.trim() || '',
+        presidingOfficer: form.presidingOfficer.trim() || '',
       };
       if (!isEdit && form.isCustomPosition) {
         data.isCustomPosition = true;
@@ -141,12 +149,18 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
           <label className="block text-sm font-medium text-gray-700 mb-1">Calling / Role</label>
           <input
             type="text"
+            list="known-callings"
             value={form.roleName}
             onChange={e => set('roleName', e.target.value)}
             placeholder="e.g., EQ 2nd Counselor, Nursery Leader"
             className="input-field"
             autoFocus
           />
+          <datalist id="known-callings">
+            {ALL_ROLE_NAMES.map(name => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         </div>
 
         {/* Priority + Expected Count (side by side) */}
@@ -342,7 +356,7 @@ export default function CallingSlotForm({ open, onClose, slot, onSave, onDelete,
 
         {/* Actions */}
         <div className="flex gap-3 pt-2">
-          <button type="submit" disabled={!form.roleName.trim() || saving} className="btn-primary flex-1">
+          <button type="submit" disabled={!form.roleName.trim() || !form.organization || saving} className="btn-primary flex-1">
             {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
           </button>
           <button type="button" onClick={onClose} className="btn-secondary flex-1">

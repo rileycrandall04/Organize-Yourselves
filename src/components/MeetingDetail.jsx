@@ -7,11 +7,13 @@ import { MEETING_STATUSES } from '../utils/constants';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ArrowLeft, Calendar, Plus, Clock, CheckCircle2, ListChecks, FileText,
-  ArrowUpRight, RotateCw, Pencil, Trash2, Target, Heart,
+  ArrowUpRight, RotateCw, Pencil, Trash2, Target, Heart, ClipboardList,
 } from 'lucide-react';
 import MeetingNotes from './MeetingNotes';
 import AddMeetingForm from './AddMeetingForm';
 import Modal from './shared/Modal';
+
+const cadenceOptions = Object.entries(MEETING_CADENCES);
 
 export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const { instances, loading, add: addInstance } = useMeetingInstances(meeting.id);
@@ -24,6 +26,9 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [showAddPlan, setShowAddPlan] = useState(false);
+  const [editingCadence, setEditingCadence] = useState(false);
+  const [showAddPreMeetingTask, setShowAddPreMeetingTask] = useState(false);
+  const [preMeetingTaskTitle, setPreMeetingTaskTitle] = useState('');
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newPlanPerson, setNewPlanPerson] = useState('');
   const [newPlanFamily, setNewPlanFamily] = useState('');
@@ -93,6 +98,29 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     Object.assign(meeting, changes);
   }
 
+  async function handleCadenceChange(newCadence) {
+    await updateMeeting(meeting.id, { cadence: newCadence });
+    meeting.cadence = newCadence;
+    setEditingCadence(false);
+  }
+
+  async function handleAddPreMeetingTask() {
+    if (!preMeetingTaskTitle.trim()) return;
+    const pending = meeting.pendingAgendaItems || [];
+    const updated = [...pending, { label: preMeetingTaskTitle.trim(), notes: '' }];
+    await updateMeeting(meeting.id, { pendingAgendaItems: updated });
+    meeting.pendingAgendaItems = updated;
+    setPreMeetingTaskTitle('');
+    setShowAddPreMeetingTask(false);
+  }
+
+  async function handleRemovePreMeetingTask(index) {
+    const pending = meeting.pendingAgendaItems || [];
+    const updated = pending.filter((_, i) => i !== index);
+    await updateMeeting(meeting.id, { pendingAgendaItems: updated });
+    meeting.pendingAgendaItems = updated;
+  }
+
   async function handleDelete() {
     await deleteMeetingWithInstances(meeting.id);
     onMeetingDeleted?.();
@@ -147,26 +175,53 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
               </span>
             )}
           </div>
-          <p className="text-sm text-gray-500 mt-1">{cadenceLabel}</p>
+          {editingCadence ? (
+            <select
+              value={meeting.cadence}
+              onChange={e => handleCadenceChange(e.target.value)}
+              onBlur={() => setEditingCadence(false)}
+              className="text-sm text-gray-600 mt-1 border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary-300"
+              autoFocus
+            >
+              {cadenceOptions.map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          ) : (
+            <button
+              onClick={() => setEditingCadence(true)}
+              className="text-sm text-gray-500 mt-1 hover:text-primary-600 hover:underline transition-colors"
+              title="Click to change frequency"
+            >
+              {cadenceLabel}
+            </button>
+          )}
+          {meeting.participants?.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {meeting.participants.map((p, i) => (
+                <span key={i} className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                  {p.name}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-        {isCustom && (
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setShowEditForm(true)}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
-              title="Edit meeting"
-            >
-              <Pencil size={16} />
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"
-              title="Delete meeting"
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowEditForm(true)}
+            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+            title="Edit meeting"
+          >
+            <Pencil size={16} />
+          </button>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"
+            title="Delete meeting"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Delete confirmation */}
@@ -176,6 +231,11 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           <p className="text-xs text-red-600 mb-3">
             This will permanently delete the meeting and all {instances.length} recorded instance{instances.length !== 1 ? 's' : ''}.
           </p>
+          {!isCustom && (
+            <p className="text-xs text-red-500 mb-3 italic">
+              This meeting was auto-created from your calling. You can re-create it from Settings.
+            </p>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => setShowDeleteConfirm(false)}
@@ -221,6 +281,40 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           </div>
         </div>
       )}
+
+      {/* Pre-Meeting Tasks */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            <ClipboardList size={14} className="text-blue-600" />
+            Pre-Meeting Tasks ({(meeting.pendingAgendaItems || []).length})
+          </h2>
+          <button
+            onClick={() => setShowAddPreMeetingTask(true)}
+            className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+          >
+            <Plus size={14} />
+            Add
+          </button>
+        </div>
+        {(meeting.pendingAgendaItems || []).length === 0 ? (
+          <p className="text-xs text-gray-400">Add items here before starting a meeting. They'll auto-populate the agenda.</p>
+        ) : (
+          <div className="space-y-2">
+            {(meeting.pendingAgendaItems || []).map((item, i) => (
+              <div key={i} className="card !p-2.5 border-l-2 border-l-blue-300 flex items-center justify-between">
+                <p className="text-xs font-medium text-gray-800">{item.label}</p>
+                <button
+                  onClick={() => handleRemovePreMeetingTask(i)}
+                  className="text-gray-400 hover:text-red-500 flex-shrink-0 ml-2"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Ongoing Tasks */}
       <div className="mb-6">
@@ -423,6 +517,25 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           <div className="flex gap-3">
             <button onClick={handleAddPlan} disabled={!newPlanPerson.trim()} className="btn-primary flex-1">Create</button>
             <button onClick={() => setShowAddPlan(false)} className="btn-secondary flex-1">Cancel</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Pre-Meeting Task modal */}
+      <Modal open={showAddPreMeetingTask} onClose={() => setShowAddPreMeetingTask(false)} title="Add Pre-Meeting Task" size="sm">
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={preMeetingTaskTitle}
+            onChange={e => setPreMeetingTaskTitle(e.target.value)}
+            placeholder="Topic or agenda item..."
+            className="input-field"
+            autoFocus
+          />
+          <p className="text-xs text-gray-400">This item will be added to the agenda when you start a new meeting.</p>
+          <div className="flex gap-3">
+            <button onClick={handleAddPreMeetingTask} disabled={!preMeetingTaskTitle.trim()} className="btn-primary flex-1">Add</button>
+            <button onClick={() => setShowAddPreMeetingTask(false)} className="btn-secondary flex-1">Cancel</button>
           </div>
         </div>
       </Modal>

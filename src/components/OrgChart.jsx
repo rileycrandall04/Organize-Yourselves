@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useOrgTree } from '../hooks/useDb';
 import { useVisibility } from '../hooks/useVisibility';
 import { CALLING_STAGES, DISPLAY_STAGE_GROUPS } from '../utils/constants';
@@ -90,7 +90,7 @@ export default function OrgChart({ onEditSlot, onAddSlot, onAddCandidate, onBegi
 // ── Org Folder ──────────────────────────────────────────────
 
 function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCandidate, onBeginRelease, onAdvance, allowedStages }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [otherExpanded, setOtherExpanded] = useState(false);
 
   // Filter slots by stage if filter is active
@@ -102,6 +102,14 @@ function OrgFolder({ group, hidden, onToggleHide, onEditSlot, onAddSlot, onAddCa
   const filteredPresidency = filterSlots(group.presidencySlots);
   const filteredOther = filterSlots(group.otherSlots);
   const totalVisible = filteredPresidency.length + filteredOther.length;
+
+  // Auto-expand when stage filter is active and there are matching slots
+  useEffect(() => {
+    if (allowedStages && totalVisible > 0) {
+      setExpanded(true);
+      if (filteredOther.length > 0) setOtherExpanded(true);
+    }
+  }, [allowedStages, totalVisible, filteredOther.length]);
 
   // If stage filter is active and no visible slots, hide the entire folder
   if (allowedStages && totalVisible === 0) return null;
@@ -280,8 +288,8 @@ function SlotRow({ slot, indented, onEdit, onAddSlot, onAddCandidate, onBeginRel
         <span className="text-xs text-red-400 italic whitespace-nowrap">&mdash;</span>
       )}
 
-      {/* Service info */}
-      {serviceInfo && (
+      {/* Service info — hide when < 1 month */}
+      {serviceInfo && serviceInfo.months >= 1 && (
         <span className={`text-[10px] whitespace-nowrap flex-shrink-0 ${isNearingService ? 'text-amber-500' : 'text-gray-300'}`}>
           {isNearingService && <AlertTriangle size={9} className="inline mr-0.5" />}
           {serviceInfo.months}mo
