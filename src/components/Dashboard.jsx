@@ -12,6 +12,7 @@ import { updateActionItem } from '../db';
 import { formatFriendly, formatMeetingDate, todayStr, thisWeekRange } from '../utils/dates';
 import { isDateToday, isDateTomorrow } from '../utils/meetingSchedule';
 import { MEETING_CADENCES } from '../data/callings';
+import { useVisibility } from '../hooks/useVisibility';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -21,7 +22,8 @@ export default function Dashboard() {
   const { items: focusItems, update: updateAction } = useActionItems({ excludeComplete: true });
   const { callings } = useUserCallings();
   const { meetings: upcomingMeetings } = useUpcomingMeetings();
-  const { summary: pipelineSummary } = usePipelineSummary();
+  const { jurisdiction } = useVisibility();
+  const { summary: pipelineSummary } = usePipelineSummary(jurisdiction);
 
   // Split meetings into today's and upcoming
   const todaysMeetings = upcomingMeetings.filter(m => isDateToday(m.nextDate));
@@ -103,12 +105,12 @@ export default function Dashboard() {
       {/* AI Agent */}
       <DashboardChat />
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        <StatCard icon={AlertTriangle} label="Overdue" value={stats.overdue} color="red" onPress={() => navigate('/actions')} />
-        <StatCard icon={Clock} label="Due Today" value={stats.dueToday} color="amber" onPress={() => navigate('/actions')} />
-        <StatCard icon={CheckSquare} label="Active Items" value={stats.totalActive} color="primary" onPress={() => navigate('/actions')} />
-        <StatCard icon={Inbox} label="Inbox" value={stats.inboxCount} color="purple" onPress={() => navigate('/inbox')} />
+      {/* Stats Pills */}
+      <div className="grid grid-cols-4 gap-2 mb-6">
+        <StatPill icon={AlertTriangle} label="Overdue" value={stats.overdue} color="red" onPress={() => navigate('/actions')} />
+        <StatPill icon={Clock} label="Due Today" value={stats.dueToday} color="amber" onPress={() => navigate('/actions')} />
+        <StatPill icon={CheckSquare} label="Active" value={stats.totalActive} color="primary" onPress={() => navigate('/actions')} />
+        <StatPill icon={Inbox} label="Inbox" value={stats.inboxCount} color="purple" onPress={() => navigate('/inbox')} />
       </div>
 
       {/* Focus Items */}
@@ -151,7 +153,7 @@ export default function Dashboard() {
           </div>
           <div className="space-y-2">
             {todaysMeetings.map(meeting => (
-              <TodayMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings')} />
+              <TodayMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings', { state: { openMeetingId: meeting.id } })} />
             ))}
           </div>
         </div>
@@ -173,7 +175,7 @@ export default function Dashboard() {
           </div>
           <div className="space-y-2">
             {futureMeetings.slice(0, 4).map(meeting => (
-              <UpcomingMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings')} />
+              <UpcomingMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings', { state: { openMeetingId: meeting.id } })} />
             ))}
           </div>
         </div>
@@ -390,7 +392,7 @@ function QuickCapture({ onAdd }) {
 
 // ── Stat Card ───────────────────────────────────────────────
 
-function StatCard({ icon: Icon, label, value, color, onPress }) {
+function StatPill({ icon: Icon, label, value, color, onPress }) {
   const colorMap = {
     red: 'text-red-600 bg-red-50',
     amber: 'text-amber-600 bg-amber-50',
@@ -400,14 +402,15 @@ function StatCard({ icon: Icon, label, value, color, onPress }) {
   const classes = colorMap[color] || colorMap.primary;
 
   return (
-    <div className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors" onClick={onPress}>
-      <div className={`p-2 rounded-lg ${classes}`}>
-        <Icon size={18} />
+    <div
+      className="card !p-2 flex flex-col items-center gap-1 cursor-pointer hover:border-primary-200 transition-colors"
+      onClick={onPress}
+    >
+      <div className={`p-1.5 rounded-lg ${classes}`}>
+        <Icon size={14} />
       </div>
-      <div>
-        <p className="text-xl font-bold text-gray-900">{value}</p>
-        <p className="text-xs text-gray-500">{label}</p>
-      </div>
+      <p className="text-base font-bold text-gray-900 leading-none">{value}</p>
+      <p className="text-[10px] text-gray-500 leading-none">{label}</p>
     </div>
   );
 }

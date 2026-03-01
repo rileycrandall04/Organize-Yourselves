@@ -57,12 +57,18 @@ export async function syncMeetingSchedule() {
         name: m.name,
         cadence: m.cadence,
         nextDate: m.nextDate,
+        ...(m.reminderDays != null ? { reminderDays: m.reminderDays } : {}),
       }));
+
+    // Include userId if available (for associating devices with users)
+    const userId = localStorage.getItem('organize_user_uid');
 
     await setDoc(doc(db, 'devices', deviceId), {
       fcmToken: token,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       meetings: meetingData,
       updatedAt: serverTimestamp(),
+      ...(userId ? { userId } : {}),
     });
   } catch (err) {
     console.warn('[FirestoreSync] Failed to sync:', err.message);

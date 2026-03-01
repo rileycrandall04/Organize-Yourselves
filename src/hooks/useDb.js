@@ -63,6 +63,17 @@ import db, {
   addMinisteringInterview,
   updateMinisteringInterview,
   getMinisteringSummary,
+  // Phase 6
+  getOngoingTasks,
+  addOngoingTask,
+  addOngoingTaskUpdate,
+  dismissOngoingTask,
+  deleteOngoingTask,
+  getActiveMinisteringPlans,
+  addMinisteringPlan,
+  addMinisteringPlanUpdate,
+  completeMinisteringPlan,
+  deleteMinisteringPlan,
 } from '../db';
 
 // ── Profile ─────────────────────────────────────────────────
@@ -258,11 +269,12 @@ export function useTagsFromInstance(instanceId) {
 
 // ── Phase 2: Calling Pipeline ──────────────────────────────
 
-export function useCallingSlots(filters = {}) {
+export function useCallingSlots(filters = {}, jurisdiction) {
   const filterKey = JSON.stringify(filters);
+  const jurisdictionKey = JSON.stringify(jurisdiction?.visibleOrgs);
   const slots = useLiveQuery(
-    () => getCallingSlots(filters),
-    [filterKey]
+    () => getCallingSlots(filters, jurisdiction),
+    [filterKey, jurisdictionKey]
   );
   return {
     slots: slots ?? [],
@@ -274,8 +286,12 @@ export function useCallingSlots(filters = {}) {
   };
 }
 
-export function usePipelineSummary() {
-  const summary = useLiveQuery(() => getPipelineSummary());
+export function usePipelineSummary(jurisdiction) {
+  const jurisdictionKey = JSON.stringify(jurisdiction?.visibleOrgs);
+  const summary = useLiveQuery(
+    () => getPipelineSummary(jurisdiction),
+    [jurisdictionKey]
+  );
   return {
     summary: summary ?? { total: 0, active: 0, needsAction: 0, openPositions: 0, releasesInProgress: 0, candidatesPending: 0 },
     loading: summary === undefined,
@@ -352,5 +368,36 @@ export function useMinisteringSummary() {
   return {
     summary: summary ?? { totalCompanionships: 0, unassignedFamilies: 0, overdueInterviews: 0 },
     loading: summary === undefined,
+  };
+}
+
+// ── Phase 6: Ongoing Tasks ──────────────────────────────────
+
+export function useOngoingTasks(meetingId) {
+  const tasks = useLiveQuery(
+    () => getOngoingTasks(meetingId),
+    [meetingId]
+  );
+  return {
+    tasks: tasks ?? [],
+    loading: tasks === undefined,
+    add: addOngoingTask,
+    addUpdate: addOngoingTaskUpdate,
+    dismiss: dismissOngoingTask,
+    remove: deleteOngoingTask,
+  };
+}
+
+// ── Phase 6: Ministering Plans ──────────────────────────────
+
+export function useMinisteringPlans() {
+  const plans = useLiveQuery(() => getActiveMinisteringPlans());
+  return {
+    plans: plans ?? [],
+    loading: plans === undefined,
+    add: addMinisteringPlan,
+    addUpdate: addMinisteringPlanUpdate,
+    complete: completeMinisteringPlan,
+    remove: deleteMinisteringPlan,
   };
 }

@@ -4,6 +4,7 @@ import { isAiConfigured, callAiWithTools, buildDashboardContext, getAiConfig } f
 import { AI_TOOLS_ANTHROPIC, AI_TOOLS_OPENAI, executeAiTool } from '../utils/aiTools';
 import { useProfile, useDashboardStats, useUserCallings, useMeetings, usePipelineSummary } from '../hooks/useDb';
 import { useActionItems, useCallingSlots } from '../hooks/useDb';
+import { useVisibility } from '../hooks/useVisibility';
 
 const SYSTEM_PROMPT = `You are a helpful assistant for a leader in The Church of Jesus Christ of Latter-day Saints. You help manage their calling responsibilities, action items, people, meetings, ministering, and all other aspects of their calling.
 
@@ -42,9 +43,10 @@ export default function DashboardChat() {
   const { stats } = useDashboardStats();
   const { callings } = useUserCallings();
   const { meetings } = useMeetings();
-  const { summary: pipeline } = usePipelineSummary();
+  const { jurisdiction } = useVisibility();
+  const { summary: pipeline } = usePipelineSummary(jurisdiction);
   const { items: actionItems } = useActionItems({ excludeComplete: true });
-  const { slots } = useCallingSlots();
+  const { slots } = useCallingSlots({}, jurisdiction);
 
   if (!isAiConfigured()) return null;
 

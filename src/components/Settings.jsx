@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { useAuth } from '../hooks/useAuth';
 import { useProfile, useUserCallings } from '../hooks/useDb';
 import { useDataStats, useLastExportDate } from '../hooks/useDataPortability';
 import { getCallingConfig, getCallingList, ORGANIZATIONS, ORG_PRESIDENT_MAP, getOrgLabel } from '../data/callings';
@@ -15,13 +16,12 @@ import {
   ArrowLeft, Settings as SettingsIcon, UserCircle, Church, Trash2, Plus,
   AlertTriangle, Download, Upload, BarChart3, Share2, Info,
   ChevronRight, ChevronDown, CheckCircle2, Database, Sparkles, Eye, EyeOff,
-  Bell, BellOff, Flame,
+  Bell, BellOff, LogOut,
 } from 'lucide-react';
 import { getAiConfig, saveAiConfig, clearAiConfig, PROVIDERS } from '../utils/ai';
 import { formatRelative } from '../utils/dates';
 import {
-  getFirebaseConfig, saveFirebaseConfig, clearFirebaseConfig,
-  isFirebaseConfigured, resetFirebaseInstances,
+  getFirebaseConfig, isFirebaseConfigured, getVapidKey,
 } from '../utils/firebase';
 import {
   isNotificationSupported, getPermissionStatus, enableNotifications,
@@ -30,6 +30,7 @@ import {
 import { syncMeetingSchedule, removeSyncData } from '../utils/firestoreSync';
 
 export default function Settings({ onBack }) {
+  const { user, signOut } = useAuth();
   const { profile, save: saveProfile } = useProfile();
   const { callings, add: addCalling, remove: removeCalling } = useUserCallings();
   const { stats: dataStats, totalRows } = useDataStats();
@@ -289,6 +290,35 @@ export default function Settings({ onBack }) {
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
       </div>
 
+      {/* ── Account ──────────────────────────────────────── */}
+      {user && (
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Account</h2>
+          <div className="card">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <UserCircle size={32} className="text-gray-300" />
+                )}
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{user.displayName || 'User'}</p>
+                  <p className="text-xs text-gray-500">{user.email}</p>
+                </div>
+              </div>
+              <button
+                onClick={signOut}
+                className="flex items-center gap-1 text-xs text-red-500 font-medium px-2 py-1 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                <LogOut size={14} />
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Profile ───────────────────────────────────────── */}
       <div className="mb-6">
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Profile</h2>
@@ -389,8 +419,7 @@ export default function Settings({ onBack }) {
       {/* ── AI Configuration ──────────────────────────────── */}
       <AiSettings />
 
-      {/* ── Firebase & Notifications ──────────────────────── */}
-      <FirebaseSettings />
+      {/* ── Notifications ─────────────────────────────────── */}
       <NotificationSettings />
 
       {/* ── Data Management ───────────────────────────────── */}
@@ -873,201 +902,6 @@ function AiSettings() {
 
 // ── Firebase Configuration ───────────────────────────────────
 
-function FirebaseSettings() {
-  const existing = getFirebaseConfig() || {};
-  const [apiKey, setApiKey] = useState(existing.apiKey || '');
-  const [authDomain, setAuthDomain] = useState(existing.authDomain || '');
-  const [projectId, setProjectId] = useState(existing.projectId || '');
-  const [storageBucket, setStorageBucket] = useState(existing.storageBucket || '');
-  const [messagingSenderId, setMessagingSenderId] = useState(existing.messagingSenderId || '');
-  const [appId, setAppId] = useState(existing.appId || '');
-  const [vapidKey, setVapidKey] = useState(existing.vapidKey || '');
-  const [showKey, setShowKey] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
-  const configured = isFirebaseConfigured();
-
-  function handleSave() {
-    if (!apiKey.trim() || !projectId.trim() || !messagingSenderId.trim()) return;
-    saveFirebaseConfig({
-      apiKey: apiKey.trim(),
-      authDomain: authDomain.trim(),
-      projectId: projectId.trim(),
-      storageBucket: storageBucket.trim(),
-      messagingSenderId: messagingSenderId.trim(),
-      appId: appId.trim(),
-      vapidKey: vapidKey.trim(),
-    });
-    resetFirebaseInstances();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
-  function handleClear() {
-    clearFirebaseConfig();
-    resetFirebaseInstances();
-    setApiKey('');
-    setAuthDomain('');
-    setProjectId('');
-    setStorageBucket('');
-    setMessagingSenderId('');
-    setAppId('');
-    setVapidKey('');
-  }
-
-  return (
-    <div className="mb-6">
-      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-        Firebase
-      </h2>
-      <div className="card space-y-3">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-start gap-3 w-full text-left"
-        >
-          <div className="p-2 rounded-lg bg-orange-50">
-            <Flame size={18} className="text-orange-600" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900">Firebase Project</p>
-            <p className="text-xs text-gray-500">
-              {configured
-                ? `Connected to ${existing.projectId}`
-                : 'Required for push notifications'
-              }
-            </p>
-          </div>
-          {configured && (
-            <span className="text-[10px] font-medium bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full">
-              Active
-            </span>
-          )}
-          {expanded
-            ? <ChevronDown size={16} className="text-gray-300 mt-1" />
-            : <ChevronRight size={16} className="text-gray-300 mt-1" />
-          }
-        </button>
-
-        {expanded && (
-          <div className="space-y-3 pt-2 border-t border-gray-100">
-            <p className="text-[10px] text-gray-400">
-              Get these values from your Firebase Console → Project Settings → Web App.
-            </p>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">API Key *</label>
-              <div className="relative">
-                <input
-                  type={showKey ? 'text' : 'password'}
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                  placeholder="AIza..."
-                  className="input-field text-sm pr-10"
-                />
-                <button
-                  onClick={() => setShowKey(!showKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Project ID *</label>
-              <input
-                type="text"
-                value={projectId}
-                onChange={e => setProjectId(e.target.value)}
-                placeholder="my-project-12345"
-                className="input-field text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Messaging Sender ID *</label>
-              <input
-                type="text"
-                value={messagingSenderId}
-                onChange={e => setMessagingSenderId(e.target.value)}
-                placeholder="123456789012"
-                className="input-field text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Auth Domain</label>
-              <input
-                type="text"
-                value={authDomain}
-                onChange={e => setAuthDomain(e.target.value)}
-                placeholder="my-project.firebaseapp.com"
-                className="input-field text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Storage Bucket</label>
-              <input
-                type="text"
-                value={storageBucket}
-                onChange={e => setStorageBucket(e.target.value)}
-                placeholder="my-project.appspot.com"
-                className="input-field text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">App ID</label>
-              <input
-                type="text"
-                value={appId}
-                onChange={e => setAppId(e.target.value)}
-                placeholder="1:123456789:web:abc123"
-                className="input-field text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">VAPID Key (for push)</label>
-              <input
-                type="text"
-                value={vapidKey}
-                onChange={e => setVapidKey(e.target.value)}
-                placeholder="BKd3..."
-                className="input-field text-sm"
-              />
-              <p className="text-[10px] text-gray-400 mt-1">
-                Cloud Messaging → Web Push certificates → Key pair
-              </p>
-            </div>
-
-            <p className="text-[10px] text-gray-400">
-              All config is stored locally in your browser. Never sent to our servers.
-            </p>
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleSave}
-                disabled={!apiKey.trim() || !projectId.trim() || !messagingSenderId.trim() || saved}
-                className="btn-primary text-xs flex-1"
-              >
-                {saved ? 'Saved!' : 'Save Configuration'}
-              </button>
-              {configured && (
-                <button onClick={handleClear} className="btn-secondary text-xs">
-                  Remove
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Notification Settings ────────────────────────────────────
 
 function NotificationSettings() {
@@ -1075,12 +909,10 @@ function NotificationSettings() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const configured = isFirebaseConfigured();
   const supported = isNotificationSupported();
   const permission = getPermissionStatus();
   const enabled = isNotificationsEnabled();
   const { token } = getNotificationState();
-  const firebaseConfig = getFirebaseConfig();
 
   async function handleEnable() {
     if (enabling) return;
@@ -1088,17 +920,9 @@ function NotificationSettings() {
     setError('');
     setSuccess('');
 
-    const vapidKey = firebaseConfig?.vapidKey;
-    if (!vapidKey) {
-      setError('VAPID key is required. Add it in Firebase settings above.');
-      setEnabling(false);
-      return;
-    }
-
-    const result = await enableNotifications(vapidKey);
+    const result = await enableNotifications(getVapidKey());
     if (result.success) {
       setSuccess('Notifications enabled! Syncing meeting schedule...');
-      // Sync meeting data to Firestore for Cloud Functions
       await syncMeetingSchedule();
       setSuccess('Notifications enabled! You\'ll receive meeting reminders.');
       setTimeout(() => setSuccess(''), 3000);
@@ -1115,25 +939,6 @@ function NotificationSettings() {
     setTimeout(() => setSuccess(''), 2000);
   }
 
-  if (!configured) {
-    return (
-      <div className="mb-6">
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-          Notifications
-        </h2>
-        <div className="card flex items-center gap-3 opacity-50">
-          <div className="p-2 rounded-lg bg-gray-50">
-            <BellOff size={18} className="text-gray-400" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-900">Meeting Reminders</p>
-            <p className="text-xs text-gray-500">Set up Firebase first to enable notifications</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="mb-6">
       <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -1148,7 +953,7 @@ function NotificationSettings() {
             <p className="text-sm font-medium text-gray-900">Meeting Reminders</p>
             <p className="text-xs text-gray-500">
               {enabled
-                ? 'You\'ll be notified the day before meetings'
+                ? 'Reminders vary by meeting frequency'
                 : 'Get push notifications for upcoming meetings'
               }
             </p>

@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useOnboardingComplete } from './hooks/useDb';
+import { useAuth } from './hooks/useAuth';
+import { initCloudSync } from './utils/cloudSync';
 import BottomNav from './components/shared/BottomNav';
+import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
 import Dashboard from './components/Dashboard';
 import ActionItems from './components/ActionItems';
@@ -17,9 +20,35 @@ import Ministering from './components/Ministering';
 import Tutorial, { isTutorialCompleted } from './components/Tutorial';
 
 export default function App() {
+  const { user, loading: authLoading, signIn } = useAuth();
   const { ready, loading } = useOnboardingComplete();
   const [tutorialDone, setTutorialDone] = useState(isTutorialCompleted);
 
+  // Initialize cloud sync when user is authenticated
+  useEffect(() => {
+    if (user?.uid) {
+      initCloudSync(user.uid);
+    }
+  }, [user?.uid]);
+
+  // Auth loading
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-primary-700 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-gray-400 mt-3">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not authenticated — show auth screen
+  if (!user) {
+    return <AuthScreen onSignIn={signIn} />;
+  }
+
+  // Onboarding data loading
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
