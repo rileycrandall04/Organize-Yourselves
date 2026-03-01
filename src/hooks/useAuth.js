@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { onAuthChange, signInWithGoogle, signOutUser } from '../utils/firebase';
+import { resetCloudSync } from '../utils/cloudSync';
 
 export function useAuth() {
   const [user, setUser] = useState(null);
@@ -14,6 +15,8 @@ export function useAuth() {
         localStorage.setItem('organize_uid', firebaseUser.uid);
       } else {
         localStorage.removeItem('organize_uid');
+        // Reset cloud sync state so re-login properly re-initializes
+        resetCloudSync();
       }
     });
     return unsubscribe;

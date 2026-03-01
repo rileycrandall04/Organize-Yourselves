@@ -6,6 +6,7 @@
  * - On each write: fire-and-forget push to Firestore
  * - On login from new device: pull cloud data into Dexie
  * - Real-time sync via onSnapshot listeners for cross-device updates
+ * - On every login: verify local critical data exists, re-pull if needed
  *
  * Firestore structure: /users/{uid}/{tableName}/{docId}
  */
@@ -53,7 +54,7 @@ let _migrated = false;
  * Called once when the user logs in.
  */
 export async function initCloudSync(uid) {
-  if (_uid === uid) return; // Already initialized
+  if (_uid === uid) return; // Already initialized for this session
   _uid = uid;
 
   const firestore = getFirebaseFirestore();
@@ -75,10 +76,25 @@ export async function initCloudSync(uid) {
     }
 
     localStorage.setItem(`organize_synced_${uid}`, '1');
+  } else {
+    // Device has synced before — verify critical local data still exists.
+    // IndexedDB can be evicted by the browser (especially mobile Safari)
+    // while localStorage persists, leaving the app in a broken state.
+    await ensureCriticalDataExists(uid);
   }
 
   // Start real-time sync
   startRealtimeSync(uid);
+}
+
+/**
+ * Reset cloud sync state. Must be called on sign-out so that
+ * re-login properly re-initializes sync (including real-time listeners).
+ */
+export function resetCloudSync() {
+  stopRealtimeSync();
+  _uid = null;
+  _migrated = false;
 }
 
 /**
@@ -93,6 +109,29 @@ async function checkCloudHasData(uid) {
     return !profileSnap.empty;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Verify that critical local tables (profile, userCallings) exist.
+ * If they are empty but cloud has data, re-pull everything from cloud.
+ * This handles the case where IndexedDB was evicted but localStorage persists.
+ */
+async function ensureCriticalDataExists(uid) {
+  try {
+    const profileCount = await db.profile.count();
+    const callingsCount = await db.userCallings.count();
+
+    if (profileCount === 0 || callingsCount === 0) {
+      // Local data is missing — check if cloud has it
+      const cloudHasData = await checkCloudHasData(uid);
+      if (cloudHasData) {
+        console.log('[CloudSync] Local data missing but cloud has data — re-pulling...');
+        await pullFromCloud(uid);
+      }
+    }
+  } catch (err) {
+    console.warn('[CloudSync] Error checking critical data:', err.message);
   }
 }
 
@@ -210,6 +249,8 @@ export async function deleteFromCloud(tableName, id) {
 
 /**
  * Set up onSnapshot listeners for real-time cross-device sync.
+ * Includes profile and userCallings — these are critical for the app
+ * to recognize the user as onboarded and show the correct UI.
  */
 function startRealtimeSync(uid) {
   // Clean up any existing listeners
@@ -218,8 +259,12 @@ function startRealtimeSync(uid) {
   const firestore = getFirebaseFirestore();
   if (!firestore) return;
 
-  // Only listen to tables that change frequently
+  // Listen to all tables that matter for the app experience.
+  // profile + userCallings are critical — without them the app
+  // shows the onboarding screen even though the user has data.
   const realtimeTables = [
+    'profile',
+    'userCallings',
     'actionItems',
     'meetings',
     'meetingInstances',
@@ -227,6 +272,8 @@ function startRealtimeSync(uid) {
     'ongoingTasks',
     'ministeringPlans',
     'callingSlots',
+    'people',
+    'responsibilities',
   ];
 
   for (const tableName of realtimeTables) {
