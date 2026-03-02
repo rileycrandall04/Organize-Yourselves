@@ -439,6 +439,7 @@ export default function BlockEditor({
   meetingId,
   instanceId,
   disabled = false,
+  finalized = false,
 }) {
   const [insertModal, setInsertModal] = useState(null); // task type string or null
   const [dragIndex, setDragIndex] = useState(null);
@@ -560,19 +561,30 @@ export default function BlockEditor({
     const isDragging = dragIndex === index;
     const isDragOver = dragOverIndex === index;
 
+    // In finalized mode, notepad and task_ref blocks stay interactive;
+    // everything else (headings, bullets, text, dividers) is locked.
+    const isStructurallyLocked = disabled || finalized;
+    const blockDisabled = (() => {
+      if (disabled) return true;
+      if (!finalized) return false;
+      // Finalized mode: notepad & task_ref stay editable
+      if (block.type === 'notepad' || block.type === 'task_ref') return false;
+      return true;
+    })();
+
     return (
       <div
         key={block.id}
         data-block-index={index}
         className={`group relative flex items-start gap-1 ${isDragOver ? 'ring-2 ring-primary-300 rounded-lg' : ''} ${isDragging ? 'opacity-40' : ''}`}
-        draggable={!disabled}
+        draggable={!isStructurallyLocked}
         onDragStart={e => handleDragStart(e, index)}
         onDragOver={e => handleDragOver(e, index)}
         onDrop={e => handleDrop(e, index)}
         onDragEnd={handleDragEnd}
       >
-        {/* Drag handle + delete */}
-        {!disabled && (
+        {/* Drag handle + delete — hidden when finalized or disabled */}
+        {!isStructurallyLocked && (
           <div className="flex flex-col items-center pt-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 w-5">
             <GripVertical size={12} className="text-gray-300 cursor-grab" />
             <button
@@ -591,35 +603,35 @@ export default function BlockEditor({
             <HeadingBlock
               block={block}
               onChange={b => updateBlock(index, b)}
-              disabled={disabled}
+              disabled={blockDisabled}
             />
           )}
           {block.type === 'bullet' && (
             <BulletBlock
               block={block}
               onChange={b => updateBlock(index, b)}
-              disabled={disabled}
+              disabled={blockDisabled}
             />
           )}
           {block.type === 'text' && (
             <TextBlock
               block={block}
               onChange={b => updateBlock(index, b)}
-              disabled={disabled}
+              disabled={blockDisabled}
             />
           )}
           {block.type === 'notepad' && (
             <NotepadBlock
               block={block}
               onChange={b => updateBlock(index, b)}
-              disabled={disabled}
+              disabled={blockDisabled}
             />
           )}
           {block.type === 'task_ref' && (
             <TaskRefBlock
               block={block}
               task={taskMap[block.taskId]}
-              disabled={disabled}
+              disabled={blockDisabled}
               meetingId={meetingId}
             />
           )}
@@ -656,8 +668,8 @@ export default function BlockEditor({
         {blocks.map((block, i) => renderBlock(block, i))}
       </div>
 
-      {/* Bottom toolbar */}
-      {!disabled && (
+      {/* Bottom toolbar — hidden when finalized (structure is locked) */}
+      {!disabled && !finalized && (
         <div className="sticky bottom-16 z-20">
           <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-2">
             {/* Task insert buttons */}

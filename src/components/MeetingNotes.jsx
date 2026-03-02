@@ -309,7 +309,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             onChange={handleBlocksChange}
             meetingId={meetingId || instance.meetingId}
             instanceId={instance.id}
-            disabled={isCompleted}
+            finalized={isCompleted}
           />
         </div>
       )}
@@ -363,13 +363,19 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
       )}
 
       {/* Bottom actions */}
-      {!isCompleted && (
+      {!isCompleted ? (
         <div className="flex gap-3 mb-6">
           <button onClick={handleSave} disabled={!dirty || saving} className="btn-secondary flex-1 flex items-center justify-center gap-1.5">
             <Save size={16} /> {saving ? 'Saving...' : 'Save Draft'}
           </button>
           <button onClick={handleFinalize} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-1.5">
             <CheckCircle2 size={16} /> Finalize
+          </button>
+        </div>
+      ) : dirty && (
+        <div className="mb-6">
+          <button onClick={handleSave} disabled={saving} className="btn-primary w-full flex items-center justify-center gap-1.5">
+            <Save size={16} /> {saving ? 'Saving...' : 'Save Notes'}
           </button>
         </div>
       )}
