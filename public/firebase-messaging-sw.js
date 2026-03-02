@@ -5,6 +5,9 @@
  * Uses raw push event handler — no Firebase SDK needed in the SW.
  */
 
+// Derive base path from SW scope (works on both root and sub-path deployments)
+const BASE_PATH = new URL(self.registration.scope).pathname.replace(/firebase-cloud-messaging-push-scope\/?$/, '');
+
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 
@@ -22,8 +25,8 @@ self.addEventListener('push', (event) => {
   const title = notification.title || data.title || 'Meeting Reminder';
   const options = {
     body: notification.body || data.body || 'You have an upcoming meeting',
-    icon: notification.icon || '/icon-192.png',
-    badge: '/icon-192.png',
+    icon: notification.icon || `${BASE_PATH}icon-192.png`,
+    badge: `${BASE_PATH}icon-192.png`,
     tag: data.tag || 'meeting-reminder',
     data: data,
     actions: [
@@ -49,8 +52,8 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      // Otherwise open new window
-      return clients.openWindow('/');
+      // Otherwise open new window at the app's base path
+      return clients.openWindow(BASE_PATH);
     })
   );
 });

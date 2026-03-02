@@ -61,10 +61,12 @@ export async function enableNotifications(vapidKey) {
   }
 
   // 2. Register the Firebase messaging service worker
+  // Use import.meta.env.BASE_URL to support GitHub Pages sub-path deployment
+  const basePath = import.meta.env.BASE_URL || '/';
   let swRegistration;
   try {
-    swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-      scope: '/firebase-cloud-messaging-push-scope',
+    swRegistration = await navigator.serviceWorker.register(`${basePath}firebase-messaging-sw.js`, {
+      scope: `${basePath}firebase-cloud-messaging-push-scope`,
     });
     // Wait for SW to be ready
     await navigator.serviceWorker.ready;
@@ -123,9 +125,10 @@ export function setupForegroundHandler() {
 
     // Show a browser notification even when the app is in the foreground
     if (Notification.permission === 'granted') {
+      const base = import.meta.env.BASE_URL || '/';
       new Notification(notification.title || 'Meeting Reminder', {
         body: notification.body || data.body || 'You have an upcoming meeting',
-        icon: '/icon-192.png',
+        icon: `${base}icon-192.png`,
         tag: 'meeting-reminder-fg',
       });
     }
