@@ -80,49 +80,57 @@ function markSyncReady() {
  * Called once when the user logs in.
  */
 export async function initCloudSync(uid) {
-  if (_uid === uid) return; // Already initialized for this session
+  if (_uid === uid) {
+    // Already initialized — make sure sync is marked ready
+    if (!_syncReady) markSyncReady();
+    return;
+  }
   _uid = uid;
   _syncReady = false;
 
-  const firestore = getFirebaseFirestore();
-  if (!firestore) {
-    markSyncReady();
-    return;
-  }
-
   try {
-    // Check if this device has synced before
-    const hasSynced = localStorage.getItem(`organize_synced_${uid}`);
-
-    if (!hasSynced) {
-      // First time: check if cloud has data
-      const cloudHasData = await checkCloudHasData(uid);
-
-      if (cloudHasData) {
-        // New device or cache cleared — pull from cloud
-        console.log('[CloudSync] Cache cleared or new device detected — pulling from cloud...');
-        await pullFromCloud(uid);
-      } else {
-        // First device — push local to cloud
-        await migrateLocalToCloud(uid);
-      }
-
-      localStorage.setItem(`organize_synced_${uid}`, '1');
-    } else {
-      // Device has synced before — verify critical local data still exists.
-      // IndexedDB can be evicted by the browser (especially mobile Safari)
-      // while localStorage persists, leaving the app in a broken state.
-      await ensureCriticalDataExists(uid);
+    const firestore = getFirebaseFirestore();
+    if (!firestore) {
+      markSyncReady();
+      return;
     }
+
+    try {
+      // Check if this device has synced before
+      const hasSynced = localStorage.getItem(`organize_synced_${uid}`);
+
+      if (!hasSynced) {
+        // First time: check if cloud has data
+        const cloudHasData = await checkCloudHasData(uid);
+
+        if (cloudHasData) {
+          // New device or cache cleared — pull from cloud
+          console.log('[CloudSync] Cache cleared or new device detected — pulling from cloud...');
+          await pullFromCloud(uid);
+        } else {
+          // First device — push local to cloud
+          await migrateLocalToCloud(uid);
+        }
+
+        localStorage.setItem(`organize_synced_${uid}`, '1');
+      } else {
+        // Device has synced before — verify critical local data still exists.
+        // IndexedDB can be evicted by the browser (especially mobile Safari)
+        // while localStorage persists, leaving the app in a broken state.
+        await ensureCriticalDataExists(uid);
+      }
+    } catch (err) {
+      console.warn('[CloudSync] Init error:', err.message);
+    }
+
+    // Start real-time sync
+    startRealtimeSync(uid);
   } catch (err) {
-    console.warn('[CloudSync] Init error:', err.message);
+    console.warn('[CloudSync] Fatal init error:', err.message);
+  } finally {
+    // ALWAYS mark sync as ready so the app can proceed
+    markSyncReady();
   }
-
-  // Mark sync as ready so the app can proceed
-  markSyncReady();
-
-  // Start real-time sync
-  startRealtimeSync(uid);
 }
 
 /**

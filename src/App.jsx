@@ -30,12 +30,21 @@ export default function App() {
   useEffect(() => {
     if (user?.uid) {
       setCloudSyncDone(false);
-      initCloudSync(user.uid).then(() => {
-        // Wait for cloud sync to finish pulling data before proceeding
-        return waitForCloudSync();
-      }).then(() => {
+
+      // Failsafe: never block the app for more than 8 seconds
+      const timeout = setTimeout(() => {
+        console.warn('[App] Cloud sync timed out — proceeding without sync');
         setCloudSyncDone(true);
-      });
+      }, 8000);
+
+      initCloudSync(user.uid)
+        .then(() => waitForCloudSync())
+        .then(() => setCloudSyncDone(true))
+        .catch((err) => {
+          console.warn('[App] Cloud sync failed — proceeding offline:', err?.message);
+          setCloudSyncDone(true);
+        })
+        .finally(() => clearTimeout(timeout));
     } else {
       setCloudSyncDone(false);
     }
