@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMeetingInstances, useMeetingNoteTags, useOngoingTasks, useMinisteringPlans } from '../hooks/useDb';
-import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingWithInstances, addOngoingTask, addMinisteringPlan } from '../db';
+import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingInstance, deleteMeetingWithInstances, addOngoingTask, addMinisteringPlan } from '../db';
 import { MEETING_CADENCES, formatCadenceLabel, normalizeCadence } from '../data/callings';
 import { todayStr, formatMeetingDate } from '../utils/dates';
 import { MEETING_STATUSES } from '../utils/constants';
@@ -578,6 +578,9 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
                 key={inst.id}
                 instance={inst}
                 onPress={() => setActiveInstance(inst)}
+                onDelete={async () => {
+                  await deleteMeetingInstance(inst.id);
+                }}
               />
             ))}
           </div>
@@ -693,12 +696,13 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   );
 }
 
-function InstanceCard({ instance, onPress }) {
+function InstanceCard({ instance, onPress, onDelete }) {
   const statusConfig = MEETING_STATUSES[instance.status] || MEETING_STATUSES.scheduled;
   const isCompleted = instance.status === 'completed';
   const StatusIcon = isCompleted ? CheckCircle2 : Clock;
   const [editingDate, setEditingDate] = useState(false);
   const [editDate, setEditDate] = useState(instance.date);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   async function handleDateSave(e) {
     e.stopPropagation();
@@ -709,10 +713,35 @@ function InstanceCard({ instance, onPress }) {
     setEditingDate(false);
   }
 
+  if (confirmDelete) {
+    return (
+      <div className="card bg-red-50 border-red-200 p-3" onClick={e => e.stopPropagation()}>
+        <p className="text-xs font-medium text-red-800 mb-1">
+          Delete meeting from {formatMeetingDate(instance.date)}?
+        </p>
+        <p className="text-[10px] text-red-600 mb-2">This will permanently remove this meeting instance and its notes.</p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setConfirmDelete(false)}
+            className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onDelete?.()}
+            className="px-2.5 py-1 text-[11px] font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={onPress}
-      className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors"
+      className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors group"
     >
       <StatusIcon
         size={18}
@@ -734,7 +763,7 @@ function InstanceCard({ instance, onPress }) {
             </button>
           </div>
         ) : (
-          <p className="text-sm font-medium text-gray-900 group flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
             {formatMeetingDate(instance.date)}
             <button
               onClick={e => { e.stopPropagation(); setEditingDate(true); }}
@@ -748,10 +777,17 @@ function InstanceCard({ instance, onPress }) {
         <p className="text-xs text-gray-500">{statusConfig.label}</p>
       </div>
       {instance.actionItemIds?.length > 0 && (
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-gray-400 mr-1">
           {instance.actionItemIds.length} action{instance.actionItemIds.length !== 1 ? 's' : ''}
         </span>
       )}
+      <button
+        onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
+        className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all flex-shrink-0"
+        title="Delete instance"
+      >
+        <Trash2 size={14} />
+      </button>
     </div>
   );
 }
