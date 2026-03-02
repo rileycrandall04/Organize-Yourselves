@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
-import { addActionItem, addMeetingNoteTag, syncCallingNotesFromMeeting, addOngoingTaskUpdate, addMinisteringPlanUpdate, updateActionItem, dismissOngoingTask, completeMinisteringPlan } from '../db';
+import { addActionItem, addMeetingNoteTag, syncCallingNotesFromMeeting, addOngoingTaskUpdate, addMinisteringPlanUpdate, updateActionItem, dismissOngoingTask, completeMinisteringPlan, deleteMeetingInstance } from '../db';
 import { formatFull } from '../utils/dates';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import Modal from './shared/Modal';
@@ -11,7 +11,7 @@ import AddPriorTasksModal from './AddPriorTasksModal';
 import {
   ArrowLeft, Save, CheckCircle2, Plus, MessageSquare, FileText,
   ArrowUpRight, X, CheckSquare, Clock, Users2, Trash2,
-  GripVertical, ListPlus, ChevronDown, Pencil,
+  GripVertical, ListPlus, ChevronDown, Pencil, RotateCcw,
 } from 'lucide-react';
 
 export default function MeetingNotes({ instance, meetingName, meetingId, participants, onBack }) {
@@ -64,7 +64,20 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const [editingDate, setEditingDate] = useState(false);
   const [editDate, setEditDate] = useState(instance.date);
 
-  const isCompleted = instance.status === 'completed';
+  const [instanceStatus, setInstanceStatus] = useState(instance.status);
+  const isCompleted = instanceStatus === 'completed';
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  async function handleReopen() {
+    await update(instance.id, { status: 'scheduled' });
+    instance.status = 'scheduled';
+    setInstanceStatus('scheduled');
+  }
+
+  async function handleDeleteInstance() {
+    await deleteMeetingInstance(instance.id);
+    onBack();
+  }
 
   async function handleAiSummarize() {
     setAiSummaryLoading(true);
@@ -133,6 +146,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     setSaving(true);
     try {
       await update(instance.id, { notes, agendaItems, actionItemIds, focusFamilies, status: 'completed' });
+      instance.status = 'completed';
+      setInstanceStatus('completed');
       await syncCallingNotesFromMeeting(agendaItems, instance.date, meetingName);
 
       // Save ongoing task updates and ministering plan updates
@@ -584,12 +599,52 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
           )}
         </div>
         {isCompleted && (
-          <span className="flex items-center gap-1 text-xs font-medium text-green-600">
-            <CheckCircle2 size={14} />
-            Finalized
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1 text-xs font-medium text-green-600">
+              <CheckCircle2 size={14} />
+              Finalized
+            </span>
+            <button
+              onClick={handleReopen}
+              className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-primary-600 transition-colors"
+              title="Reopen for editing"
+            >
+              <RotateCcw size={12} /> Edit
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-red-500 transition-colors"
+              title="Delete this meeting instance"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
+        <div className="card bg-red-50 border-red-200 mb-5 p-4">
+          <p className="text-sm font-medium text-red-800 mb-1">Delete this meeting?</p>
+          <p className="text-xs text-red-600 mb-3">
+            This will permanently delete this meeting instance, including all notes, agenda items, and action item links.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDeleteInstance}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Participants */}
       {participants?.length > 0 && (

@@ -246,6 +246,11 @@ export async function updateMeetingInstance(id, changes) {
   if (updated) syncAfterWrite('meetingInstances', id, updated);
 }
 
+export async function deleteMeetingInstance(id) {
+  await db.meetingInstances.delete(id);
+  debouncedSync();
+}
+
 // ── Upcoming Meetings (calculated next dates) ────────────────
 
 export async function getUpcomingMeetings() {
