@@ -380,7 +380,7 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
         )}
 
         {/* Metadata pills */}
-        {(task.priority && task.priority !== 'low' || task.assignedTo?.name || task.dueDate) && (
+        {(task.priority && task.priority !== 'low' || task.assignedTo?.name || task.dueDate || task.eventDate) && (
           <div className="flex items-center gap-2 flex-wrap mb-3">
             {task.priority && task.priority !== 'low' && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
@@ -392,6 +392,11 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
             {task.assignedTo?.name && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-700">
                 {task.assignedTo.name}
+              </span>
+            )}
+            {task.eventDate && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
+                {new Date(task.eventDate + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
               </span>
             )}
             {task.dueDate && (
@@ -495,6 +500,7 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
 function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [eventDate, setEventDate] = useState('');
   const typeConfig = TASK_TYPES[type];
 
   async function handleCreate() {
@@ -508,6 +514,7 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
       followUp: type === 'discussion' || type === 'ongoing' ? 'next' : null,
     };
     if (type === 'action_item') taskData.priority = 'medium';
+    if (type === 'event' && eventDate) taskData.eventDate = eventDate;
 
     const id = await addTask(taskData);
     onInsert(id);
@@ -537,6 +544,17 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
             autoFocus
           />
+          {type === 'event' && (
+            <div>
+              <label className="text-[11px] font-medium text-gray-500 mb-1 block">Event Date</label>
+              <input
+                type="date"
+                value={eventDate}
+                onChange={e => setEventDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+              />
+            </div>
+          )}
           {(type === 'discussion' || type === 'event' || type === 'ministering_plan') && (
             <textarea
               value={description}

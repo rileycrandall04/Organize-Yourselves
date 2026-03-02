@@ -4,14 +4,27 @@ import {
   ChevronRight, ChevronLeft, X,
 } from 'lucide-react';
 
+import { getProfile, saveProfile } from '../db';
+
 const TUTORIAL_KEY = 'tutorial_completed';
 
-export function isTutorialCompleted() {
+export function isTutorialCompletedLocal() {
   return localStorage.getItem(TUTORIAL_KEY) === 'true';
 }
 
-export function markTutorialCompleted() {
+/** Check profile in Dexie (cloud-synced) for tutorial completion */
+export async function isTutorialCompletedFromProfile() {
+  const profile = await getProfile();
+  return !!profile?.tutorialCompleted;
+}
+
+export async function markTutorialCompleted() {
   localStorage.setItem(TUTORIAL_KEY, 'true');
+  // Also save to profile so it persists across cache clears
+  const profile = await getProfile();
+  if (profile) {
+    await saveProfile({ tutorialCompleted: true });
+  }
 }
 
 const STEPS = [
@@ -59,17 +72,17 @@ export default function Tutorial({ onComplete }) {
   const Icon = current.icon;
   const isLast = step === STEPS.length - 1;
 
-  function handleNext() {
+  async function handleNext() {
     if (isLast) {
-      markTutorialCompleted();
+      await markTutorialCompleted();
       onComplete();
     } else {
       setStep(s => s + 1);
     }
   }
 
-  function handleSkip() {
-    markTutorialCompleted();
+  async function handleSkip() {
+    await markTutorialCompleted();
     onComplete();
   }
 

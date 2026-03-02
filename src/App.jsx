@@ -18,12 +18,12 @@ import People from './components/People';
 import CallingPipeline from './components/CallingPipeline';
 import Ministering from './components/Ministering';
 import CalendarPage from './components/CalendarPage';
-import Tutorial, { isTutorialCompleted } from './components/Tutorial';
+import Tutorial, { isTutorialCompletedLocal, isTutorialCompletedFromProfile } from './components/Tutorial';
 
 export default function App() {
   const { user, loading: authLoading, signIn } = useAuth();
   const { ready, loading } = useOnboardingComplete();
-  const [tutorialDone, setTutorialDone] = useState(isTutorialCompleted);
+  const [tutorialDone, setTutorialDone] = useState(isTutorialCompletedLocal);
   const [cloudSyncDone, setCloudSyncDone] = useState(false);
 
   // Initialize cloud sync when user is authenticated
@@ -50,6 +50,19 @@ export default function App() {
       setCloudSyncDone(false);
     }
   }, [user?.uid]);
+
+  // After cloud sync, check if tutorial was completed in the user's profile
+  // This covers the case where localStorage was cleared but profile has the flag
+  useEffect(() => {
+    if (cloudSyncDone && !tutorialDone) {
+      isTutorialCompletedFromProfile().then(done => {
+        if (done) {
+          localStorage.setItem('tutorial_completed', 'true');
+          setTutorialDone(true);
+        }
+      });
+    }
+  }, [cloudSyncDone, tutorialDone]);
 
   // Auth loading
   if (authLoading) {

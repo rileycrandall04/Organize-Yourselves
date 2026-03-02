@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProfile, useDashboardStats, useInbox, useTasks, useUpcomingMeetings, useUserCallings, usePipelineSummary, useMinisteringSummary } from '../hooks/useDb';
+import { useProfile, useDashboardStats, useInbox, useTasks, useUpcomingMeetings, useUserCallings, useMinisteringSummary } from '../hooks/useDb';
 import { getTagsForMeeting, getUnresolvedActionItems, dismissBackupReminder } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X, Heart, Play } from 'lucide-react';
+import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, ShieldCheck, X, Heart, Play, Circle, CheckCircle2, Pause } from 'lucide-react';
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { useAuth } from '../hooks/useAuth';
-import ActionItemRow from './shared/ActionItemRow';
 import DashboardChat from './DashboardChat';
 import { formatFriendly } from '../utils/dates';
 import { isDateToday } from '../utils/meetingSchedule';
@@ -21,8 +20,6 @@ export default function Dashboard() {
   const { tasks: allTasks, update: updateTask } = useTasks({ excludeComplete: true });
   const { callings } = useUserCallings();
   const { meetings: upcomingMeetings } = useUpcomingMeetings();
-  const { jurisdiction } = useVisibility();
-  const { summary: pipelineSummary } = usePipelineSummary(jurisdiction);
 
   const todaysMeetings = upcomingMeetings.filter(m => isDateToday(m.nextDate));
   const futureMeetings = upcomingMeetings.filter(m => m.nextDate && !isDateToday(m.nextDate));
@@ -42,21 +39,23 @@ export default function Dashboard() {
     await dismissBackupReminder();
   }
 
-  const focus = allTasks
-    .filter(i => i.starred || i.priority === 'high')
-    .slice(0, 5);
+  // Sort: starred first, then high priority, then by createdAt
+  const todoItems = [...allTasks].sort((a, b) => {
+    if (a.starred !== b.starred) return a.starred ? -1 : 1;
+    if ((a.priority === 'high') !== (b.priority === 'high')) return a.priority === 'high' ? -1 : 1;
+    return 0;
+  }).slice(0, 10);
 
   const greeting = getGreeting();
 
   function handleToggleStatus(id, newStatus) {
-    updateTask(id, { status: newStatus });
+    updateTask(id, {
+      status: newStatus,
+      ...(newStatus === 'complete' ? { completedAt: new Date().toISOString() } : { completedAt: null }),
+    });
   }
 
-  function handleToggleStar(id, starred) {
-    updateTask(id, { starred });
-  }
-
-  const hasContent = focus.length > 0 || upcomingMeetings.length > 0 || pipelineSummary.total > 0;
+  const hasContent = allTasks.length > 0 || upcomingMeetings.length > 0;
 
   return (
     <div className="px-4 pt-5 pb-4 max-w-lg mx-auto">
@@ -139,17 +138,16 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Focus Items */}
-      {focus.length > 0 && (
+      {/* To Do — compact single-line checklist */}
+      {todoItems.length > 0 && (
         <div className="mb-4">
-          <SectionHeader icon={Star} color="text-amber-400" label="Focus" onViewAll={() => navigate('/actions')} />
-          <div className="space-y-1.5">
-            {focus.map(item => (
-              <ActionItemRow
+          <SectionHeader icon={CheckSquare} color="text-primary-500" label="To Do" onViewAll={() => navigate('/actions')} />
+          <div className="space-y-0">
+            {todoItems.map(item => (
+              <TodoLine
                 key={item.id}
                 item={item}
                 onToggleStatus={handleToggleStatus}
-                onToggleStar={handleToggleStar}
                 onPress={() => navigate('/actions')}
               />
             ))}
@@ -174,57 +172,31 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Summary Links */}
-      {(pipelineSummary.total > 0 || showMinistering) && (
-        <div className="space-y-1.5 mb-4">
-          {pipelineSummary.total > 0 && (
-            <SummaryRow
-              icon={GitBranch}
-              iconBg="bg-indigo-50"
-              iconColor="text-indigo-600"
-              label="Pipeline"
-              detail={`${pipelineSummary.active} active${pipelineSummary.needsAction > 0 ? ` \u00b7 ${pipelineSummary.needsAction} need action` : ''}`}
-              badges={
-                <>
-                  {pipelineSummary.openPositions > 0 && (
-                    <span className="text-[9px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
-                      {pipelineSummary.openPositions} open
-                    </span>
-                  )}
-                  {pipelineSummary.candidatesPending > 0 && (
-                    <span className="text-[9px] font-medium bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">
-                      {pipelineSummary.candidatesPending} pending
-                    </span>
-                  )}
-                </>
-              }
-              onPress={() => navigate('/pipeline')}
-            />
-          )}
-          {showMinistering && (
-            <SummaryRow
-              icon={Heart}
-              iconBg="bg-rose-50"
-              iconColor="text-rose-500"
-              label="Ministering"
-              detail={`${ministeringSummary.totalCompanionships} companionships`}
-              badges={
-                <>
-                  {ministeringSummary.unassignedFamilies > 0 && (
-                    <span className="text-[9px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full">
-                      {ministeringSummary.unassignedFamilies} unassigned
-                    </span>
-                  )}
-                  {ministeringSummary.overdueInterviews > 0 && (
-                    <span className="text-[9px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
-                      {ministeringSummary.overdueInterviews} overdue
-                    </span>
-                  )}
-                </>
-              }
-              onPress={() => navigate('/ministering')}
-            />
-          )}
+      {/* Ministering */}
+      {showMinistering && (
+        <div className="mb-4">
+          <SummaryRow
+            icon={Heart}
+            iconBg="bg-rose-50"
+            iconColor="text-rose-500"
+            label="Ministering"
+            detail={`${ministeringSummary.totalCompanionships} companionships`}
+            badges={
+              <>
+                {ministeringSummary.unassignedFamilies > 0 && (
+                  <span className="text-[9px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full">
+                    {ministeringSummary.unassignedFamilies} unassigned
+                  </span>
+                )}
+                {ministeringSummary.overdueInterviews > 0 && (
+                  <span className="text-[9px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
+                    {ministeringSummary.overdueInterviews} overdue
+                  </span>
+                )}
+              </>
+            }
+            onPress={() => navigate('/ministering')}
+          />
         </div>
       )}
 
@@ -259,6 +231,66 @@ function SectionHeader({ icon: Icon, color, label, onViewAll }) {
           All <ChevronRight size={10} />
         </button>
       )}
+    </div>
+  );
+}
+
+// ── Todo Line (ultra-compact single-line task) ──────────────
+
+const TODO_STATUS_ICONS = {
+  not_started: Circle,
+  in_progress: Clock,
+  waiting: Pause,
+  complete: CheckCircle2,
+};
+
+const TODO_STATUS_COLORS = {
+  not_started: 'text-gray-300',
+  in_progress: 'text-blue-500',
+  waiting: 'text-yellow-500',
+  complete: 'text-green-500',
+};
+
+function TodoLine({ item, onToggleStatus, onPress }) {
+  const StatusIcon = TODO_STATUS_ICONS[item.status] || Circle;
+  const statusColor = TODO_STATUS_COLORS[item.status] || 'text-gray-300';
+  const isComplete = item.status === 'complete';
+
+  function handleStatusTap(e) {
+    e.stopPropagation();
+    const next = isComplete ? 'not_started' : item.status === 'in_progress' ? 'complete' : 'in_progress';
+    onToggleStatus(item.id, next);
+  }
+
+  function handleQuickComplete(e) {
+    e.stopPropagation();
+    onToggleStatus(item.id, 'complete');
+  }
+
+  return (
+    <div
+      onClick={() => onPress?.(item)}
+      className="flex items-center gap-2 py-1.5 cursor-pointer group"
+    >
+      <button onClick={handleStatusTap} className="flex-shrink-0">
+        <StatusIcon size={14} className={statusColor} />
+      </button>
+      <span className={`flex-1 text-xs truncate ${isComplete ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+        {item.title}
+      </span>
+      {item.starred && (
+        <Star size={10} className="text-amber-400 fill-amber-400 flex-shrink-0" />
+      )}
+      {item.dueDate && (
+        <span className="text-[10px] text-gray-400 flex-shrink-0">{formatFriendly(item.dueDate)}</span>
+      )}
+      <button
+        onClick={handleQuickComplete}
+        className="flex-shrink-0 text-gray-200 hover:text-green-500 transition-colors opacity-0 group-hover:opacity-100"
+        title="Mark complete"
+      >
+        <CheckCircle2 size={14} />
+      </button>
     </div>
   );
 }
