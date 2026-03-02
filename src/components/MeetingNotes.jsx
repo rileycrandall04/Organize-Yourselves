@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
-import { addMeetingNoteTag, syncCallingNotesFromMeeting, deleteMeetingInstance } from '../db';
+import { addMeetingNoteTag, syncCallingNotesFromMeeting, deleteMeetingInstance, updateTask, getTasksByIds } from '../db';
 import { formatFull } from '../utils/dates';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import MeetingPicker from './shared/MeetingPicker';
@@ -42,6 +42,9 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
 
   // Note tagging
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
+
+  // Task sharing to other meetings
+  const [shareTaskId, setShareTaskId] = useState(null);
 
   // AI state
   const aiEnabled = isAiConfigured();
@@ -168,6 +171,19 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
       agendaItemIndex: -1,
     });
     setTagPickerOpen(false);
+  }
+
+  // Task sharing — add task to another meeting's agenda
+  async function handleShareTaskToMeeting(meeting) {
+    if (!shareTaskId) return;
+    const tasks = await getTasksByIds([shareTaskId]);
+    const task = tasks[0];
+    if (!task) { setShareTaskId(null); return; }
+    const ids = task.meetingIds || [];
+    if (!ids.includes(meeting.id)) {
+      await updateTask(shareTaskId, { meetingIds: [...ids, meeting.id] });
+    }
+    setShareTaskId(null);
   }
 
   function getMeetingNameById(id) {
@@ -310,6 +326,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             meetingId={meetingId || instance.meetingId}
             instanceId={instance.id}
             finalized={isCompleted}
+            onTagTask={(taskId) => setShareTaskId(taskId)}
+            meetings={allMeetings}
           />
         </div>
       )}
@@ -380,8 +398,11 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
         </div>
       )}
 
-      {/* Meeting tag picker */}
+      {/* Meeting tag picker (notes) */}
       <MeetingPicker open={tagPickerOpen} onClose={() => setTagPickerOpen(false)} onSelect={handleTagMeeting} excludeIds={[instance.meetingId]} title="Tag for Meeting" />
+
+      {/* Task sharing picker */}
+      <MeetingPicker open={!!shareTaskId} onClose={() => setShareTaskId(null)} onSelect={handleShareTaskToMeeting} excludeIds={[instance.meetingId]} title="Share Task to Meeting" />
     </div>
   );
 }

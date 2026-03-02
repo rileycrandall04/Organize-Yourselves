@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getTasksByIds, addTask, updateTask, addTaskFollowUpNote } from '../db';
 import { TASK_TYPES } from '../utils/constants';
 import {
-  ChevronDown, Star,
+  ChevronDown, Star, Share2, X,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
 } from 'lucide-react';
@@ -161,7 +161,7 @@ function DocTextarea({ block, onChange, disabled, isMainArea }) {
 }
 
 // ── Task Ref Chip (compact inline, click to expand) ───────
-function TaskRefChip({ block, task, disabled }) {
+function TaskRefChip({ block, task, disabled, onTagTask, meetings, currentMeetingId }) {
   const [expanded, setExpanded] = useState(false);
   const [noteText, setNoteText] = useState('');
 
@@ -300,6 +300,46 @@ function TaskRefChip({ block, task, disabled }) {
               </button>
             </div>
           )}
+
+          {/* Shared meetings */}
+          {meetings && (task.meetingIds || []).length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <Share2 size={9} className="text-gray-300 flex-shrink-0" />
+              {(task.meetingIds || []).map(mid => {
+                const mtg = meetings.find(m => m.id === mid);
+                if (!mtg) return null;
+                const isCurrent = mid === currentMeetingId;
+                return (
+                  <span key={mid} className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full ${isCurrent ? 'bg-primary-50 text-primary-600' : 'bg-gray-100 text-gray-500'}`}>
+                    {mtg.name}
+                    {!isCurrent && !disabled && (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const updated = (task.meetingIds || []).filter(id => id !== mid);
+                          await updateTask(task.id, { meetingIds: updated });
+                        }}
+                        className="hover:text-red-500 ml-0.5"
+                        title="Remove from this meeting"
+                      >
+                        <X size={8} />
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Share to another meeting */}
+          {!disabled && onTagTask && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onTagTask(task.id); }}
+              className="flex items-center gap-1 text-[10px] text-indigo-500 hover:text-indigo-700 font-medium"
+            >
+              <Share2 size={9} /> Add to another meeting
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -390,6 +430,8 @@ export default function BlockEditor({
   instanceId,
   disabled = false,
   finalized = false,
+  onTagTask,
+  meetings,
 }) {
   const [insertModal, setInsertModal] = useState(null);
 
@@ -474,6 +516,9 @@ export default function BlockEditor({
                   block={block}
                   task={taskMap[block.taskId]}
                   disabled={disabled}
+                  onTagTask={onTagTask}
+                  meetings={meetings}
+                  currentMeetingId={meetingId}
                 />
               </div>
             );
