@@ -101,6 +101,235 @@ db.version(6).stores({
   ministeringPlans: '++id, personName, familyName, status, createdAt',
 });
 
+// Phase 7: Unified tasks table — replaces actionItems, ongoingTasks, ministeringPlans, events
+db.version(7).stores({
+  tasks: '++id, type, status, priority, dueDate, starred, createdAt, completedAt, *meetingIds, callingSlotId',
+}).upgrade(async tx => {
+  const tasksTable = tx.table('tasks');
+
+  // Migrate actionItems → tasks (type: 'action_item')
+  const actionItems = await tx.table('actionItems').toArray();
+  for (const item of actionItems) {
+    await tasksTable.add({
+      type: 'action_item',
+      title: item.title || '',
+      description: item.description || '',
+      status: item.status || 'not_started',
+      priority: item.priority || 'low',
+      context: item.context || '',
+      dueDate: item.dueDate || '',
+      starred: item.starred || false,
+      assignedTo: item.assignedTo || null,
+      isRecurring: item.isRecurring || false,
+      recurringCadence: item.recurringCadence || '',
+      meetingIds: item.targetMeetingIds || [],
+      sourceMeetingInstanceId: item.sourceMeetingInstanceId || null,
+      followUp: (item.targetMeetingIds?.length > 0 && item.status !== 'complete') ? 'next' : null,
+      followUpNotes: [],
+      createdAt: item.createdAt || new Date().toISOString(),
+      completedAt: item.completedAt || null,
+      _migratedFrom: 'actionItems',
+      _oldId: item.id,
+    });
+  }
+
+  // Migrate ongoingTasks → tasks (type: 'ongoing')
+  const ongoingTasks = await tx.table('ongoingTasks').toArray();
+  for (const task of ongoingTasks) {
+    if (task.status !== 'active') continue; // skip dismissed
+    await tasksTable.add({
+      type: 'ongoing',
+      title: task.title || '',
+      description: '',
+      status: 'in_progress',
+      priority: 'medium',
+      meetingIds: task.meetingId ? [task.meetingId] : [],
+      followUp: 'next',
+      followUpNotes: (task.updates || []).map(u => ({
+        text: u.text,
+        date: u.date,
+        instanceId: u.instanceId || null,
+        meetingName: u.meetingName || '',
+      })),
+      createdAt: task.createdAt || new Date().toISOString(),
+      completedAt: null,
+      _migratedFrom: 'ongoingTasks',
+      _oldId: task.id,
+    });
+  }
+
+  // Migrate ministeringPlans → tasks (type: 'ministering_plan')
+  const plans = await tx.table('ministeringPlans').toArray();
+  for (const plan of plans) {
+    if (plan.status !== 'active') continue; // skip completed
+    await tasksTable.add({
+      type: 'ministering_plan',
+      title: plan.personName ? `${plan.personName}${plan.familyName ? ' — ' + plan.familyName : ''}` : 'Ministering Plan',
+      description: plan.description || '',
+      status: 'in_progress',
+      priority: 'medium',
+      personName: plan.personName || '',
+      familyName: plan.familyName || '',
+      meetingIds: [], // ministering plans appear globally
+      followUp: 'next',
+      followUpNotes: (plan.updates || []).map(u => ({
+        text: u.text,
+        date: u.date,
+        instanceId: u.instanceId || null,
+        meetingName: u.meetingName || '',
+      })),
+      createdAt: plan.createdAt || new Date().toISOString(),
+      completedAt: null,
+      _migratedFrom: 'ministeringPlans',
+      _oldId: plan.id,
+    });
+  }
+
+  // Migrate events → tasks (type: 'event')
+  const events = await tx.table('events').toArray();
+  for (const evt of events) {
+    await tasksTable.add({
+      type: 'event',
+      title: evt.title || '',
+      description: evt.notes || '',
+      status: evt.status || 'not_started',
+      priority: 'medium',
+      eventDate: evt.date || '',
+      dueDate: evt.date || '',
+      organization: evt.organization || '',
+      budget: evt.budget || '',
+      meetingIds: [],
+      followUp: null,
+      followUpNotes: [],
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      _migratedFrom: 'events',
+      _oldId: evt.id,
+    });
+  }
+
+  console.log(`[Migration v7] Migrated ${actionItems.length} action items, ${ongoingTasks.length} ongoing tasks, ${plans.length} ministering plans, ${events.length} events → unified tasks table`);
+});
+
+// ── Unified Tasks CRUD (Phase 7) ──────────────────────────────
+
+export async function getTasks(filters = {}) {
+  const items = await db.tasks.toArray();
+
+  return items.filter(item => {
+    if (filters.type && item.type !== filters.type) return false;
+    if (filters.status && item.status !== filters.status) return false;
+    if (filters.priority && item.priority !== filters.priority) return false;
+    if (filters.excludeComplete && item.status === 'complete') return false;
+    if (filters.starred && !item.starred) return false;
+    if (filters.meetingId && !(item.meetingIds || []).includes(filters.meetingId)) return false;
+    if (filters.callingSlotId && item.callingSlotId !== filters.callingSlotId) return false;
+    if (filters.overdue) {
+      const now = new Date().toISOString().split('T')[0];
+      if (!item.dueDate || item.dueDate >= now || item.status === 'complete') return false;
+    }
+    if (filters.dueBy) {
+      if (!item.dueDate || item.dueDate > filters.dueBy) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    // Starred first, then overdue, then by priority, then by due date
+    if (a.starred && !b.starred) return -1;
+    if (!a.starred && b.starred) return 1;
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    const now = new Date().toISOString().split('T')[0];
+    const aOverdue = a.dueDate && a.dueDate < now && a.status !== 'complete';
+    const bOverdue = b.dueDate && b.dueDate < now && b.status !== 'complete';
+    if (aOverdue && !bOverdue) return -1;
+    if (!aOverdue && bOverdue) return 1;
+    if ((priorityOrder[a.priority] || 2) !== (priorityOrder[b.priority] || 2)) {
+      return (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2);
+    }
+    if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+    if (a.dueDate) return -1;
+    if (b.dueDate) return 1;
+    return (b.createdAt || '').localeCompare(a.createdAt || '');
+  });
+}
+
+export async function addTask(task) {
+  const data = {
+    ...task,
+    type: task.type || 'action_item',
+    status: task.status || 'not_started',
+    priority: task.priority || 'low',
+    meetingIds: task.meetingIds || [],
+    followUp: task.followUp || null,
+    followUpNotes: task.followUpNotes || [],
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+  };
+  const id = await db.tasks.add(data);
+  syncAfterWrite('tasks', id, { ...data, id });
+  return id;
+}
+
+export async function updateTask(id, changes) {
+  if (changes.status === 'complete' && !changes.completedAt) {
+    changes.completedAt = new Date().toISOString();
+  }
+  if (changes.status && changes.status !== 'complete') {
+    changes.completedAt = null;
+  }
+  await db.tasks.update(id, changes);
+  const updated = await db.tasks.get(id);
+  if (updated) syncAfterWrite('tasks', id, updated);
+}
+
+export async function deleteTask(id) {
+  await db.tasks.delete(id);
+  syncAfterDelete('tasks', id);
+}
+
+export async function getTask(id) {
+  return await db.tasks.get(id);
+}
+
+export async function getTasksForMeeting(meetingId) {
+  const all = await db.tasks.toArray();
+  return all.filter(t =>
+    (t.meetingIds || []).includes(meetingId) && t.status !== 'complete'
+  ).sort((a, b) => {
+    // Group by type: discussions first, then action items, then others
+    const typeOrder = { discussion: 0, action_item: 1, calling_plan: 2, ministering_plan: 3, ongoing: 4, event: 5 };
+    const aOrder = typeOrder[a.type] ?? 6;
+    const bOrder = typeOrder[b.type] ?? 6;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+}
+
+export async function getFollowUpsForMeeting(meetingId) {
+  const all = await db.tasks.toArray();
+  return all.filter(t =>
+    t.status !== 'complete' &&
+    t.followUp === 'next' &&
+    (t.meetingIds || []).includes(meetingId)
+  );
+}
+
+export async function addTaskFollowUpNote(id, note) {
+  const task = await db.tasks.get(id);
+  if (!task) return;
+  const followUpNotes = [...(task.followUpNotes || []), {
+    ...note,
+    date: note.date || new Date().toISOString(),
+  }];
+  await db.tasks.update(id, { followUpNotes });
+  syncAfterWrite('tasks', id, { ...task, followUpNotes });
+}
+
+export async function getTasksByIds(ids) {
+  if (!ids || ids.length === 0) return [];
+  const items = await db.tasks.bulkGet(ids);
+  return items.filter(Boolean);
+}
+
 // ── Helper functions ────────────────────────────────────────
 
 // Profile
@@ -665,6 +894,114 @@ export async function buildAutoAgenda(meetingId, forDate) {
 }
 
 /**
+ * Build block-based agenda for a new meeting instance.
+ * Returns array of blocks (heading, text, task_ref) for the BlockEditor.
+ */
+export async function buildAutoAgendaBlocks(meetingId) {
+  const meeting = await db.meetings.get(meetingId);
+  if (!meeting) return [{ id: _nextBlockId(), type: 'text', text: '' }];
+
+  const blocks = [];
+
+  // 1. Template headings
+  const template = meeting.agendaTemplate || [];
+  for (const heading of template) {
+    blocks.push({ id: _nextBlockId(), type: 'heading', text: heading });
+    blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
+  }
+
+  // 2. Follow-up tasks from the unified tasks table
+  const followUps = await getFollowUpsForMeeting(meetingId);
+  if (followUps.length > 0) {
+    // Find a good insertion point (after a "Follow" heading if exists, otherwise near top)
+    let insertIdx = blocks.findIndex(b =>
+      b.type === 'heading' && (b.text.toLowerCase().includes('follow') || b.text.toLowerCase().includes('action'))
+    );
+    if (insertIdx >= 0) insertIdx += 1; // after the heading
+    else insertIdx = Math.min(2, blocks.length); // after first heading+text pair
+
+    const followUpBlocks = followUps.map(t => ({
+      id: _nextBlockId(),
+      type: 'task_ref',
+      taskId: t.id,
+    }));
+    blocks.splice(insertIdx, 0, ...followUpBlocks);
+  }
+
+  // 3. Discussion tasks for this meeting
+  const allTasks = await db.tasks.toArray();
+  const discussionTasks = allTasks.filter(t =>
+    t.type === 'discussion' &&
+    t.status !== 'complete' &&
+    (t.meetingIds || []).includes(meetingId)
+  );
+  if (discussionTasks.length > 0) {
+    const closingIdx = blocks.findIndex(b =>
+      b.type === 'heading' && b.text.toLowerCase().includes('closing')
+    );
+    const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
+    const discBlocks = discussionTasks.map(t => ({
+      id: _nextBlockId(),
+      type: 'task_ref',
+      taskId: t.id,
+    }));
+    blocks.splice(insertAt, 0, ...discBlocks);
+  }
+
+  // 4. Calling pipeline items
+  const callingItems = await getCallingPipelineAgendaItems(meetingId);
+  if (callingItems.length > 0) {
+    const closingIdx = blocks.findIndex(b =>
+      b.type === 'heading' && b.text.toLowerCase().includes('closing')
+    );
+    const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
+    // Calling items are from old system — insert as heading+text for now
+    const callingBlocks = callingItems.map(item => ({
+      id: _nextBlockId(),
+      type: 'heading',
+      text: item.label,
+    }));
+    blocks.splice(insertAt, 0, ...callingBlocks);
+  }
+
+  // 5. Tagged notes from other meetings
+  const tags = await getTagsForMeeting(meetingId);
+  if (tags.length > 0) {
+    const closingIdx = blocks.findIndex(b =>
+      b.type === 'heading' && b.text.toLowerCase().includes('closing')
+    );
+    const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
+    for (const tag of tags) {
+      let sourceName = 'another meeting';
+      if (tag.sourceMeetingInstanceId) {
+        const inst = await db.meetingInstances.get(tag.sourceMeetingInstanceId);
+        if (inst) {
+          const mtg = await db.meetings.get(inst.meetingId);
+          if (mtg) sourceName = mtg.name;
+        }
+      }
+      blocks.splice(insertAt, 0,
+        { id: _nextBlockId(), type: 'heading', text: `[From ${sourceName}]` },
+        { id: _nextBlockId(), type: 'text', text: tag.text },
+      );
+      await markTagConsumed(tag.id);
+    }
+  }
+
+  // Ensure at least one block
+  if (blocks.length === 0) {
+    blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
+  }
+
+  return blocks;
+}
+
+let _blockIdCounter = 0;
+function _nextBlockId() {
+  return `b_${Date.now()}_${++_blockIdCounter}`;
+}
+
+/**
  * Get completed follow-up action items for a meeting.
  * These are action items from past instances of this meeting
  * that have been completed since the last instance, and haven't
@@ -880,52 +1217,10 @@ export async function transitionCallingSlot(id, newStage, note = '', extraUpdate
   }
 
   await db.callingSlots.update(id, updates);
+  const updated = await db.callingSlots.get(id);
+  if (updated) syncAfterWrite('callingSlots', id, updated);
 
-  // Auto-generate action items for this transition
-  const autoActions = getAutoActionsForTransition(newStage, { ...slot, ...updates });
-  for (const action of autoActions) {
-    await addActionItem({ ...action, callingSlotId: id, pipelineStage: newStage });
-  }
-
-  return { autoActionCount: autoActions.length, hasCurrentHolder: !!slot.servedBy };
-}
-
-function getAutoActionsForTransition(newStage, slot) {
-  const name = slot.candidateName || 'the candidate';
-  const role = slot.roleName || 'the calling';
-  const assignedTo = slot.assignedTo || 'a presidency member';
-
-  switch (newStage) {
-    case 'discussed':
-      return [{ title: `Discuss names for ${role} in presidency meeting`, priority: 'high', context: 'at_church' }];
-    case 'prayed_about':
-      return [{ title: `Pray about ${name} for ${role}`, priority: 'high' }];
-    case 'assigned_to_extend':
-      return [{ title: `${assignedTo}: extend ${role} to ${name}`, priority: 'high', context: 'visit' }];
-    case 'extended':
-      return [{ title: `Follow up on ${role} extension to ${name}`, priority: 'high', context: 'phone' }];
-    case 'accepted':
-      return [{ title: `Add ${name} for ${role} to sustainings`, priority: 'high', context: 'at_church' }];
-    case 'declined':
-      return [{ title: `Reconsider candidates for ${role} (${name} declined)`, priority: 'high' }];
-    case 'sustained':
-      return [{ title: `Schedule setting apart for ${name} as ${role}`, priority: 'high', context: 'phone' }];
-    case 'set_apart':
-      return [
-        { title: `Set apart ${name} as ${role}`, priority: 'high', context: 'at_church' },
-        { title: `Ensure ${name} has resources for ${role}`, priority: 'low' },
-      ];
-    case 'serving':
-      return [{ title: `Ensure ${name} has training and resources for ${role}`, priority: 'low' }];
-    case 'release_planned':
-      return [{ title: `Schedule meeting with ${name} about release from ${role}`, priority: 'high', context: 'phone' }];
-    case 'release_meeting':
-      return [{ title: `Announce release of ${name} from ${role}`, priority: 'high', context: 'at_church' }];
-    case 'released':
-      return [{ title: `Identify replacement for ${role}`, priority: 'high' }];
-    default:
-      return [];
-  }
+  return { hasCurrentHolder: !!slot.servedBy };
 }
 
 export async function getPipelineSummary(jurisdiction) {
@@ -1017,9 +1312,10 @@ export async function addLesson(lesson) {
 
 // Stats helpers
 export async function getDashboardStats() {
-  const allItems = await db.actionItems.toArray();
+  // Use unified tasks table for stats
+  const allTasks = await db.tasks.toArray();
   const now = new Date().toISOString().split('T')[0];
-  const active = allItems.filter(i => i.status !== 'complete');
+  const active = allTasks.filter(i => i.status !== 'complete');
   const overdue = active.filter(i => i.dueDate && i.dueDate < now);
   const dueToday = active.filter(i => i.dueDate === now);
   const inboxCount = await db.inbox.where('processed').equals(0).count();

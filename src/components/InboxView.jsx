@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useInbox } from '../hooks/useDb';
-import { addActionItem, addJournalEntry } from '../db';
+import { addTask, addJournalEntry } from '../db';
 import { formatRelative } from '../utils/dates';
 import Modal from './shared/Modal';
 import {
@@ -26,7 +26,7 @@ export default function InboxView() {
   }
 
   async function handleConvertToAction(item) {
-    await addActionItem({ title: item.text });
+    await addTask({ type: 'action_item', title: item.text });
     await markProcessed(item.id);
     setProcessItem(null);
   }

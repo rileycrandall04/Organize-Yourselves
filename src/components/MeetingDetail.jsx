@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useMeetingInstances, useMeetingNoteTags, useOngoingTasks, useMinisteringPlans } from '../hooks/useDb';
-import { buildAutoAgenda, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingInstance, deleteMeetingWithInstances, addOngoingTask, addMinisteringPlan } from '../db';
+import { useMeetingInstances, useMeetingNoteTags, useTasksForMeeting, useTasks } from '../hooks/useDb';
+import { buildAutoAgenda, buildAutoAgendaBlocks, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingInstance, deleteMeetingWithInstances, addTask } from '../db';
 import { MEETING_CADENCES, formatCadenceLabel, normalizeCadence } from '../data/callings';
 import { todayStr, formatMeetingDate } from '../utils/dates';
 import { MEETING_STATUSES } from '../utils/constants';
@@ -19,8 +19,8 @@ const cadenceOptions = Object.entries(MEETING_CADENCES);
 export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const { instances, loading, add: addInstance } = useMeetingInstances(meeting.id);
   const { tags: pendingTags } = useMeetingNoteTags(meeting.id);
-  const { tasks: ongoingTasks } = useOngoingTasks(meeting.id);
-  const { plans: ministeringPlans } = useMinisteringPlans();
+  const { tasks: ongoingTasks } = useTasksForMeeting(meeting.id);
+  const { tasks: ministeringPlans } = useTasks({ type: 'ministering_plan', excludeComplete: true });
   const [activeInstance, setActiveInstance] = useState(null);
   const [creating, setCreating] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
@@ -89,6 +89,10 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           notes: '',
         };
       } else {
+        // Build block-based agenda for the new instance
+        const autoBlocks = await buildAutoAgendaBlocks(meeting.id);
+        newInstance.blocks = autoBlocks;
+        // Keep legacy agendaItems for backward compatibility during transition
         const autoAgenda = await buildAutoAgenda(meeting.id, instanceDate);
         newInstance.agendaItems = autoAgenda;
       }
@@ -163,14 +167,16 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
 
   async function handleAddTask() {
     if (!newTaskTitle.trim()) return;
-    await addOngoingTask({ meetingId: meeting.id, title: newTaskTitle.trim() });
+    await addTask({ type: 'ongoing', meetingIds: [meeting.id], title: newTaskTitle.trim() });
     setNewTaskTitle('');
     setShowAddTask(false);
   }
 
   async function handleAddPlan() {
     if (!newPlanPerson.trim()) return;
-    await addMinisteringPlan({
+    await addTask({
+      type: 'ministering_plan',
+      title: newPlanPerson.trim() + (newPlanFamily.trim() ? ` ${newPlanFamily.trim()} Family` : ''),
       personName: newPlanPerson.trim(),
       familyName: newPlanFamily.trim() || null,
       description: newPlanDesc.trim() || '',

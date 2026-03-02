@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useUserCallings, useInbox } from '../hooks/useDb';
-import { Settings, BookOpen, Users, ClipboardList, ChevronRight, Inbox, Heart } from 'lucide-react';
+import { Settings, BookOpen, Users, ClipboardList, ChevronRight, Inbox, Heart, GitBranch } from 'lucide-react';
 
 export default function MoreMenu() {
   const navigate = useNavigate();
@@ -18,6 +18,7 @@ export default function MoreMenu() {
 
       <div className="space-y-2">
         <MenuItem icon={Inbox} label="Inbox" subtitle={inboxCount > 0 ? `${inboxCount} unprocessed` : 'Quick capture inbox'} badge={inboxCount} onPress={() => navigate('/inbox')} />
+        <MenuItem icon={GitBranch} label="Calling Pipeline" subtitle="Track callings and transitions" onPress={() => navigate('/pipeline')} />
         <MenuItem icon={ClipboardList} label="Responsibilities" subtitle="View and manage responsibilities" onPress={() => navigate('/responsibilities')} />
         {showMinistering && (
           <MenuItem icon={Heart} label="Ministering" subtitle="Manage ministering assignments" onPress={() => navigate('/ministering')} />

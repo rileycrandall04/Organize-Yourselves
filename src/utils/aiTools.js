@@ -7,11 +7,11 @@
  */
 
 import {
-  // Action Items
-  addActionItem,
-  updateActionItem,
-  deleteActionItem,
-  getActionItems,
+  // Unified Tasks (replaces Action Items)
+  addTask,
+  updateTask,
+  deleteTask,
+  getTasks,
   // Inbox
   addInboxItem,
   getInboxItems,
@@ -709,7 +709,8 @@ export async function executeAiTool(toolName, toolInput) {
     // ─── ACTION ITEMS ────────────────────────────────────────
 
     case 'create_action_item': {
-      const id = await addActionItem({
+      const id = await addTask({
+        type: 'action_item',
         title: toolInput.title,
         priority: toolInput.priority || 'low',
         context: toolInput.context || null,
@@ -720,24 +721,24 @@ export async function executeAiTool(toolName, toolInput) {
     }
 
     case 'update_action_item': {
-      const items = await getActionItems({});
+      const items = await getTasks({});
       const search = toolInput.titleSearch.toLowerCase();
       const match = items.find(i => i.title.toLowerCase().includes(search));
       if (!match) {
         return { success: false, message: `No action item found matching "${toolInput.titleSearch}"` };
       }
-      await updateActionItem(match.id, toolInput.updates);
+      await updateTask(match.id, toolInput.updates);
       return { success: true, message: `Updated: "${match.title}"` };
     }
 
     case 'complete_action_item': {
-      const items = await getActionItems({ excludeComplete: true });
+      const items = await getTasks({ excludeComplete: true });
       const search = toolInput.titleSearch.toLowerCase();
       const match = items.find(i => i.title.toLowerCase().includes(search));
       if (!match) {
         return { success: false, message: `No active action item found matching "${toolInput.titleSearch}"` };
       }
-      await updateActionItem(match.id, { status: 'complete' });
+      await updateTask(match.id, { status: 'complete' });
       return { success: true, message: `Completed: "${match.title}"` };
     }
 
@@ -745,19 +746,19 @@ export async function executeAiTool(toolName, toolInput) {
       const filter = toolInput.filter || 'all';
       let items;
       if (filter === 'overdue') {
-        items = await getActionItems({ overdue: true });
+        items = await getTasks({ overdue: true });
       } else if (filter === 'high_priority') {
-        items = await getActionItems({ excludeComplete: true, priority: 'high' });
+        items = await getTasks({ excludeComplete: true, priority: 'high' });
       } else if (filter === 'due_today') {
         const today = new Date().toISOString().split('T')[0];
-        items = await getActionItems({ excludeComplete: true, dueBy: today });
+        items = await getTasks({ excludeComplete: true, dueBy: today });
       } else if (filter === 'starred') {
-        const all = await getActionItems({ excludeComplete: true });
+        const all = await getTasks({ excludeComplete: true });
         items = all.filter(i => i.starred);
       } else if (filter === 'completed') {
-        items = await getActionItems({ status: 'complete' });
+        items = await getTasks({ status: 'complete' });
       } else {
-        items = await getActionItems({ excludeComplete: true });
+        items = await getTasks({ excludeComplete: true });
       }
       const list = items.slice(0, 20).map(i =>
         `- ${i.title} [${i.priority}]${i.dueDate ? ` due ${i.dueDate}` : ''}${i.status === 'in_progress' ? ' (in progress)' : ''}${i.starred ? ' ★' : ''}${i.context ? ` @${i.context}` : ''}`

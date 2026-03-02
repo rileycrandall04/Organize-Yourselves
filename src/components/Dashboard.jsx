@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProfile, useDashboardStats, useInbox, useActionItems, useUpcomingMeetings, useUserCallings, usePipelineSummary, useMinisteringSummary } from '../hooks/useDb';
+import { useProfile, useDashboardStats, useInbox, useTasks, useUpcomingMeetings, useUserCallings, usePipelineSummary, useMinisteringSummary } from '../hooks/useDb';
 import { getTagsForMeeting, getUnresolvedActionItems, dismissBackupReminder } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X, Heart, Play } from 'lucide-react';
@@ -18,7 +18,7 @@ export default function Dashboard() {
   const { profile } = useProfile();
   const { stats } = useDashboardStats();
   const { add: addInboxItem } = useInbox();
-  const { items: focusItems, update: updateAction } = useActionItems({ excludeComplete: true });
+  const { tasks: allTasks, update: updateTask } = useTasks({ excludeComplete: true });
   const { callings } = useUserCallings();
   const { meetings: upcomingMeetings } = useUpcomingMeetings();
   const { jurisdiction } = useVisibility();
@@ -42,18 +42,18 @@ export default function Dashboard() {
     await dismissBackupReminder();
   }
 
-  const focus = focusItems
+  const focus = allTasks
     .filter(i => i.starred || i.priority === 'high')
     .slice(0, 5);
 
   const greeting = getGreeting();
 
   function handleToggleStatus(id, newStatus) {
-    updateAction(id, { status: newStatus });
+    updateTask(id, { status: newStatus });
   }
 
   function handleToggleStar(id, starred) {
-    updateAction(id, { starred });
+    updateTask(id, { starred });
   }
 
   const hasContent = focus.length > 0 || upcomingMeetings.length > 0 || pipelineSummary.total > 0;

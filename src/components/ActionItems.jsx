@@ -1,18 +1,19 @@
 import { useState, useMemo } from 'react';
-import { useActionItems, usePeople } from '../hooks/useDb';
-import { ACTION_VIEWS, CONTEXT_LIST, STATUSES } from '../utils/constants';
+import { useTasks, usePeople } from '../hooks/useDb';
+import { ACTION_VIEWS, CONTEXT_LIST, STATUSES, TASK_TYPE_LIST } from '../utils/constants';
 import { todayStr, thisWeekRange, isOverdue } from '../utils/dates';
 import ActionItemRow from './shared/ActionItemRow';
 import ActionItemForm from './ActionItemForm';
 import {
-  CheckSquare, Plus, Search, X, Filter,
-  Circle, Clock, Pause, CheckCircle2,
+  CheckSquare, Plus, Search, X,
+  Circle, Clock, Pause, CheckCircle2, ListTodo,
 } from 'lucide-react';
 
 export default function ActionItems() {
   const [view, setView] = useState('all');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
 
@@ -20,16 +21,21 @@ export default function ActionItems() {
   const filters = useMemo(() => {
     const today = todayStr();
     const week = thisWeekRange();
-    switch (view) {
-      case 'today': return { excludeComplete: true, dueBy: today };
-      case 'this_week': return { excludeComplete: true, dueBy: week.end };
-      case 'overdue': return { excludeComplete: true, overdue: true };
-      case 'completed': return { status: 'complete' };
-      default: return { excludeComplete: view !== 'completed' };
-    }
-  }, [view]);
+    const base = {};
 
-  const { items, loading, add, update, remove } = useActionItems(filters);
+    // Add type filter if set
+    if (typeFilter) base.type = typeFilter;
+
+    switch (view) {
+      case 'today': return { ...base, excludeComplete: true, dueBy: today };
+      case 'this_week': return { ...base, excludeComplete: true, dueBy: week.end };
+      case 'overdue': return { ...base, excludeComplete: true, overdue: true };
+      case 'completed': return { ...base, status: 'complete' };
+      default: return { ...base, excludeComplete: view !== 'completed' };
+    }
+  }, [view, typeFilter]);
+
+  const { tasks: items, loading, add, update, remove } = useTasks(filters);
   const { people } = usePeople();
 
   // Build a phone lookup map from assignedTo person IDs
@@ -42,11 +48,9 @@ export default function ActionItems() {
   }, [people]);
 
   function getPhoneForItem(item) {
-    // Check assignedTo person
     if (item.assignedTo?.id && phoneMap[item.assignedTo.id]) {
       return phoneMap[item.assignedTo.id];
     }
-    // Try to match name from title against people
     const titleLower = item.title.toLowerCase();
     for (const p of people) {
       if (p.phone && titleLower.includes(p.name.toLowerCase())) {
@@ -69,7 +73,7 @@ export default function ActionItems() {
       );
     }
 
-    // Status sub-filter (for "all" view)
+    // Status sub-filter
     if (statusFilter) {
       result = result.filter(i => i.status === statusFilter);
     }
@@ -151,20 +155,45 @@ export default function ActionItems() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <CheckSquare size={24} className="text-primary-700" />
-          <h1 className="text-2xl font-bold text-gray-900">Action Items</h1>
+          <ListTodo size={24} className="text-primary-700" />
+          <h1 className="text-2xl font-bold text-gray-900">Tasks</h1>
         </div>
         <span className="text-sm text-gray-400">{filtered.length} item{filtered.length !== 1 ? 's' : ''}</span>
       </div>
 
+      {/* Type filter chips */}
+      <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-4 px-4 no-scrollbar">
+        <button
+          onClick={() => setTypeFilter('')}
+          className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors
+            ${!typeFilter
+              ? 'bg-gray-800 text-white'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+        >
+          All Types
+        </button>
+        {TASK_TYPE_LIST.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTypeFilter(typeFilter === t.key ? '' : t.key)}
+            className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors
+              ${typeFilter === t.key
+                ? 'bg-gray-800 text-white'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {/* Search bar */}
-      <div className="relative mb-3">
+      <div className="relative mb-3 mt-2">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search action items..."
+          placeholder="Search tasks..."
           className="input-field pl-9 pr-8"
         />
         {search && (
@@ -299,7 +328,7 @@ function EmptyState({ view, search }) {
     this_week: 'No items due this week.',
     overdue: 'No overdue items. You\'re on top of things!',
     by_context: 'No active items to group.',
-    all: 'No active action items yet.',
+    all: 'No active tasks yet.',
     completed: 'No completed items yet.',
   };
 
@@ -310,7 +339,7 @@ function EmptyState({ view, search }) {
         {search ? `No items matching "${search}"` : messages[view] || messages.all}
       </p>
       {!search && view !== 'completed' && (
-        <p className="text-xs mt-1.5 text-gray-300">Tap + to create an action item</p>
+        <p className="text-xs mt-1.5 text-gray-300">Tap + to create a task</p>
       )}
     </div>
   );

@@ -17,6 +17,7 @@ import Settings from './components/Settings';
 import People from './components/People';
 import CallingPipeline from './components/CallingPipeline';
 import Ministering from './components/Ministering';
+import CalendarPage from './components/CalendarPage';
 import Tutorial, { isTutorialCompleted } from './components/Tutorial';
 
 export default function App() {
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="/journal" element={<Journal onBack={() => window.history.back()} />} />
         <Route path="/settings" element={<Settings onBack={() => window.history.back()} />} />
         <Route path="/people" element={<People onBack={() => window.history.back()} />} />
+        <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/pipeline" element={<CallingPipeline />} />
         <Route path="/ministering" element={<Ministering onBack={() => window.history.back()} />} />
         <Route path="*" element={<Navigate to="/" replace />} />

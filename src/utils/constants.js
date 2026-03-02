@@ -120,6 +120,24 @@ export const NOTE_TAG_SOURCES = {
   calling_pipeline: { key: 'calling_pipeline', label: 'Calling' },
 };
 
+// ── Task Types (Unified Tasks Table) ────────────────────────
+export const TASK_TYPES = {
+  action_item: { key: 'action_item', label: 'Action Item', icon: 'CheckSquare', color: 'primary' },
+  discussion: { key: 'discussion', label: 'Discussion', icon: 'MessageSquare', color: 'indigo' },
+  event: { key: 'event', label: 'Event', icon: 'CalendarDays', color: 'green' },
+  calling_plan: { key: 'calling_plan', label: 'Calling Plan', icon: 'GitBranch', color: 'purple' },
+  ministering_plan: { key: 'ministering_plan', label: 'Ministering', icon: 'Heart', color: 'rose' },
+  ongoing: { key: 'ongoing', label: 'Ongoing Task', icon: 'RotateCw', color: 'amber' },
+};
+
+export const TASK_TYPE_LIST = Object.values(TASK_TYPES);
+
+// ── Follow-Up Modes ─────────────────────────────────────────
+export const FOLLOW_UP_MODES = {
+  next: { key: 'next', label: 'Follow up next meeting' },
+  current_only: { key: 'current_only', label: 'This meeting only' },
+};
+
 // ── Bottom Nav Tabs ─────────────────────────────────────────
 export const NAV_TABS = [
   { key: 'dashboard', label: 'Home', icon: 'LayoutDashboard', path: '/' },

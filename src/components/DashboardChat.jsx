@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { Sparkles, Send, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { isAiConfigured, callAiWithTools, buildDashboardContext, getAiConfig } from '../utils/ai';
 import { AI_TOOLS_ANTHROPIC, AI_TOOLS_OPENAI, executeAiTool } from '../utils/aiTools';
-import { useProfile, useDashboardStats, useUserCallings, useMeetings, usePipelineSummary } from '../hooks/useDb';
-import { useActionItems, useCallingSlots } from '../hooks/useDb';
+import { useProfile, useDashboardStats, useUserCallings, useMeetings, usePipelineSummary, useTasks } from '../hooks/useDb';
+import { useCallingSlots } from '../hooks/useDb';
 import { useVisibility } from '../hooks/useVisibility';
 
 const SYSTEM_PROMPT = `You are a helpful assistant for a leader in The Church of Jesus Christ of Latter-day Saints. You help manage their calling responsibilities, action items, people, meetings, ministering, and all other aspects of their calling.
@@ -45,7 +45,7 @@ export default function DashboardChat() {
   const { meetings } = useMeetings();
   const { jurisdiction } = useVisibility();
   const { summary: pipeline } = usePipelineSummary(jurisdiction);
-  const { items: actionItems } = useActionItems({ excludeComplete: true });
+  const { tasks: actionItems } = useTasks({ excludeComplete: true });
   const { slots } = useCallingSlots({}, jurisdiction);
 
   if (!isAiConfigured()) return null;

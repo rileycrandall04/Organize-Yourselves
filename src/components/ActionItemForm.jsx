@@ -1,19 +1,22 @@
 import { useState, useEffect } from 'react';
 import Modal from './shared/Modal';
 import MeetingPicker from './shared/MeetingPicker';
-import { PRIORITY_LIST, CONTEXT_LIST, CADENCE_LIST } from '../utils/constants';
+import { PRIORITY_LIST, CONTEXT_LIST, CADENCE_LIST, TASK_TYPE_LIST } from '../utils/constants';
 import { useMeetings, usePeople } from '../hooks/useDb';
 import { Star, Trash2, RotateCw, Calendar, UserCircle, X } from 'lucide-react';
 
 const EMPTY_FORM = {
   title: '',
   description: '',
+  type: 'action_item',
   priority: 'medium',
   context: '',
   dueDate: '',
   starred: false,
   isRecurring: false,
   recurringCadence: '',
+  eventDate: '',
+  organization: '',
 };
 
 export default function ActionItemForm({ open, onClose, onSave, onDelete, item }) {
@@ -22,7 +25,7 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
-  const [targetMeetingIds, setTargetMeetingIds] = useState([]);
+  const [meetingIds, setMeetingIds] = useState([]);
   const [assignedTo, setAssignedTo] = useState(null);
   const [assigneeInput, setAssigneeInput] = useState('');
   const [showAssigneePicker, setShowAssigneePicker] = useState(false);
@@ -32,7 +35,8 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
   useEffect(() => {
     if (open) {
       setForm(item ? { ...EMPTY_FORM, ...item } : EMPTY_FORM);
-      setTargetMeetingIds(item?.targetMeetingIds || []);
+      // Support both old targetMeetingIds and new meetingIds
+      setMeetingIds(item?.meetingIds || item?.targetMeetingIds || []);
       setAssignedTo(item?.assignedTo || null);
       setAssigneeInput('');
       setConfirmDelete(false);
@@ -49,6 +53,7 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
     setSaving(true);
     try {
       const data = {
+        type: form.type || 'action_item',
         title: form.title.trim(),
         description: form.description.trim(),
         priority: form.priority,
@@ -57,9 +62,16 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
         starred: form.starred,
         isRecurring: form.isRecurring,
         recurringCadence: form.isRecurring ? form.recurringCadence : undefined,
-        targetMeetingIds: targetMeetingIds.length > 0 ? targetMeetingIds : [],
+        meetingIds: meetingIds.length > 0 ? meetingIds : [],
         assignedTo: assignedTo || null,
       };
+
+      // Type-specific fields
+      if (form.type === 'event') {
+        data.eventDate = form.eventDate || form.dueDate || undefined;
+        data.organization = form.organization || undefined;
+      }
+
       await onSave(data, item?.id);
       onClose();
     } finally {
@@ -76,9 +88,32 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
     onClose();
   }
 
+  const showActionFields = form.type === 'action_item';
+  const showEventFields = form.type === 'event';
+
   return (
-    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Action Item' : 'New Action Item'} size="lg">
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Task' : 'New Task'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Type selector */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+          <div className="flex gap-1.5 flex-wrap">
+            {TASK_TYPE_LIST.map(t => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => set('type', t.key)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors
+                  ${form.type === t.key
+                    ? 'bg-primary-700 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Title */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
@@ -104,7 +139,32 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
           />
         </div>
 
-        {/* Priority & Context row */}
+        {/* Event-specific fields */}
+        {showEventFields && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Event Date</label>
+              <input
+                type="date"
+                value={form.eventDate}
+                onChange={e => set('eventDate', e.target.value)}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>
+              <input
+                type="text"
+                value={form.organization}
+                onChange={e => set('organization', e.target.value)}
+                placeholder="Organization (optional)"
+                className="input-field"
+              />
+            </div>
+          </>
+        )}
+
+        {/* Priority & Context row (mainly for action items but useful for all) */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
@@ -118,31 +178,35 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Context</label>
-            <select
-              value={form.context}
-              onChange={e => set('context', e.target.value)}
-              className="input-field"
-            >
-              <option value="">Any</option>
-              {CONTEXT_LIST.map(c => (
-                <option key={c.key} value={c.key}>{c.label}</option>
-              ))}
-            </select>
-          </div>
+          {showActionFields && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Context</label>
+              <select
+                value={form.context}
+                onChange={e => set('context', e.target.value)}
+                className="input-field"
+              >
+                <option value="">Any</option>
+                {CONTEXT_LIST.map(c => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Due Date */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-          <input
-            type="date"
-            value={form.dueDate}
-            onChange={e => set('dueDate', e.target.value)}
-            className="input-field"
-          />
-        </div>
+        {!showEventFields && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+            <input
+              type="date"
+              value={form.dueDate}
+              onChange={e => set('dueDate', e.target.value)}
+              className="input-field"
+            />
+          </div>
+        )}
 
         {/* Assigned To */}
         <div>
@@ -216,43 +280,45 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
           {form.starred ? 'Focus item' : 'Mark as focus item'}
         </button>
 
-        {/* Recurring toggle */}
-        <div>
-          <button
-            type="button"
-            onClick={() => set('isRecurring', !form.isRecurring)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm
-              ${form.isRecurring ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-          >
-            <RotateCw size={16} />
-            {form.isRecurring ? 'Recurring' : 'Make recurring'}
-          </button>
-          {form.isRecurring && (
-            <select
-              value={form.recurringCadence}
-              onChange={e => set('recurringCadence', e.target.value)}
-              className="input-field mt-2"
+        {/* Recurring toggle (action items only) */}
+        {showActionFields && (
+          <div>
+            <button
+              type="button"
+              onClick={() => set('isRecurring', !form.isRecurring)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm
+                ${form.isRecurring ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
             >
-              <option value="">Select cadence</option>
-              {CADENCE_LIST.map(c => (
-                <option key={c.key} value={c.key}>{c.label}</option>
-              ))}
-            </select>
-          )}
-        </div>
+              <RotateCw size={16} />
+              {form.isRecurring ? 'Recurring' : 'Make recurring'}
+            </button>
+            {form.isRecurring && (
+              <select
+                value={form.recurringCadence}
+                onChange={e => set('recurringCadence', e.target.value)}
+                className="input-field mt-2"
+              >
+                <option value="">Select cadence</option>
+                {CADENCE_LIST.map(c => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
 
         {/* Report to meetings */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Report to Meetings</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Linked Meetings</label>
           <button
             type="button"
             onClick={() => setMeetingPickerOpen(true)}
             className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-2"
           >
             <Calendar size={14} className="text-gray-400" />
-            {targetMeetingIds.length > 0 ? (
+            {meetingIds.length > 0 ? (
               <span className="flex-1">
-                {targetMeetingIds.map(id => allMeetings.find(m => m.id === id)?.name || 'Meeting').join(', ')}
+                {meetingIds.map(id => allMeetings.find(m => m.id === id)?.name || 'Meeting').join(', ')}
               </span>
             ) : (
               <span className="flex-1 text-gray-400">Select meetings (optional)</span>
@@ -287,19 +353,19 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
         )}
       </form>
 
-      {/* Meeting picker for target meetings */}
+      {/* Meeting picker for linked meetings */}
       <MeetingPicker
         open={meetingPickerOpen}
         onClose={() => setMeetingPickerOpen(false)}
         onSelect={(mtg) => {
-          setTargetMeetingIds(prev =>
+          setMeetingIds(prev =>
             prev.includes(mtg.id) ? prev.filter(id => id !== mtg.id) : [...prev, mtg.id]
           );
         }}
         multiSelect
-        selectedIds={targetMeetingIds}
-        onConfirm={(ids) => setTargetMeetingIds(ids)}
-        title="Report to Meetings"
+        selectedIds={meetingIds}
+        onConfirm={(ids) => setMeetingIds(ids)}
+        title="Link to Meetings"
       />
     </Modal>
   );

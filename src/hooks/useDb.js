@@ -74,6 +74,15 @@ import db, {
   addMinisteringPlanUpdate,
   completeMinisteringPlan,
   deleteMinisteringPlan,
+  // Phase 7: Unified Tasks
+  getTasks,
+  addTask,
+  updateTask,
+  deleteTask,
+  getTask,
+  getTasksForMeeting,
+  getFollowUpsForMeeting,
+  addTaskFollowUpNote,
 } from '../db';
 
 // ── Profile ─────────────────────────────────────────────────
@@ -399,5 +408,49 @@ export function useMinisteringPlans() {
     addUpdate: addMinisteringPlanUpdate,
     complete: completeMinisteringPlan,
     remove: deleteMinisteringPlan,
+  };
+}
+
+// ── Phase 7: Unified Tasks ──────────────────────────────────
+
+export function useTasks(filters = {}) {
+  const filterKey = JSON.stringify(filters);
+  const items = useLiveQuery(
+    () => getTasks(filters),
+    [filterKey]
+  );
+  return {
+    tasks: items ?? [],
+    loading: items === undefined,
+    add: addTask,
+    update: updateTask,
+    remove: deleteTask,
+    addFollowUpNote: addTaskFollowUpNote,
+  };
+}
+
+export function useTasksForMeeting(meetingId) {
+  const items = useLiveQuery(
+    () => (meetingId ? getTasksForMeeting(meetingId) : Promise.resolve([])),
+    [meetingId]
+  );
+  return {
+    tasks: items ?? [],
+    loading: items === undefined,
+    add: addTask,
+    update: updateTask,
+    remove: deleteTask,
+    addFollowUpNote: addTaskFollowUpNote,
+  };
+}
+
+export function useFollowUpsForMeeting(meetingId) {
+  const items = useLiveQuery(
+    () => (meetingId ? getFollowUpsForMeeting(meetingId) : Promise.resolve([])),
+    [meetingId]
+  );
+  return {
+    followUps: items ?? [],
+    loading: items === undefined,
   };
 }
