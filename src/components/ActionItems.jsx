@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useTasks, usePeople } from '../hooks/useDb';
+import { snoozeTask } from '../db';
 import { ACTION_VIEWS, CONTEXT_LIST, STATUSES, TASK_TYPE_LIST } from '../utils/constants';
 import { todayStr, thisWeekRange, isOverdue } from '../utils/dates';
 import ActionItemRow from './shared/ActionItemRow';
@@ -139,6 +140,10 @@ export default function ActionItems() {
     await remove(id);
   }
 
+  async function handleSnooze(id) {
+    await snoozeTask(id, 7);
+  }
+
   // Status counts for quick filter chips
   const statusCounts = useMemo(() => {
     const counts = { not_started: 0, in_progress: 0, waiting: 0 };
@@ -271,6 +276,7 @@ export default function ActionItems() {
                       onToggleStar={handleToggleStar}
                       onPress={handlePress}
                       onDelete={handleDelete}
+                      onSnooze={handleSnooze}
                       phoneForPerson={getPhoneForItem(item)}
                     />
                   ))}
@@ -291,6 +297,7 @@ export default function ActionItems() {
               onToggleStar={handleToggleStar}
               onPress={handlePress}
               onDelete={handleDelete}
+              onSnooze={handleSnooze}
               phoneForPerson={getPhoneForItem(item)}
             />
           ))}

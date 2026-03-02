@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Star, CheckCircle2, Circle, Clock, Pause, Phone, MessageSquare, Trash2 } from 'lucide-react';
+import { Star, CheckCircle2, Circle, Clock, Pause, Phone, MessageSquare, Trash2, AlarmClockOff } from 'lucide-react';
 import PriorityBadge from './PriorityBadge';
 import { formatFriendly, isOverdue } from '../../utils/dates';
 
@@ -13,7 +13,7 @@ const STATUS_ICONS = {
   complete: CheckCircle2,
 };
 
-export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPress, onDelete, phoneForPerson }) {
+export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPress, onDelete, onSnooze, phoneForPerson }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const StatusIcon = STATUS_ICONS[item.status] || Circle;
   const overdue = item.status !== 'complete' && isOverdue(item.dueDate);
@@ -155,6 +155,17 @@ export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPr
             </a>
           )}
         </div>
+      )}
+
+      {/* Snooze button */}
+      {!isComplete && onSnooze && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onSnooze(item.id); }}
+          className="flex-shrink-0 p-1 rounded-lg text-gray-300 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+          title="Snooze 1 week"
+        >
+          <AlarmClockOff size={14} />
+        </button>
       )}
 
       {/* Quick complete button */}

@@ -216,6 +216,8 @@ db.version(7).stores({
 export async function getTasks(filters = {}) {
   const items = await db.tasks.toArray();
 
+  const today = new Date().toISOString().split('T')[0];
+
   return items.filter(item => {
     if (filters.type && item.type !== filters.type) return false;
     if (filters.status && item.status !== filters.status) return false;
@@ -224,9 +226,10 @@ export async function getTasks(filters = {}) {
     if (filters.starred && !item.starred) return false;
     if (filters.meetingId && !(item.meetingIds || []).includes(filters.meetingId)) return false;
     if (filters.callingSlotId && item.callingSlotId !== filters.callingSlotId) return false;
+    // Hide snoozed tasks unless explicitly including them
+    if (!filters.includeSnoozed && item.snoozedUntil && item.snoozedUntil > today) return false;
     if (filters.overdue) {
-      const now = new Date().toISOString().split('T')[0];
-      if (!item.dueDate || item.dueDate >= now || item.status === 'complete') return false;
+      if (!item.dueDate || item.dueDate >= today || item.status === 'complete') return false;
     }
     if (filters.dueBy) {
       if (!item.dueDate || item.dueDate > filters.dueBy) return false;
@@ -277,6 +280,21 @@ export async function updateTask(id, changes) {
     changes.completedAt = null;
   }
   await db.tasks.update(id, changes);
+  const updated = await db.tasks.get(id);
+  if (updated) syncAfterWrite('tasks', id, updated);
+}
+
+export async function snoozeTask(id, days = 7) {
+  const until = new Date();
+  until.setDate(until.getDate() + days);
+  const snoozedUntil = until.toISOString().split('T')[0];
+  await db.tasks.update(id, { snoozedUntil });
+  const updated = await db.tasks.get(id);
+  if (updated) syncAfterWrite('tasks', id, updated);
+}
+
+export async function unsnoozeTask(id) {
+  await db.tasks.update(id, { snoozedUntil: null });
   const updated = await db.tasks.get(id);
   if (updated) syncAfterWrite('tasks', id, updated);
 }

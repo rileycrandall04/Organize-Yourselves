@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProfile, useDashboardStats, useInbox, useTasks, useUpcomingMeetings, useUserCallings, useMinisteringSummary } from '../hooks/useDb';
-import { getTagsForMeeting, getUnresolvedActionItems, dismissBackupReminder } from '../db';
+import { getTagsForMeeting, getUnresolvedActionItems, dismissBackupReminder, snoozeTask } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, ShieldCheck, X, Heart, Play, Circle, CheckCircle2, Pause } from 'lucide-react';
+import {
+  AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star,
+  Calendar, ChevronRight, ChevronDown, ShieldCheck, X, Heart, Play,
+  Circle, CheckCircle2, Pause, AlarmClockOff, Filter,
+} from 'lucide-react';
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { useAuth } from '../hooks/useAuth';
 import DashboardChat from './DashboardChat';
@@ -34,17 +38,37 @@ export default function Dashboard() {
 
   const showBackupBanner = shouldShowReminder && !reminderDismissed && !isCloudSynced;
 
+  // To-do section state
+  const [todoCollapsed, setTodoCollapsed] = useState(false);
+  const [todoShowAll, setTodoShowAll] = useState(false);
+
   async function handleDismissReminder() {
     setReminderDismissed(true);
     await dismissBackupReminder();
   }
 
+  // Compute the "due soon" cutoff (2 days from now)
+  const twoDaysOut = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().split('T')[0];
+  })();
+
   // Sort: starred first, then high priority, then by createdAt
-  const todoItems = [...allTasks].sort((a, b) => {
+  const sortedTasks = [...allTasks].sort((a, b) => {
     if (a.starred !== b.starred) return a.starred ? -1 : 1;
     if ((a.priority === 'high') !== (b.priority === 'high')) return a.priority === 'high' ? -1 : 1;
     return 0;
-  }).slice(0, 10);
+  });
+
+  // Priority filter: high priority OR due within 2 days OR starred
+  const priorityItems = sortedTasks.filter(item =>
+    item.priority === 'high' || item.starred || (item.dueDate && item.dueDate <= twoDaysOut)
+  );
+
+  const todoItems = todoShowAll ? sortedTasks.slice(0, 15) : priorityItems.slice(0, 10);
+  const totalCount = allTasks.length;
+  const priorityCount = priorityItems.length;
 
   const greeting = getGreeting();
 
@@ -53,6 +77,10 @@ export default function Dashboard() {
       status: newStatus,
       ...(newStatus === 'complete' ? { completedAt: new Date().toISOString() } : { completedAt: null }),
     });
+  }
+
+  async function handleSnooze(id) {
+    await snoozeTask(id, 7);
   }
 
   const hasContent = allTasks.length > 0 || upcomingMeetings.length > 0;
@@ -126,6 +154,74 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* To Do — collapsible with filter toggle */}
+      {totalCount > 0 && (
+        <div className="mb-4">
+          {/* Header with collapse + filter */}
+          <div className="flex items-center justify-between mb-2">
+            <button
+              onClick={() => setTodoCollapsed(!todoCollapsed)}
+              className="flex items-center gap-1.5"
+            >
+              <ChevronDown
+                size={12}
+                className={`text-gray-400 transition-transform ${todoCollapsed ? '-rotate-90' : ''}`}
+              />
+              <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                <CheckSquare size={12} className="text-primary-500" />
+                To Do
+                <span className="text-gray-300 normal-case tracking-normal font-normal">
+                  ({todoShowAll ? totalCount : priorityCount})
+                </span>
+              </h2>
+            </button>
+            <div className="flex items-center gap-2">
+              {/* Filter toggle */}
+              <div className="flex items-center bg-gray-100 rounded-full p-0.5">
+                <button
+                  onClick={() => setTodoShowAll(false)}
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full transition-colors ${
+                    !todoShowAll ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-400'
+                  }`}
+                >
+                  Priority
+                </button>
+                <button
+                  onClick={() => setTodoShowAll(true)}
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full transition-colors ${
+                    todoShowAll ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-400'
+                  }`}
+                >
+                  All
+                </button>
+              </div>
+              <button onClick={() => navigate('/actions')} className="text-[11px] text-primary-600 flex items-center gap-0.5 hover:text-primary-700">
+                All <ChevronRight size={10} />
+              </button>
+            </div>
+          </div>
+
+          {/* Task list (collapsible) */}
+          {!todoCollapsed && (
+            <div className="space-y-0">
+              {todoItems.length > 0 ? (
+                todoItems.map(item => (
+                  <TodoLine
+                    key={item.id}
+                    item={item}
+                    onToggleStatus={handleToggleStatus}
+                    onSnooze={handleSnooze}
+                    onPress={() => navigate('/actions')}
+                  />
+                ))
+              ) : (
+                <p className="text-xs text-gray-400 py-2">No priority items right now.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Today's Meetings */}
       {todaysMeetings.length > 0 && (
         <div className="mb-4">
@@ -133,23 +229,6 @@ export default function Dashboard() {
           <div className="space-y-1.5">
             {todaysMeetings.map(meeting => (
               <TodayMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings', { state: { openMeetingId: meeting.id } })} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* To Do — compact single-line checklist */}
-      {todoItems.length > 0 && (
-        <div className="mb-4">
-          <SectionHeader icon={CheckSquare} color="text-primary-500" label="To Do" onViewAll={() => navigate('/actions')} />
-          <div className="space-y-0">
-            {todoItems.map(item => (
-              <TodoLine
-                key={item.id}
-                item={item}
-                onToggleStatus={handleToggleStatus}
-                onPress={() => navigate('/actions')}
-              />
             ))}
           </div>
         </div>
@@ -251,7 +330,7 @@ const TODO_STATUS_COLORS = {
   complete: 'text-green-500',
 };
 
-function TodoLine({ item, onToggleStatus, onPress }) {
+function TodoLine({ item, onToggleStatus, onSnooze, onPress }) {
   const StatusIcon = TODO_STATUS_ICONS[item.status] || Circle;
   const statusColor = TODO_STATUS_COLORS[item.status] || 'text-gray-300';
   const isComplete = item.status === 'complete';
@@ -265,6 +344,11 @@ function TodoLine({ item, onToggleStatus, onPress }) {
   function handleQuickComplete(e) {
     e.stopPropagation();
     onToggleStatus(item.id, 'complete');
+  }
+
+  function handleSnooze(e) {
+    e.stopPropagation();
+    onSnooze(item.id);
   }
 
   return (
@@ -284,6 +368,15 @@ function TodoLine({ item, onToggleStatus, onPress }) {
       {item.dueDate && (
         <span className="text-[10px] text-gray-400 flex-shrink-0">{formatFriendly(item.dueDate)}</span>
       )}
+      {/* Snooze (1 week) */}
+      <button
+        onClick={handleSnooze}
+        className="flex-shrink-0 text-gray-200 hover:text-orange-400 transition-colors opacity-0 group-hover:opacity-100"
+        title="Snooze 1 week"
+      >
+        <AlarmClockOff size={13} />
+      </button>
+      {/* Quick complete */}
       <button
         onClick={handleQuickComplete}
         className="flex-shrink-0 text-gray-200 hover:text-green-500 transition-colors opacity-0 group-hover:opacity-100"
