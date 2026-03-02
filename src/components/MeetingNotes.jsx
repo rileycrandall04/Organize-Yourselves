@@ -91,10 +91,11 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
       instance.status = 'completed';
       setInstanceStatus('completed');
 
-      // Sync calling notes from heading blocks that match calling pipeline
-      const callingAgendaItems = blocks
-        .filter(b => b.type === 'heading' && b.text?.includes('[Calling]'))
-        .map(b => ({ label: b.text, notes: '', source: 'calling_pipeline' }));
+      // Sync calling notes from text lines that match calling pipeline
+      const content = blocks[0]?.text || '';
+      const callingAgendaItems = content.split('\n')
+        .filter(line => line.includes('[Calling]'))
+        .map(line => ({ label: line.trim(), notes: '', source: 'calling_pipeline' }));
       if (callingAgendaItems.length > 0) {
         await syncCallingNotesFromMeeting(callingAgendaItems, instance.date, meetingName);
       }
@@ -106,23 +107,20 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     }
   }
 
-  // AI
+  // AI — extract plain text from content (strip {{task:ID}} markers)
+  function getPlainText() {
+    return (blocks[0]?.text || '').replace(/\{\{task:\d+\}\}/g, '').trim();
+  }
+
   async function handleAiSummarize() {
     setAiSummaryLoading(true);
     setAiError('');
     try {
-      // Build text representation of blocks for AI
-      const textContent = blocks.map(b => {
-        if (b.type === 'heading') return `## ${b.text}`;
-        if (b.type === 'text') return b.text;
-        return '';
-      }).filter(Boolean).join('\n');
-
       const result = await summarizeMeetingNotes({
         meetingName,
         date: formatFull(instance.date),
         agendaItems: [],
-        notes: textContent,
+        notes: getPlainText(),
       });
       setAiSummary(result);
     } catch (err) {
@@ -136,17 +134,11 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     setAiSuggestionsLoading(true);
     setAiError('');
     try {
-      const textContent = blocks.map(b => {
-        if (b.type === 'heading') return `## ${b.text}`;
-        if (b.type === 'text') return b.text;
-        return '';
-      }).filter(Boolean).join('\n');
-
       const result = await suggestActionItems({
         meetingName,
         date: formatFull(instance.date),
         agendaItems: [],
-        notes: textContent,
+        notes: getPlainText(),
       });
       setAiSuggestions(result);
     } catch (err) {
@@ -158,11 +150,10 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
 
   // Note tagging
   async function handleTagMeeting(meeting) {
-    const text = blocks
-      .filter(b => b.type === 'text' && b.text?.trim())
-      .map(b => b.text)
-      .join('\n');
-    if (!text?.trim()) return;
+    const text = (blocks[0]?.text || '')
+      .replace(/\{\{task:\d+\}\}/g, '')
+      .trim();
+    if (!text) return;
 
     await addMeetingNoteTag({
       sourceMeetingInstanceId: instance.id,

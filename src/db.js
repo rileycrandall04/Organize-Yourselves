@@ -917,11 +917,13 @@ export async function buildAutoAgendaBlocks(meetingId) {
     (reachedClosing ? closingItems : beforeClosing).push(item);
   }
 
-  const blocks = [];
+  // Build single text document with {{task:ID}} markers inline
+  let text = '';
 
-  // 1. Main agenda text — template items as bullet points
-  const mainLines = beforeClosing.map(item => `• ${item}`);
-  blocks.push({ id: _nextBlockId(), type: 'text', text: mainLines.join('\n') });
+  // 1. Template items as bullet points
+  if (beforeClosing.length > 0) {
+    text += beforeClosing.map(item => `\u2022 ${item}`).join('\n');
+  }
 
   // 2. Gather all follow-up and linked tasks, categorize by type
   const allTasks = await db.tasks.toArray();
@@ -935,7 +937,6 @@ export async function buildAutoAgendaBlocks(meetingId) {
     ongoing: [],
   };
 
-  // Follow-up tasks (any type with followUp === 'next' linked to this meeting)
   const followUps = await getFollowUpsForMeeting(meetingId);
   for (const t of followUps) {
     if (!seen.has(t.id) && categorized[t.type]) {
@@ -944,7 +945,6 @@ export async function buildAutoAgendaBlocks(meetingId) {
     }
   }
 
-  // Also include non-complete tasks linked to this meeting (discussions, etc.)
   const linkedTasks = allTasks.filter(t =>
     t.status !== 'complete' &&
     !seen.has(t.id) &&
@@ -957,7 +957,7 @@ export async function buildAutoAgendaBlocks(meetingId) {
     }
   }
 
-  // Section labels matching the user's requested terminology
+  // Section labels
   const sectionDefs = [
     { key: 'action_item', label: 'Follow Up' },
     { key: 'discussion', label: 'Discussion' },
@@ -967,31 +967,24 @@ export async function buildAutoAgendaBlocks(meetingId) {
     { key: 'ongoing', label: 'Ongoing Follow Up' },
   ];
 
-  // 3. Add categorized sections with task chips
+  // 3. Add categorized sections with inline task markers
   for (const { key, label } of sectionDefs) {
     const tasks = categorized[key];
     if (tasks.length === 0) continue;
-    blocks.push({ id: _nextBlockId(), type: 'text', text: `\n${label}` });
+    text += `\n\n${label}`;
     for (const t of tasks) {
-      blocks.push({ id: _nextBlockId(), type: 'task_ref', taskId: t.id });
+      text += `\n{{task:${t.id}}}`;
     }
   }
 
   // 4. Calling pipeline items (non-task text items)
   const callingItems = await getCallingPipelineAgendaItems(meetingId);
   if (callingItems.length > 0) {
-    const hasCallingTasks = categorized.calling_plan.length > 0;
-    const callingText = callingItems.map(item => `• ${item.label}`).join('\n');
-    if (hasCallingTasks) {
-      // Append to the last text block (which is after calling task_refs)
-      const lastBlock = blocks[blocks.length - 1];
-      if (lastBlock.type === 'text') {
-        lastBlock.text += '\n' + callingText;
-      } else {
-        blocks.push({ id: _nextBlockId(), type: 'text', text: callingText });
-      }
+    const callingText = callingItems.map(item => `\u2022 ${item.label}`).join('\n');
+    if (categorized.calling_plan.length > 0) {
+      text += '\n' + callingText;
     } else {
-      blocks.push({ id: _nextBlockId(), type: 'text', text: `\nCallings\n${callingText}` });
+      text += `\n\nCallings\n${callingText}`;
     }
   }
 
@@ -1006,31 +999,16 @@ export async function buildAutoAgendaBlocks(meetingId) {
         if (mtg) sourceName = mtg.name;
       }
     }
-    const tagText = `\n📌 From ${sourceName}:\n${tag.text}`;
-    const lastBlock = blocks[blocks.length - 1];
-    if (lastBlock.type === 'text') {
-      lastBlock.text += tagText;
-    } else {
-      blocks.push({ id: _nextBlockId(), type: 'text', text: tagText });
-    }
+    text += `\n\n\uD83D\uDCCC From ${sourceName}:\n${tag.text}`;
     await markTagConsumed(tag.id);
   }
 
   // 6. Closing items
   if (closingItems.length > 0) {
-    const closingText = '\n' + closingItems.map(item => `• ${item}`).join('\n');
-    const lastBlock = blocks[blocks.length - 1];
-    if (lastBlock.type === 'text') {
-      lastBlock.text += closingText;
-    } else {
-      blocks.push({ id: _nextBlockId(), type: 'text', text: closingText });
-    }
+    text += '\n\n' + closingItems.map(item => `\u2022 ${item}`).join('\n');
   }
 
-  // 7. Trailing empty text block for freeform notes
-  blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
-
-  return blocks;
+  return [{ id: _nextBlockId(), type: 'text', text }];
 }
 
 let _blockIdCounter = 0;
