@@ -3,7 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useProfile, useUserCallings } from '../hooks/useDb';
 import { useDataStats, useLastExportDate } from '../hooks/useDataPortability';
 import { getCallingConfig, getCallingList, ORGANIZATIONS, ORG_PRESIDENT_MAP, getOrgLabel, isCustomCalling, generateCustomCallingKey, getCallingDisplayTitle } from '../data/callings';
-import { addMeeting, addResponsibility, updateLastExportDate, syncAssignmentMeetings, updateCallingAssignments, saveProfile as saveProfileDb, initializeOrgChartForRole, autoPopulateUserSlot } from '../db';
+import { addMeeting, addResponsibility, updateLastExportDate, syncAssignmentMeetings, updateCallingAssignments, saveProfile as saveProfileDb, initializeOrgChartForRole, autoPopulateUserSlot, deleteMeetingWithInstances, deleteResponsibility } from '../db';
 import db from '../db';
 import {
   exportAllData, downloadJsonFile, getExportFilename,
@@ -163,11 +163,16 @@ export default function Settings({ onBack }) {
   }
 
   async function handleRemoveCalling(id, callingKey) {
-    await removeCalling(id);
+    // Delete all meetings AND their instances (with cloud sync)
     const meetings = await db.meetings.where('callingId').equals(callingKey).toArray();
-    for (const m of meetings) await db.meetings.delete(m.id);
+    for (const m of meetings) await deleteMeetingWithInstances(m.id);
+
+    // Delete all responsibilities (with cloud sync)
     const resps = await db.responsibilities.where('callingId').equals(callingKey).toArray();
-    for (const r of resps) await db.responsibilities.delete(r.id);
+    for (const r of resps) await deleteResponsibility(r.id);
+
+    // Remove the calling itself
+    await removeCalling(id);
   }
 
   // ── Export handlers ──────────────────────────────────────
