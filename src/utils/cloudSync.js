@@ -440,6 +440,64 @@ export async function testCloudConnection() {
 }
 
 /**
+ * Delete ALL cloud data for the current user.
+ * Iterates every synced table collection and batch-deletes all documents.
+ * Returns { success, deleted, errors }
+ */
+export async function deleteAllCloudData() {
+  if (!_uid) return { success: false, error: 'Not authenticated' };
+  const firestore = getFirebaseFirestore();
+  if (!firestore) return { success: false, error: 'Firestore not initialized' };
+
+  // Stop real-time listeners first so they don't re-pull deleted data
+  _unsubscribers.forEach(unsub => { try { unsub(); } catch {} });
+  _unsubscribers = [];
+
+  let totalDeleted = 0;
+  const errors = [];
+
+  for (const tableName of SYNC_TABLES) {
+    try {
+      const colRef = collection(firestore, `users/${_uid}/${tableName}`);
+      const snap = await getDocs(colRef);
+      if (snap.empty) continue;
+
+      // Batch delete (max 500 per batch)
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += 450) {
+        const batch = writeBatch(firestore);
+        const chunk = docs.slice(i, i + 450);
+        chunk.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        totalDeleted += chunk.length;
+      }
+    } catch (err) {
+      errors.push(`${tableName}: ${err.message}`);
+    }
+  }
+
+  // Also delete the firestoreSync data (meeting schedule, notification tokens, etc.)
+  try {
+    const syncRef = collection(firestore, `users/${_uid}/firestoreSync`);
+    const syncSnap = await getDocs(syncRef);
+    if (!syncSnap.empty) {
+      const batch = writeBatch(firestore);
+      syncSnap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      totalDeleted += syncSnap.size;
+    }
+  } catch {}
+
+  console.log(`[CloudSync] Deleted ${totalDeleted} cloud documents`);
+
+  return {
+    success: errors.length === 0,
+    deleted: totalDeleted,
+    errors,
+  };
+}
+
+/**
  * Clean Dexie data for Firestore (remove undefined values, convert types).
  */
 function sanitizeForFirestore(obj) {

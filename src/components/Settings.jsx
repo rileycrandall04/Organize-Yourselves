@@ -28,7 +28,7 @@ import {
   disableNotifications, isNotificationsEnabled, getNotificationState,
 } from '../utils/notifications';
 import { syncMeetingSchedule, removeSyncData } from '../utils/firestoreSync';
-import { forceFullSync, testCloudConnection } from '../utils/cloudSync';
+import { forceFullSync, testCloudConnection, deleteAllCloudData } from '../utils/cloudSync';
 
 export default function Settings({ onBack }) {
   const { user, signOut } = useAuth();
@@ -280,9 +280,22 @@ export default function Settings({ onBack }) {
 
   // ── Reset handler ────────────────────────────────────────
 
+  const [resetting, setResetting] = useState(false);
+
   async function handleReset() {
-    await db.delete();
-    window.location.reload();
+    setResetting(true);
+    try {
+      // Delete cloud data first (so it doesn't re-sync on next login)
+      await deleteAllCloudData();
+      // Delete local database
+      await db.delete();
+      window.location.reload();
+    } catch (err) {
+      console.error('Reset failed:', err);
+      // Even if cloud delete fails, wipe local and reload
+      await db.delete();
+      window.location.reload();
+    }
   }
 
   // ── Last export display ──────────────────────────────────
@@ -796,19 +809,31 @@ export default function Settings({ onBack }) {
       </Modal>
 
       {/* Reset confirmation */}
-      <Modal open={resetConfirm} onClose={() => setResetConfirm(false)} title="Reset All Data?" size="sm">
+      <Modal open={resetConfirm} onClose={() => !resetting && setResetConfirm(false)} title="Reset All Data?" size="sm">
         <div className="space-y-4">
           <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg">
             <AlertTriangle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-800">
-              This will permanently delete all your data including action items, meetings, journal entries, and settings. This cannot be undone.
-            </p>
+            <div className="text-sm text-red-800 space-y-1">
+              <p>This will permanently delete <strong>all</strong> your data:</p>
+              <ul className="list-disc list-inside text-xs text-red-700 space-y-0.5">
+                <li>Tasks, action items, and events</li>
+                <li>Meetings, notes, and instances</li>
+                <li>Journal entries and inbox items</li>
+                <li>People, callings, and pipeline</li>
+                <li>Cloud backup data</li>
+              </ul>
+              <p className="font-medium mt-2">This cannot be undone. Export a backup first if you want to keep your data.</p>
+            </div>
           </div>
           <div className="flex gap-3">
-            <button onClick={handleReset} className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors">
-              Delete Everything
+            <button
+              onClick={handleReset}
+              disabled={resetting}
+              className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+            >
+              {resetting ? 'Deleting everything...' : 'Delete Everything'}
             </button>
-            <button onClick={() => setResetConfirm(false)} className="btn-secondary flex-1">
+            <button onClick={() => setResetConfirm(false)} disabled={resetting} className="btn-secondary flex-1">
               Cancel
             </button>
           </div>
