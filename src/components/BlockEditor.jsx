@@ -5,8 +5,8 @@ import { TASK_TYPES } from '../utils/constants';
 import {
   Plus, Trash2, GripVertical, ChevronDown, ChevronUp,
   CheckCircle2, Circle, Clock, Pause, Star,
-  CheckSquare, MessageSquare, CalendarDays, GitBranch, Heart, RotateCw,
-  Type, AlignLeft, Minus,
+  CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
+  Type, AlignLeft, Minus, List, FileText,
 } from 'lucide-react';
 
 // ── Unique ID generator ────────────────────────────────────
@@ -22,6 +22,12 @@ export function createHeadingBlock(text = '') {
 export function createTextBlock(text = '') {
   return { id: newBlockId(), type: 'text', text };
 }
+export function createBulletBlock(text = '') {
+  return { id: newBlockId(), type: 'bullet', text };
+}
+export function createNotepadBlock(text = '') {
+  return { id: newBlockId(), type: 'notepad', text };
+}
 export function createTaskRefBlock(taskId) {
   return { id: newBlockId(), type: 'task_ref', taskId };
 }
@@ -29,21 +35,40 @@ export function createDividerBlock() {
   return { id: newBlockId(), type: 'divider' };
 }
 
+// ── Detect "simple" agenda items that should be bullets ────
+const BULLET_PATTERNS = /^(opening\s+prayer|closing\s+prayer|opening\s+hymn|closing\s+hymn|intermediate\s+hymn|sacrament\s+hymn|invocation|benediction|presiding|conducting|announcements|sacrament|speaker\s*\d*|spiritual\s+thought|ward\s+business)/i;
+
+export function isBulletItem(text) {
+  return BULLET_PATTERNS.test(text.trim());
+}
+
 // ── Migrate old agendaItems → blocks ───────────────────────
 export function migrateAgendaToBlocks(agendaItems, notes) {
   const blocks = [];
   for (const item of (agendaItems || [])) {
-    blocks.push(createHeadingBlock(item.label || ''));
-    if (item.notes?.trim()) {
-      blocks.push(createTextBlock(item.notes));
+    const label = item.label || '';
+    if (isBulletItem(label)) {
+      blocks.push(createBulletBlock(label));
+      // If there were notes on a bullet item, add them as text
+      if (item.notes?.trim()) {
+        blocks.push(createTextBlock(item.notes));
+      }
+    } else {
+      blocks.push(createHeadingBlock(label));
+      if (item.notes?.trim()) {
+        blocks.push(createTextBlock(item.notes));
+      }
     }
   }
   if (notes?.trim()) {
-    blocks.push(createHeadingBlock('General Notes'));
-    blocks.push(createTextBlock(notes));
+    blocks.push(createDividerBlock());
+    blocks.push(createNotepadBlock(notes));
+  } else {
+    blocks.push(createDividerBlock());
+    blocks.push(createNotepadBlock(''));
   }
   if (blocks.length === 0) {
-    blocks.push(createTextBlock(''));
+    blocks.push(createNotepadBlock(''));
   }
   return blocks;
 }
@@ -68,7 +93,7 @@ const TYPE_ICONS = {
   action_item: CheckSquare,
   discussion: MessageSquare,
   event: CalendarDays,
-  calling_plan: GitBranch,
+  calling_plan: Briefcase,
   ministering_plan: Heart,
   ongoing: RotateCw,
 };
@@ -83,15 +108,15 @@ const TYPE_COLORS = {
 };
 
 // ── Auto-growing textarea ──────────────────────────────────
-function AutoTextarea({ value, onChange, placeholder, className = '', disabled, onKeyDown }) {
+function AutoTextarea({ value, onChange, placeholder, className = '', disabled, onKeyDown, minHeight }) {
   const ref = useRef(null);
 
   useEffect(() => {
     if (ref.current) {
       ref.current.style.height = 'auto';
-      ref.current.style.height = ref.current.scrollHeight + 'px';
+      ref.current.style.height = Math.max(ref.current.scrollHeight, minHeight || 24) + 'px';
     }
-  }, [value]);
+  }, [value, minHeight]);
 
   return (
     <textarea
@@ -103,7 +128,7 @@ function AutoTextarea({ value, onChange, placeholder, className = '', disabled, 
       disabled={disabled}
       rows={1}
       className={`w-full resize-none overflow-hidden bg-transparent focus:outline-none ${className}`}
-      style={{ minHeight: '1.5rem' }}
+      style={{ minHeight: `${minHeight || 24}px` }}
     />
   );
 }
@@ -121,6 +146,23 @@ function HeadingBlock({ block, onChange, disabled }) {
   );
 }
 
+// ── Bullet Block (simple one-liner) ────────────────────────
+function BulletBlock({ block, onChange, disabled }) {
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <span className="text-gray-400 flex-shrink-0 text-xs">&#x2022;</span>
+      <input
+        type="text"
+        value={block.text}
+        onChange={e => onChange({ ...block, text: e.target.value })}
+        placeholder="Item..."
+        disabled={disabled}
+        className="flex-1 text-xs text-gray-700 bg-transparent focus:outline-none placeholder:text-gray-300"
+      />
+    </div>
+  );
+}
+
 // ── Text Block ─────────────────────────────────────────────
 function TextBlock({ block, onChange, disabled }) {
   return (
@@ -131,6 +173,26 @@ function TextBlock({ block, onChange, disabled }) {
       disabled={disabled}
       className="text-xs text-gray-700 placeholder:text-gray-300 py-0.5 leading-relaxed"
     />
+  );
+}
+
+// ── Notepad Block (large freeform area) ────────────────────
+function NotepadBlock({ block, onChange, disabled }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <FileText size={12} className="text-gray-400" />
+        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Notes</span>
+      </div>
+      <AutoTextarea
+        value={block.text}
+        onChange={e => onChange({ ...block, text: e.target.value })}
+        placeholder="Write anything here... meeting notes, decisions, follow-ups..."
+        disabled={disabled}
+        className="text-xs text-gray-700 placeholder:text-gray-300 leading-relaxed"
+        minHeight={150}
+      />
+    </div>
   );
 }
 
@@ -413,7 +475,7 @@ export default function BlockEditor({
   function removeBlock(index) {
     const next = blocks.filter((_, i) => i !== index);
     if (next.length === 0) {
-      next.push(createTextBlock(''));
+      next.push(createNotepadBlock(''));
     }
     onChange(next);
   }
@@ -424,13 +486,26 @@ export default function BlockEditor({
     onChange(next);
   }
 
-  function insertBlockAtEnd(block) {
-    onChange([...blocks, block]);
+  // Insert before the notepad (if there is one at the end), otherwise at end
+  function insertBlockBeforeNotepad(block) {
+    const notepadIdx = blocks.findIndex(b => b.type === 'notepad');
+    if (notepadIdx >= 0) {
+      // Insert before the notepad (and before its divider if present)
+      let insertIdx = notepadIdx;
+      if (insertIdx > 0 && blocks[insertIdx - 1].type === 'divider') {
+        insertIdx--;
+      }
+      const next = [...blocks];
+      next.splice(insertIdx, 0, block);
+      onChange(next);
+    } else {
+      onChange([...blocks, block]);
+    }
   }
 
   function handleTaskInsert(taskId) {
     const block = createTaskRefBlock(taskId);
-    insertBlockAtEnd(block);
+    insertBlockBeforeNotepad(block);
   }
 
   // ── Drag and drop ─────────────────────────────────────────
@@ -465,14 +540,13 @@ export default function BlockEditor({
     setDragOverIndex(null);
   }
 
-  // ── Key handling (Enter to create new block, backspace to merge) ──
+  // ── Key handling (Enter to create new block) ──────────────
 
   function handleKeyDown(e, index) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       const newBlock = createTextBlock('');
       insertBlockAfter(index, newBlock);
-      // Focus new block on next tick
       setTimeout(() => {
         const el = document.querySelector(`[data-block-index="${index + 1}"] textarea`);
         el?.focus();
@@ -520,8 +594,22 @@ export default function BlockEditor({
               disabled={disabled}
             />
           )}
+          {block.type === 'bullet' && (
+            <BulletBlock
+              block={block}
+              onChange={b => updateBlock(index, b)}
+              disabled={disabled}
+            />
+          )}
           {block.type === 'text' && (
             <TextBlock
+              block={block}
+              onChange={b => updateBlock(index, b)}
+              disabled={disabled}
+            />
+          )}
+          {block.type === 'notepad' && (
+            <NotepadBlock
               block={block}
               onChange={b => updateBlock(index, b)}
               disabled={disabled}
@@ -549,15 +637,16 @@ export default function BlockEditor({
     { type: 'action_item', icon: CheckSquare, label: 'Action', color: 'text-primary-600' },
     { type: 'discussion', icon: MessageSquare, label: 'Discuss', color: 'text-indigo-600' },
     { type: 'event', icon: CalendarDays, label: 'Event', color: 'text-green-600' },
-    { type: 'calling_plan', icon: GitBranch, label: 'Calling', color: 'text-purple-600' },
+    { type: 'calling_plan', icon: Briefcase, label: 'Calling', color: 'text-purple-600' },
     { type: 'ministering_plan', icon: Heart, label: 'Minister', color: 'text-rose-600' },
     { type: 'ongoing', icon: RotateCw, label: 'Ongoing', color: 'text-amber-600' },
   ];
 
   const insertItems = [
-    { action: () => insertBlockAtEnd(createHeadingBlock('')), icon: Type, label: 'Heading' },
-    { action: () => insertBlockAtEnd(createTextBlock('')), icon: AlignLeft, label: 'Text' },
-    { action: () => insertBlockAtEnd(createDividerBlock()), icon: Minus, label: 'Divider' },
+    { action: () => insertBlockBeforeNotepad(createHeadingBlock('')), icon: Type, label: 'Heading' },
+    { action: () => insertBlockBeforeNotepad(createBulletBlock('')), icon: List, label: 'Bullet' },
+    { action: () => insertBlockBeforeNotepad(createTextBlock('')), icon: AlignLeft, label: 'Text' },
+    { action: () => insertBlockBeforeNotepad(createDividerBlock()), icon: Minus, label: 'Divider' },
   ];
 
   return (

@@ -125,7 +125,7 @@ export const TASK_TYPES = {
   action_item: { key: 'action_item', label: 'Action Item', icon: 'CheckSquare', color: 'primary' },
   discussion: { key: 'discussion', label: 'Discussion', icon: 'MessageSquare', color: 'indigo' },
   event: { key: 'event', label: 'Event', icon: 'CalendarDays', color: 'green' },
-  calling_plan: { key: 'calling_plan', label: 'Calling Plan', icon: 'GitBranch', color: 'purple' },
+  calling_plan: { key: 'calling_plan', label: 'Calling Plan', icon: 'Briefcase', color: 'purple' },
   ministering_plan: { key: 'ministering_plan', label: 'Ministering', icon: 'Heart', color: 'rose' },
   ongoing: { key: 'ongoing', label: 'Ongoing Task', icon: 'RotateCw', color: 'amber' },
 };

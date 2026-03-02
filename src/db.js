@@ -894,31 +894,54 @@ export async function buildAutoAgenda(meetingId, forDate) {
 }
 
 /**
+ * Detect agenda items that should be simple bullets (prayers, hymns, etc.)
+ */
+const _BULLET_RE = /^(opening\s+prayer|closing\s+prayer|opening\s+hymn|closing\s+hymn|intermediate\s+hymn|sacrament\s+hymn|invocation|benediction|presiding|conducting|announcements|sacrament|speaker\s*\d*|spiritual\s+thought|ward\s+business)/i;
+function _isBulletItem(text) { return _BULLET_RE.test(text.trim()); }
+
+/** Find the index of the closing prayer/hymn/benediction block */
+function _findClosingIndex(blocks) {
+  return blocks.findIndex(b =>
+    (b.type === 'heading' || b.type === 'bullet') &&
+    /closing|benediction/i.test(b.text)
+  );
+}
+
+/**
  * Build block-based agenda for a new meeting instance.
- * Returns array of blocks (heading, text, task_ref) for the BlockEditor.
+ * Returns array of blocks (heading, bullet, text, task_ref, notepad) for the BlockEditor.
  */
 export async function buildAutoAgendaBlocks(meetingId) {
   const meeting = await db.meetings.get(meetingId);
-  if (!meeting) return [{ id: _nextBlockId(), type: 'text', text: '' }];
+  if (!meeting) return [{ id: _nextBlockId(), type: 'notepad', text: '' }];
 
   const blocks = [];
 
-  // 1. Template headings
+  // 1. Template items — bullets for simple items, heading+text for discussion items
   const template = meeting.agendaTemplate || [];
-  for (const heading of template) {
-    blocks.push({ id: _nextBlockId(), type: 'heading', text: heading });
-    blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
+  for (const item of template) {
+    if (_isBulletItem(item)) {
+      blocks.push({ id: _nextBlockId(), type: 'bullet', text: item });
+    } else {
+      blocks.push({ id: _nextBlockId(), type: 'heading', text: item });
+      blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
+    }
   }
 
   // 2. Follow-up tasks from the unified tasks table
   const followUps = await getFollowUpsForMeeting(meetingId);
   if (followUps.length > 0) {
-    // Find a good insertion point (after a "Follow" heading if exists, otherwise near top)
     let insertIdx = blocks.findIndex(b =>
       b.type === 'heading' && (b.text.toLowerCase().includes('follow') || b.text.toLowerCase().includes('action'))
     );
-    if (insertIdx >= 0) insertIdx += 1; // after the heading
-    else insertIdx = Math.min(2, blocks.length); // after first heading+text pair
+    if (insertIdx >= 0) {
+      // Insert after the heading and its text block
+      insertIdx += 1;
+      if (insertIdx < blocks.length && blocks[insertIdx].type === 'text') insertIdx += 1;
+    } else {
+      // After first heading+text pair or after first bullet
+      insertIdx = Math.min(2, blocks.length);
+    }
 
     const followUpBlocks = followUps.map(t => ({
       id: _nextBlockId(),
@@ -936,9 +959,7 @@ export async function buildAutoAgendaBlocks(meetingId) {
     (t.meetingIds || []).includes(meetingId)
   );
   if (discussionTasks.length > 0) {
-    const closingIdx = blocks.findIndex(b =>
-      b.type === 'heading' && b.text.toLowerCase().includes('closing')
-    );
+    const closingIdx = _findClosingIndex(blocks);
     const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
     const discBlocks = discussionTasks.map(t => ({
       id: _nextBlockId(),
@@ -951,11 +972,8 @@ export async function buildAutoAgendaBlocks(meetingId) {
   // 4. Calling pipeline items
   const callingItems = await getCallingPipelineAgendaItems(meetingId);
   if (callingItems.length > 0) {
-    const closingIdx = blocks.findIndex(b =>
-      b.type === 'heading' && b.text.toLowerCase().includes('closing')
-    );
+    const closingIdx = _findClosingIndex(blocks);
     const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
-    // Calling items are from old system — insert as heading+text for now
     const callingBlocks = callingItems.map(item => ({
       id: _nextBlockId(),
       type: 'heading',
@@ -967,9 +985,7 @@ export async function buildAutoAgendaBlocks(meetingId) {
   // 5. Tagged notes from other meetings
   const tags = await getTagsForMeeting(meetingId);
   if (tags.length > 0) {
-    const closingIdx = blocks.findIndex(b =>
-      b.type === 'heading' && b.text.toLowerCase().includes('closing')
-    );
+    const closingIdx = _findClosingIndex(blocks);
     const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
     for (const tag of tags) {
       let sourceName = 'another meeting';
@@ -988,10 +1004,9 @@ export async function buildAutoAgendaBlocks(meetingId) {
     }
   }
 
-  // Ensure at least one block
-  if (blocks.length === 0) {
-    blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
-  }
+  // 6. Always end with a divider + notepad for freeform notes
+  blocks.push({ id: _nextBlockId(), type: 'divider' });
+  blocks.push({ id: _nextBlockId(), type: 'notepad', text: '' });
 
   return blocks;
 }
