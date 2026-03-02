@@ -899,7 +899,8 @@ function _isClosingItem(text) { return _CLOSING_RE.test(text.trim()); }
 
 /**
  * Build block-based agenda for a new meeting instance.
- * Returns simplified blocks: text (single document) + task_ref (inline task cards).
+ * Returns simplified blocks: text (single document) + task_ref (inline chips).
+ * Tasks are categorized into labeled sections by type.
  */
 export async function buildAutoAgendaBlocks(meetingId) {
   const meeting = await db.meetings.get(meetingId);
@@ -907,7 +908,7 @@ export async function buildAutoAgendaBlocks(meetingId) {
 
   const template = meeting.agendaTemplate || [];
 
-  // Split template into items before closing and closing items
+  // Split template at closing items
   const beforeClosing = [];
   const closingItems = [];
   let reachedClosing = false;
@@ -922,31 +923,79 @@ export async function buildAutoAgendaBlocks(meetingId) {
   const mainLines = beforeClosing.map(item => `• ${item}`);
   blocks.push({ id: _nextBlockId(), type: 'text', text: mainLines.join('\n') });
 
-  // 2. Follow-up tasks
+  // 2. Gather all follow-up and linked tasks, categorize by type
+  const allTasks = await db.tasks.toArray();
+  const seen = new Set();
+  const categorized = {
+    action_item: [],
+    discussion: [],
+    event: [],
+    calling_plan: [],
+    ministering_plan: [],
+    ongoing: [],
+  };
+
+  // Follow-up tasks (any type with followUp === 'next' linked to this meeting)
   const followUps = await getFollowUpsForMeeting(meetingId);
   for (const t of followUps) {
-    blocks.push({ id: _nextBlockId(), type: 'task_ref', taskId: t.id });
+    if (!seen.has(t.id) && categorized[t.type]) {
+      categorized[t.type].push(t);
+      seen.add(t.id);
+    }
   }
 
-  // 3. Discussion tasks
-  const allTasks = await db.tasks.toArray();
-  const discussionTasks = allTasks.filter(t =>
-    t.type === 'discussion' &&
+  // Also include non-complete tasks linked to this meeting (discussions, etc.)
+  const linkedTasks = allTasks.filter(t =>
     t.status !== 'complete' &&
+    !seen.has(t.id) &&
     (t.meetingIds || []).includes(meetingId)
   );
-  for (const t of discussionTasks) {
-    blocks.push({ id: _nextBlockId(), type: 'task_ref', taskId: t.id });
+  for (const t of linkedTasks) {
+    if (categorized[t.type]) {
+      categorized[t.type].push(t);
+      seen.add(t.id);
+    }
   }
 
-  // 4. Calling pipeline items + tagged notes + closing items → second text block
-  let extraText = '';
+  // Section labels matching the user's requested terminology
+  const sectionDefs = [
+    { key: 'action_item', label: 'Follow Up' },
+    { key: 'discussion', label: 'Discussion' },
+    { key: 'event', label: 'Announcements' },
+    { key: 'calling_plan', label: 'Callings' },
+    { key: 'ministering_plan', label: 'Fellowshipping' },
+    { key: 'ongoing', label: 'Ongoing Follow Up' },
+  ];
 
+  // 3. Add categorized sections with task chips
+  for (const { key, label } of sectionDefs) {
+    const tasks = categorized[key];
+    if (tasks.length === 0) continue;
+    blocks.push({ id: _nextBlockId(), type: 'text', text: `\n${label}` });
+    for (const t of tasks) {
+      blocks.push({ id: _nextBlockId(), type: 'task_ref', taskId: t.id });
+    }
+  }
+
+  // 4. Calling pipeline items (non-task text items)
   const callingItems = await getCallingPipelineAgendaItems(meetingId);
   if (callingItems.length > 0) {
-    extraText += callingItems.map(item => `• ${item.label}`).join('\n');
+    const hasCallingTasks = categorized.calling_plan.length > 0;
+    const callingText = callingItems.map(item => `• ${item.label}`).join('\n');
+    if (hasCallingTasks) {
+      // Append to the last text block (which is after calling task_refs)
+      const lastBlock = blocks[blocks.length - 1];
+      if (lastBlock.type === 'text') {
+        lastBlock.text += '\n' + callingText;
+      } else {
+        blocks.push({ id: _nextBlockId(), type: 'text', text: callingText });
+      }
+    } else {
+      blocks.push({ id: _nextBlockId(), type: 'text', text: `\nCallings\n${callingText}` });
+    }
   }
 
+  // 5. Tagged notes from other meetings
   const tags = await getTagsForMeeting(meetingId);
   for (const tag of tags) {
     let sourceName = 'another meeting';
@@ -957,20 +1006,28 @@ export async function buildAutoAgendaBlocks(meetingId) {
         if (mtg) sourceName = mtg.name;
       }
     }
-    extraText += (extraText ? '\n\n' : '') + `📌 From ${sourceName}:\n${tag.text}`;
+    const tagText = `\n📌 From ${sourceName}:\n${tag.text}`;
+    const lastBlock = blocks[blocks.length - 1];
+    if (lastBlock.type === 'text') {
+      lastBlock.text += tagText;
+    } else {
+      blocks.push({ id: _nextBlockId(), type: 'text', text: tagText });
+    }
     await markTagConsumed(tag.id);
   }
 
+  // 6. Closing items
   if (closingItems.length > 0) {
-    const closingLines = closingItems.map(item => `• ${item}`);
-    extraText += (extraText ? '\n\n' : '') + closingLines.join('\n');
+    const closingText = '\n' + closingItems.map(item => `• ${item}`).join('\n');
+    const lastBlock = blocks[blocks.length - 1];
+    if (lastBlock.type === 'text') {
+      lastBlock.text += closingText;
+    } else {
+      blocks.push({ id: _nextBlockId(), type: 'text', text: closingText });
+    }
   }
 
-  if (extraText) {
-    blocks.push({ id: _nextBlockId(), type: 'text', text: extraText });
-  }
-
-  // 5. Trailing empty text block for freeform notes
+  // 7. Trailing empty text block for freeform notes
   blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
 
   return blocks;

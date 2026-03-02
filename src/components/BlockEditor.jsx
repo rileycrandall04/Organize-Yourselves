@@ -26,7 +26,6 @@ export function createTaskRefBlock(taskId) {
 export function consolidateBlocks(blocks) {
   if (!blocks || blocks.length === 0) return [createTextBlock('')];
 
-  // Check if consolidation is needed (any non-text, non-task_ref blocks)
   const needsConsolidation = blocks.some(b =>
     b.type !== 'text' && b.type !== 'task_ref'
   );
@@ -37,7 +36,6 @@ export function consolidateBlocks(blocks) {
 
   for (const block of blocks) {
     if (block.type === 'task_ref') {
-      // Flush accumulated text before the task card
       result.push({ id: newBlockId(), type: 'text', text: textAccum });
       textAccum = '';
       result.push({ ...block });
@@ -53,10 +51,8 @@ export function consolidateBlocks(blocks) {
         textAccum += block.text;
       }
     }
-    // dividers are silently dropped
   }
 
-  // Flush remaining text
   result.push({ id: newBlockId(), type: 'text', text: textAccum });
 
   if (result.length === 0) {
@@ -113,13 +109,14 @@ const TYPE_ICONS = {
   ongoing: RotateCw,
 };
 
-const TYPE_COLORS = {
-  action_item: 'border-l-primary-400',
-  discussion: 'border-l-indigo-400',
-  event: 'border-l-green-400',
-  calling_plan: 'border-l-purple-400',
-  ministering_plan: 'border-l-rose-400',
-  ongoing: 'border-l-amber-400',
+// Inline chip styles by type
+const TYPE_CHIP_STYLES = {
+  action_item: 'bg-primary-50 text-primary-700 hover:bg-primary-100',
+  discussion: 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100',
+  event: 'bg-green-50 text-green-700 hover:bg-green-100',
+  calling_plan: 'bg-purple-50 text-purple-700 hover:bg-purple-100',
+  ministering_plan: 'bg-rose-50 text-rose-700 hover:bg-rose-100',
+  ongoing: 'bg-amber-50 text-amber-700 hover:bg-amber-100',
 };
 
 // ── Auto-growing textarea ─────────────────────────────────
@@ -155,30 +152,30 @@ function DocTextarea({ block, onChange, disabled, isMainArea }) {
       onChange={e => onChange({ ...block, text: e.target.value })}
       placeholder={isMainArea ? 'Type your agenda and notes here...' : ''}
       disabled={disabled}
-      className="text-sm text-gray-800 leading-relaxed placeholder:text-gray-300"
-      minHeight={isMainArea ? 80 : 24}
+      className={`text-sm text-gray-800 leading-relaxed placeholder:text-gray-300 ${
+        !isMainArea && !block.text.trim() ? 'py-0' : ''
+      }`}
+      minHeight={isMainArea ? 80 : 16}
     />
   );
 }
 
-// ── Task Ref Block (inline task card) ─────────────────────
-function TaskRefBlock({ block, task, disabled }) {
+// ── Task Ref Chip (compact inline, click to expand) ───────
+function TaskRefChip({ block, task, disabled }) {
   const [expanded, setExpanded] = useState(false);
   const [noteText, setNoteText] = useState('');
 
   if (!task) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-400 italic">
-        Task not found (deleted?)
+      <div className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] text-gray-400 italic">
+        Task removed
       </div>
     );
   }
 
   const StatusIcon = STATUS_ICONS[task.status] || Circle;
-  const TypeIcon = TYPE_ICONS[task.type] || CheckSquare;
-  const borderClass = TYPE_COLORS[task.type] || 'border-l-gray-300';
+  const chipStyle = TYPE_CHIP_STYLES[task.type] || 'bg-gray-50 text-gray-700 hover:bg-gray-100';
   const isComplete = task.status === 'complete';
-  const typeLabel = TASK_TYPES[task.type]?.label || task.type;
 
   async function cycleStatus(e) {
     e.stopPropagation();
@@ -202,46 +199,33 @@ function TaskRefBlock({ block, task, disabled }) {
 
   async function addNote() {
     if (!noteText.trim()) return;
-    await addTaskFollowUpNote(task.id, {
-      text: noteText.trim(),
-      meetingName: '',
-    });
+    await addTaskFollowUpNote(task.id, { text: noteText.trim(), meetingName: '' });
     setNoteText('');
   }
 
   return (
-    <div className={`rounded-lg border border-gray-200 bg-white border-l-[3px] ${borderClass} overflow-hidden`}>
-      {/* Compact header */}
+    <div>
+      {/* ── Compact chip ── */}
       <div
-        className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50/50 transition-colors"
         onClick={() => setExpanded(!expanded)}
+        className={`inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-md cursor-pointer transition-colors ${chipStyle} ${isComplete ? 'opacity-50' : ''}`}
       >
         <button onClick={cycleStatus} className={`flex-shrink-0 ${STATUS_COLORS[task.status]}`}>
-          <StatusIcon size={16} />
+          <StatusIcon size={13} />
         </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className={`text-xs font-medium truncate ${isComplete ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-              {task.title}
-            </span>
-            {task.starred && <Star size={11} className="text-amber-400 fill-amber-400 flex-shrink-0" />}
-          </div>
-        </div>
-        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 flex-shrink-0">
-          {typeLabel}
+        <span className={`text-xs font-medium ${isComplete ? 'line-through' : ''}`}>
+          {task.title}
         </span>
+        {task.starred && <Star size={10} className="text-amber-400 fill-amber-400 flex-shrink-0" />}
         {task.followUp === 'next' && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 flex-shrink-0">
-            Follow Up
-          </span>
+          <span className="text-[8px] px-1 py-0.5 rounded bg-white/60 font-medium flex-shrink-0">FU</span>
         )}
-        <ChevronDown size={12} className={`text-gray-400 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        <ChevronDown size={10} className={`opacity-40 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </div>
 
-      {/* Expanded details */}
+      {/* ── Expanded inline details ── */}
       {expanded && (
-        <div className="px-3 pb-2.5 border-t border-gray-100 pt-2 space-y-2">
-          {/* Description */}
+        <div className="ml-5 mt-1 mb-0.5 pl-3 border-l-2 border-gray-200 space-y-1.5 py-1">
           {task.description && (
             <p className="text-[11px] text-gray-600">{task.description}</p>
           )}
@@ -263,31 +247,33 @@ function TaskRefBlock({ block, task, disabled }) {
             )}
           </div>
 
-          {/* Follow-up notes history */}
+          {/* Recent follow-up notes */}
           {task.followUpNotes?.length > 0 && (
-            <div className="space-y-1">
-              <span className="text-[9px] font-medium text-gray-400 uppercase">Updates</span>
-              {task.followUpNotes.slice(-3).map((note, i) => (
-                <div key={i} className="text-[10px] text-gray-600 pl-2 border-l border-gray-200">
+            <div className="space-y-0.5">
+              {task.followUpNotes.slice(-2).map((note, i) => (
+                <div key={i} className="text-[10px] text-gray-500">
                   {note.text}
-                  {note.date && <span className="text-gray-400 ml-1">({new Date(note.date).toLocaleDateString()})</span>}
+                  {note.date && <span className="text-gray-300 ml-1">({new Date(note.date).toLocaleDateString()})</span>}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Actions */}
+          {/* Quick actions */}
           {!disabled && (
-            <div className="flex items-center gap-3 pt-1">
+            <div className="flex items-center gap-3">
               <button
                 onClick={toggleFollowUp}
-                className={`flex items-center gap-1 text-[10px] font-medium transition-colors ${task.followUp === 'next' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}
+                className={`flex items-center gap-0.5 text-[10px] font-medium transition-colors ${task.followUp === 'next' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}
               >
-                <RotateCw size={10} />
-                {task.followUp === 'next' ? 'Following up' : 'Follow up next'}
+                <RotateCw size={9} />
+                {task.followUp === 'next' ? 'Following up' : 'Follow up'}
               </button>
-              <button onClick={toggleStar} className={`text-[10px] flex items-center gap-1 ${task.starred ? 'text-amber-500' : 'text-gray-400 hover:text-amber-500'}`}>
-                <Star size={10} className={task.starred ? 'fill-amber-400' : ''} />
+              <button
+                onClick={toggleStar}
+                className={`flex items-center gap-0.5 text-[10px] ${task.starred ? 'text-amber-500' : 'text-gray-400 hover:text-amber-500'}`}
+              >
+                <Star size={9} className={task.starred ? 'fill-amber-400' : ''} />
                 {task.starred ? 'Starred' : 'Star'}
               </button>
             </div>
@@ -295,14 +281,14 @@ function TaskRefBlock({ block, task, disabled }) {
 
           {/* Add progress note */}
           {!disabled && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1">
               <input
                 type="text"
                 value={noteText}
                 onChange={e => setNoteText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') addNote(); }}
-                placeholder="Add a progress note..."
-                className="flex-1 text-[11px] px-2 py-1 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-300 placeholder:text-gray-300"
+                placeholder="Add note..."
+                className="flex-1 text-[10px] px-1.5 py-0.5 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary-300 placeholder:text-gray-300"
                 onClick={e => e.stopPropagation()}
               />
               <button
@@ -483,8 +469,8 @@ export default function BlockEditor({
           }
           if (block.type === 'task_ref') {
             return (
-              <div key={block.id} className="my-2">
-                <TaskRefBlock
+              <div key={block.id} className="py-0.5">
+                <TaskRefChip
                   block={block}
                   task={taskMap[block.taskId]}
                   disabled={disabled}
