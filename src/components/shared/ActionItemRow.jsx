@@ -1,4 +1,5 @@
-import { Star, CheckCircle2, Circle, Clock, Pause, Phone, MessageSquare } from 'lucide-react';
+import { useState } from 'react';
+import { Star, CheckCircle2, Circle, Clock, Pause, Phone, MessageSquare, Trash2 } from 'lucide-react';
 import PriorityBadge from './PriorityBadge';
 import { formatFriendly, isOverdue } from '../../utils/dates';
 
@@ -12,7 +13,8 @@ const STATUS_ICONS = {
   complete: CheckCircle2,
 };
 
-export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPress, phoneForPerson }) {
+export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPress, onDelete, phoneForPerson }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const StatusIcon = STATUS_ICONS[item.status] || Circle;
   const overdue = item.status !== 'complete' && isOverdue(item.dueDate);
   const isComplete = item.status === 'complete';
@@ -43,9 +45,47 @@ export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPr
     if (onToggleStar) onToggleStar(item.id, !item.starred);
   }
 
+  function handleDeleteTap(e) {
+    e.stopPropagation();
+    setConfirmingDelete(true);
+  }
+
+  function handleConfirmDelete(e) {
+    e.stopPropagation();
+    if (onDelete) onDelete(item.id);
+    setConfirmingDelete(false);
+  }
+
+  function handleCancelDelete(e) {
+    e.stopPropagation();
+    setConfirmingDelete(false);
+  }
+
+  // Delete confirmation state
+  if (confirmingDelete) {
+    return (
+      <div className="flex items-center gap-2 p-2 rounded-lg border border-red-200 bg-red-50">
+        <Trash2 size={14} className="text-red-400 flex-shrink-0" />
+        <span className="flex-1 text-xs text-red-700 truncate">Delete &ldquo;{item.title}&rdquo;?</span>
+        <button
+          onClick={handleConfirmDelete}
+          className="text-xs font-medium text-white bg-red-600 px-3 py-1 rounded-lg hover:bg-red-700 transition-colors"
+        >
+          Delete
+        </button>
+        <button
+          onClick={handleCancelDelete}
+          className="text-xs text-gray-500 px-2 py-1 hover:text-gray-700"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`flex items-center gap-2 p-2 rounded-lg border transition-colors cursor-pointer
+      className={`group flex items-center gap-2 p-2 rounded-lg border transition-colors cursor-pointer
         ${isComplete ? 'bg-gray-50 border-gray-100' : 'bg-white border-gray-200 hover:border-primary-200'}
         ${overdue ? 'border-red-200 bg-red-50/30' : ''}`}
       onClick={() => onPress?.(item)}
@@ -125,6 +165,17 @@ export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPr
           title="Mark complete"
         >
           <CheckCircle2 size={16} />
+        </button>
+      )}
+
+      {/* Delete button */}
+      {onDelete && (
+        <button
+          onClick={handleDeleteTap}
+          className="flex-shrink-0 p-1 rounded-lg text-gray-200 hover:text-red-500 hover:bg-red-50 transition-colors"
+          title="Delete"
+        >
+          <Trash2 size={14} />
         </button>
       )}
 

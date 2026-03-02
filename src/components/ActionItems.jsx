@@ -241,6 +241,7 @@ export default function ActionItems() {
                       onToggleStatus={handleToggleStatus}
                       onToggleStar={handleToggleStar}
                       onPress={handlePress}
+                      onDelete={handleDelete}
                       phoneForPerson={getPhoneForItem(item)}
                     />
                   ))}
@@ -260,6 +261,7 @@ export default function ActionItems() {
               onToggleStatus={handleToggleStatus}
               onToggleStar={handleToggleStar}
               onPress={handlePress}
+              onDelete={handleDelete}
               phoneForPerson={getPhoneForItem(item)}
             />
           ))}

@@ -1,17 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProfile, useDashboardStats, useInbox, useActionItems, useUpcomingMeetings, useUserCallings, usePipelineSummary, useMeetingNoteTags, useMinisteringSummary } from '../hooks/useDb';
-import { getTagsForMeeting, getUnresolvedActionItems } from '../db';
+import { useProfile, useDashboardStats, useInbox, useActionItems, useUpcomingMeetings, useUserCallings, usePipelineSummary, useMinisteringSummary } from '../hooks/useDb';
+import { getTagsForMeeting, getUnresolvedActionItems, dismissBackupReminder } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X, Heart, Users, Play } from 'lucide-react';
+import { AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star, Calendar, ChevronRight, GitBranch, ShieldCheck, X, Heart, Play } from 'lucide-react';
 import { useLastExportDate } from '../hooks/useDataPortability';
-import { dismissBackupReminder } from '../db';
 import { useAuth } from '../hooks/useAuth';
 import ActionItemRow from './shared/ActionItemRow';
 import DashboardChat from './DashboardChat';
-import { updateActionItem } from '../db';
-import { formatFriendly, formatMeetingDate, todayStr, thisWeekRange } from '../utils/dates';
-import { isDateToday, isDateTomorrow } from '../utils/meetingSchedule';
+import { formatFriendly } from '../utils/dates';
+import { isDateToday } from '../utils/meetingSchedule';
 import { formatCadenceLabel } from '../data/callings';
 import { useVisibility } from '../hooks/useVisibility';
 
@@ -26,7 +24,6 @@ export default function Dashboard() {
   const { jurisdiction } = useVisibility();
   const { summary: pipelineSummary } = usePipelineSummary(jurisdiction);
 
-  // Split meetings into today's and upcoming
   const todaysMeetings = upcomingMeetings.filter(m => isDateToday(m.nextDate));
   const futureMeetings = upcomingMeetings.filter(m => m.nextDate && !isDateToday(m.nextDate));
   const { summary: ministeringSummary } = useMinisteringSummary();
@@ -34,7 +31,6 @@ export default function Dashboard() {
   const { user: authUser } = useAuth();
   const isCloudSynced = !!authUser;
 
-  // Show ministering card for EQ pres, RS pres, bishopric
   const ministeringCallings = ['eq_president', 'rs_president', 'bishop', 'bishopric_1st', 'bishopric_2nd'];
   const showMinistering = callings.some(c => ministeringCallings.includes(c.callingKey));
   const [reminderDismissed, setReminderDismissed] = useState(false);
@@ -46,7 +42,6 @@ export default function Dashboard() {
     await dismissBackupReminder();
   }
 
-  // Filter to starred or high-priority items, max 5
   const focus = focusItems
     .filter(i => i.starred || i.priority === 'high')
     .slice(0, 5);
@@ -61,74 +56,94 @@ export default function Dashboard() {
     updateAction(id, { starred });
   }
 
+  const hasContent = focus.length > 0 || upcomingMeetings.length > 0 || pipelineSummary.total > 0;
+
   return (
-    <div className="px-4 pt-6 pb-4 max-w-lg mx-auto">
+    <div className="px-4 pt-5 pb-4 max-w-lg mx-auto">
       {/* Header */}
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-900">
+      <div className="mb-1">
+        <h1 className="text-xl font-bold text-gray-900">
           {greeting}, {profile?.name || 'Brother'}
         </h1>
-        <p className="text-sm text-gray-500 mt-1">Organize yourselves; prepare every needful thing.</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        </p>
       </div>
 
-      {/* Backup Reminder Banner */}
+      {/* Stat Badges */}
+      <div className="flex items-center gap-1.5 mb-4 flex-wrap">
+        {stats.overdue > 0 && (
+          <button
+            onClick={() => navigate('/actions')}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-100 hover:bg-red-100 transition-colors"
+          >
+            <AlertTriangle size={10} />
+            {stats.overdue} overdue
+          </button>
+        )}
+        {stats.dueToday > 0 && (
+          <button
+            onClick={() => navigate('/actions')}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 hover:bg-amber-100 transition-colors"
+          >
+            <Clock size={10} />
+            {stats.dueToday} today
+          </button>
+        )}
+        <button
+          onClick={() => navigate('/actions')}
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100 hover:bg-gray-100 transition-colors"
+        >
+          <CheckSquare size={10} />
+          {stats.totalActive} active
+        </button>
+        {stats.inboxCount > 0 && (
+          <button
+            onClick={() => navigate('/inbox')}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100 hover:bg-purple-100 transition-colors"
+          >
+            <Inbox size={10} />
+            {stats.inboxCount} inbox
+          </button>
+        )}
+      </div>
+
+      {/* Backup Banner (compact) */}
       {showBackupBanner && (
-        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
-          <ShieldCheck size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-amber-800">
-              {daysSinceExport === null
-                ? "You haven't backed up your data yet."
-                : `It's been ${daysSinceExport} days since your last backup.`}
-            </p>
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={() => navigate('/settings')}
-                className="text-xs font-medium text-amber-700 bg-amber-100 px-3 py-1 rounded-lg hover:bg-amber-200 transition-colors"
-              >
-                Back Up Now
-              </button>
-              <button
-                onClick={handleDismissReminder}
-                className="text-xs text-amber-500 px-2 py-1"
-              >
-                Remind Later
-              </button>
-            </div>
-          </div>
-          <button onClick={handleDismissReminder} className="text-amber-300 hover:text-amber-500">
-            <X size={16} />
+        <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-2">
+          <ShieldCheck size={14} className="text-amber-500 flex-shrink-0" />
+          <p className="text-xs text-amber-700 flex-1 truncate">
+            {daysSinceExport === null ? 'Back up your data' : `${daysSinceExport}d since last backup`}
+          </p>
+          <button
+            onClick={() => navigate('/settings')}
+            className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg hover:bg-amber-200 transition-colors flex-shrink-0"
+          >
+            Backup
+          </button>
+          <button onClick={handleDismissReminder} className="text-amber-300 hover:text-amber-500 flex-shrink-0">
+            <X size={14} />
           </button>
         </div>
       )}
 
-      {/* Quick Capture */}
-      <QuickCapture onAdd={addInboxItem} />
-
-      {/* AI Agent */}
-      <DashboardChat />
-
-      {/* Stats Pills */}
-      <div className="grid grid-cols-4 gap-2 mb-6">
-        <StatPill icon={AlertTriangle} label="Overdue" value={stats.overdue} color="red" onPress={() => navigate('/actions')} />
-        <StatPill icon={Clock} label="Due Today" value={stats.dueToday} color="amber" onPress={() => navigate('/actions')} />
-        <StatPill icon={CheckSquare} label="Active" value={stats.totalActive} color="primary" onPress={() => navigate('/actions')} />
-        <StatPill icon={Inbox} label="Inbox" value={stats.inboxCount} color="purple" onPress={() => navigate('/inbox')} />
-      </div>
+      {/* Today's Meetings */}
+      {todaysMeetings.length > 0 && (
+        <div className="mb-4">
+          <SectionHeader icon={Calendar} color="text-indigo-500" label="Today" onViewAll={() => navigate('/meetings')} />
+          <div className="space-y-1.5">
+            {todaysMeetings.map(meeting => (
+              <TodayMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings', { state: { openMeetingId: meeting.id } })} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Focus Items */}
       {focus.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-              <Star size={14} className="text-amber-400" />
-              Focus Items
-            </h2>
-            <button onClick={() => navigate('/actions')} className="text-xs text-primary-600 flex items-center gap-0.5">
-              View all <ChevronRight size={12} />
-            </button>
-          </div>
-          <div className="space-y-2">
+        <div className="mb-4">
+          <SectionHeader icon={Star} color="text-amber-400" label="Focus" onViewAll={() => navigate('/actions')} />
+          <div className="space-y-1.5">
             {focus.map(item => (
               <ActionItemRow
                 key={item.id}
@@ -142,138 +157,134 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Today's Meetings */}
-      {todaysMeetings.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-              <Calendar size={14} className="text-indigo-600" />
-              Today's Meetings
-            </h2>
-            <button onClick={() => navigate('/meetings')} className="text-xs text-primary-600 flex items-center gap-0.5">
-              View all <ChevronRight size={12} />
-            </button>
-          </div>
-          <div className="space-y-2">
-            {todaysMeetings.map(meeting => (
-              <TodayMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings', { state: { openMeetingId: meeting.id } })} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Next Up / Upcoming Meetings */}
+      {/* Coming Up */}
       {futureMeetings.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-              <Calendar size={14} className="text-primary-600" />
-              {todaysMeetings.length > 0 ? 'Coming Up' : 'Upcoming Meetings'}
-            </h2>
-            {todaysMeetings.length === 0 && (
-              <button onClick={() => navigate('/meetings')} className="text-xs text-primary-600 flex items-center gap-0.5">
-                View all <ChevronRight size={12} />
-              </button>
-            )}
-          </div>
-          <div className="space-y-2">
-            {futureMeetings.slice(0, 4).map(meeting => (
+        <div className="mb-4">
+          <SectionHeader
+            icon={Calendar}
+            color="text-primary-500"
+            label={todaysMeetings.length > 0 ? 'Coming Up' : 'Upcoming'}
+            onViewAll={() => navigate('/meetings')}
+          />
+          <div className="space-y-1.5">
+            {futureMeetings.slice(0, 3).map(meeting => (
               <UpcomingMeetingCard key={meeting.id} meeting={meeting} onPress={() => navigate('/meetings', { state: { openMeetingId: meeting.id } })} />
             ))}
           </div>
         </div>
       )}
 
-      {/* Pipeline Summary */}
-      {pipelineSummary.total > 0 && (
-        <div className="mb-6">
-          <div
-            onClick={() => navigate('/pipeline')}
-            className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors"
-          >
-            <div className="p-2 rounded-lg bg-indigo-50">
-              <GitBranch size={16} className="text-indigo-600" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900">Calling Pipeline</p>
-              <p className="text-xs text-gray-500">
-                {pipelineSummary.active} active
-                {pipelineSummary.needsAction > 0 && (
-                  <span className="text-amber-600"> · {pipelineSummary.needsAction} need action</span>
-                )}
-              </p>
-              {(pipelineSummary.openPositions > 0 || pipelineSummary.releasesInProgress > 0 || pipelineSummary.candidatesPending > 0) && (
-                <div className="flex flex-wrap gap-2 mt-1.5">
+      {/* Summary Links */}
+      {(pipelineSummary.total > 0 || showMinistering) && (
+        <div className="space-y-1.5 mb-4">
+          {pipelineSummary.total > 0 && (
+            <SummaryRow
+              icon={GitBranch}
+              iconBg="bg-indigo-50"
+              iconColor="text-indigo-600"
+              label="Pipeline"
+              detail={`${pipelineSummary.active} active${pipelineSummary.needsAction > 0 ? ` \u00b7 ${pipelineSummary.needsAction} need action` : ''}`}
+              badges={
+                <>
                   {pipelineSummary.openPositions > 0 && (
-                    <span className="text-[10px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
+                    <span className="text-[9px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
                       {pipelineSummary.openPositions} open
                     </span>
                   )}
-                  {pipelineSummary.releasesInProgress > 0 && (
-                    <span className="text-[10px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full">
-                      {pipelineSummary.releasesInProgress} releasing
-                    </span>
-                  )}
                   {pipelineSummary.candidatesPending > 0 && (
-                    <span className="text-[10px] font-medium bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">
-                      {pipelineSummary.candidatesPending} candidates
+                    <span className="text-[9px] font-medium bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">
+                      {pipelineSummary.candidatesPending} pending
                     </span>
                   )}
-                </div>
-              )}
-            </div>
-            <ChevronRight size={14} className="text-gray-300" />
-          </div>
-        </div>
-      )}
-
-      {/* Ministering Summary */}
-      {showMinistering && (
-        <div className="mb-6">
-          <div
-            onClick={() => navigate('/ministering')}
-            className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors"
-          >
-            <div className="p-2 rounded-lg bg-rose-50">
-              <Heart size={16} className="text-rose-600" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900">Ministering</p>
-              <p className="text-xs text-gray-500">
-                {ministeringSummary.totalCompanionships} companionships
-              </p>
-              {(ministeringSummary.unassignedFamilies > 0 || ministeringSummary.overdueInterviews > 0) && (
-                <div className="flex flex-wrap gap-2 mt-1.5">
+                </>
+              }
+              onPress={() => navigate('/pipeline')}
+            />
+          )}
+          {showMinistering && (
+            <SummaryRow
+              icon={Heart}
+              iconBg="bg-rose-50"
+              iconColor="text-rose-500"
+              label="Ministering"
+              detail={`${ministeringSummary.totalCompanionships} companionships`}
+              badges={
+                <>
                   {ministeringSummary.unassignedFamilies > 0 && (
-                    <span className="text-[10px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full">
+                    <span className="text-[9px] font-medium bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full">
                       {ministeringSummary.unassignedFamilies} unassigned
                     </span>
                   )}
                   {ministeringSummary.overdueInterviews > 0 && (
-                    <span className="text-[10px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
-                      {ministeringSummary.overdueInterviews} overdue interviews
+                    <span className="text-[9px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">
+                      {ministeringSummary.overdueInterviews} overdue
                     </span>
                   )}
-                </div>
-              )}
-            </div>
-            <ChevronRight size={14} className="text-gray-300" />
-          </div>
+                </>
+              }
+              onPress={() => navigate('/ministering')}
+            />
+          )}
         </div>
       )}
 
-      {/* Empty state when no focus items or meetings */}
-      {focus.length === 0 && upcomingMeetings.length === 0 && (
-        <div className="card text-center text-gray-400 py-8">
-          <CheckSquare size={32} className="mx-auto mb-2 text-gray-300" />
-          <p className="text-sm">No focus items yet. Star or set action items to high priority and they'll show up here.</p>
+      {/* Quick Capture */}
+      <QuickCapture onAdd={addInboxItem} />
+
+      {/* AI Agent */}
+      <DashboardChat />
+
+      {/* Empty state */}
+      {!hasContent && (
+        <div className="text-center text-gray-400 py-8">
+          <CheckSquare size={28} className="mx-auto mb-2 text-gray-300" />
+          <p className="text-sm">No items yet. Star action items or add meetings and they&apos;ll appear here.</p>
         </div>
       )}
     </div>
   );
 }
 
-// ── Today's Meeting Card (prominent, with Start button) ─────
+// ── Section Header ──────────────────────────────────────────
+
+function SectionHeader({ icon: Icon, color, label, onViewAll }) {
+  return (
+    <div className="flex items-center justify-between mb-2">
+      <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+        <Icon size={12} className={color} />
+        {label}
+      </h2>
+      {onViewAll && (
+        <button onClick={onViewAll} className="text-[11px] text-primary-600 flex items-center gap-0.5 hover:text-primary-700">
+          All <ChevronRight size={10} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Summary Row ─────────────────────────────────────────────
+
+function SummaryRow({ icon: Icon, iconBg, iconColor, label, detail, badges, onPress }) {
+  return (
+    <div
+      onClick={onPress}
+      className="flex items-center gap-2.5 p-2.5 rounded-xl border border-gray-100 bg-white cursor-pointer hover:border-primary-200 transition-colors"
+    >
+      <div className={`p-1.5 rounded-lg ${iconBg}`}>
+        <Icon size={14} className={iconColor} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-900">{label}</p>
+        <p className="text-[11px] text-gray-500">{detail}</p>
+      </div>
+      {badges && <div className="flex gap-1 flex-shrink-0">{badges}</div>}
+      <ChevronRight size={12} className="text-gray-300 flex-shrink-0" />
+    </div>
+  );
+}
+
+// ── Today's Meeting Card ────────────────────────────────────
 
 function TodayMeetingCard({ meeting, onPress }) {
   const pendingData = useLiveQuery(async () => {
@@ -288,24 +299,24 @@ function TodayMeetingCard({ meeting, onPress }) {
   return (
     <div
       onClick={onPress}
-      className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 cursor-pointer hover:border-indigo-300 transition-colors"
+      className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-indigo-50/50 p-2.5 cursor-pointer hover:border-indigo-300 transition-colors"
     >
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-indigo-100">
-          <Calendar size={16} className="text-indigo-600" />
+      <div className="flex items-center gap-2.5">
+        <div className="p-1.5 rounded-lg bg-indigo-100">
+          <Calendar size={14} className="text-indigo-600" />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-indigo-900 truncate">{meeting.name}</p>
-          <p className="text-xs text-indigo-600">{cadenceLabel}</p>
+          <p className="text-[11px] text-indigo-500">{cadenceLabel}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {pendingCount > 0 && (
-            <span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded-full font-medium">
+            <span className="text-[9px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded-full font-medium">
               {pendingCount} prep
             </span>
           )}
-          <div className="p-1.5 rounded-lg bg-indigo-600 text-white">
-            <Play size={12} />
+          <div className="p-1 rounded-lg bg-indigo-600 text-white">
+            <Play size={10} />
           </div>
         </div>
       </div>
@@ -313,7 +324,7 @@ function TodayMeetingCard({ meeting, onPress }) {
   );
 }
 
-// ── Upcoming Meeting Card (with calculated next date) ───────
+// ── Upcoming Meeting Card ───────────────────────────────────
 
 function UpcomingMeetingCard({ meeting, onPress }) {
   const pendingData = useLiveQuery(async () => {
@@ -329,28 +340,28 @@ function UpcomingMeetingCard({ meeting, onPress }) {
   return (
     <div
       onClick={onPress}
-      className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors"
+      className="flex items-center gap-2.5 p-2 rounded-xl border border-gray-100 bg-white cursor-pointer hover:border-primary-200 transition-colors"
     >
-      <div className="p-2 rounded-lg bg-primary-50">
-        <Calendar size={16} className="text-primary-600" />
+      <div className="p-1.5 rounded-lg bg-primary-50">
+        <Calendar size={14} className="text-primary-600" />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900 truncate">{meeting.name}</p>
-        <p className="text-xs text-gray-500">
+        <p className="text-[11px] text-gray-500">
           {cadenceLabel}
-          {dateLabel && <span className="text-primary-600"> · {dateLabel}</span>}
+          {dateLabel && <span className="text-primary-600"> &middot; {dateLabel}</span>}
         </p>
       </div>
       {pendingCount > 0 && (
-        <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
-          {pendingCount} prep
+        <span className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
+          {pendingCount}
         </span>
       )}
     </div>
   );
 }
 
-// ── Quick Capture Bar ───────────────────────────────────────
+// ── Quick Capture ───────────────────────────────────────────
 
 function QuickCapture({ onAdd }) {
   const [text, setText] = useState('');
@@ -369,52 +380,27 @@ function QuickCapture({ onAdd }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mb-5">
+    <form onSubmit={handleSubmit} className="mb-3">
       <div className="flex gap-2">
         <div className="flex-1 relative">
           <input
             type="text"
             value={text}
             onChange={e => setText(e.target.value)}
-            placeholder="Quick capture a thought..."
-            className="input-field pr-10"
+            placeholder="Quick capture..."
+            className="input-field pr-10 text-sm"
           />
-          <Plus size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
+          <Plus size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
         </div>
         <button
           type="submit"
           disabled={!text.trim() || saving}
           className="btn-primary px-3"
         >
-          <Send size={16} />
+          <Send size={14} />
         </button>
       </div>
     </form>
-  );
-}
-
-// ── Stat Card ───────────────────────────────────────────────
-
-function StatPill({ icon: Icon, label, value, color, onPress }) {
-  const colorMap = {
-    red: 'text-red-600 bg-red-50',
-    amber: 'text-amber-600 bg-amber-50',
-    primary: 'text-primary-700 bg-primary-50',
-    purple: 'text-purple-600 bg-purple-50',
-  };
-  const classes = colorMap[color] || colorMap.primary;
-
-  return (
-    <div
-      className="card !p-2 flex flex-col items-center gap-1 cursor-pointer hover:border-primary-200 transition-colors"
-      onClick={onPress}
-    >
-      <div className={`p-1.5 rounded-lg ${classes}`}>
-        <Icon size={14} />
-      </div>
-      <p className="text-base font-bold text-gray-900 leading-none">{value}</p>
-      <p className="text-[10px] text-gray-500 leading-none">{label}</p>
-    </div>
   );
 }
 
