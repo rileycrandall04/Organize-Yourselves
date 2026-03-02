@@ -351,6 +351,61 @@ export async function deleteActionItem(id) {
   syncAfterDelete('actionItems', id);
 }
 
+export async function getActionItemsByIds(ids) {
+  if (!ids || ids.length === 0) return [];
+  const items = await db.actionItems.bulkGet(ids);
+  return items.filter(Boolean);
+}
+
+export async function searchMeetingInstances(query) {
+  if (!query || query.trim().length < 2) return [];
+  const q = query.toLowerCase();
+  const allInstances = await db.meetingInstances.toArray();
+  const allMeetings = await db.meetings.toArray();
+  const meetingMap = {};
+  allMeetings.forEach(m => { meetingMap[m.id] = m.name; });
+
+  const results = [];
+  for (const inst of allInstances) {
+    const matches = [];
+    // Search general notes
+    if (inst.notes && inst.notes.toLowerCase().includes(q)) {
+      matches.push({ type: 'notes', text: inst.notes });
+    }
+    // Search agenda items
+    if (inst.agendaItems) {
+      for (const item of inst.agendaItems) {
+        if (item.label?.toLowerCase().includes(q)) {
+          matches.push({ type: 'agenda', text: item.label });
+        }
+        if (item.notes?.toLowerCase().includes(q)) {
+          matches.push({ type: 'agenda_notes', text: item.notes, label: item.label });
+        }
+      }
+    }
+    // Search focus families
+    if (inst.focusFamilies) {
+      for (const ff of inst.focusFamilies) {
+        if (ff.name?.toLowerCase().includes(q) || ff.notes?.toLowerCase().includes(q)) {
+          matches.push({ type: 'focus_family', text: ff.name + (ff.notes ? ': ' + ff.notes : '') });
+        }
+      }
+    }
+    if (matches.length > 0) {
+      results.push({
+        instanceId: inst.id,
+        meetingId: inst.meetingId,
+        meetingName: meetingMap[inst.meetingId] || 'Meeting',
+        date: inst.date,
+        status: inst.status,
+        matches,
+      });
+    }
+  }
+  results.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return results;
+}
+
 // Quick Capture Inbox
 export async function getInboxItems() {
   return await db.inbox.where('processed').equals(0).sortBy('createdAt');

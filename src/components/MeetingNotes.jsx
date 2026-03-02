@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
-import { addActionItem, addMeetingNoteTag, syncCallingNotesFromMeeting, addOngoingTaskUpdate, addMinisteringPlanUpdate, updateActionItem, dismissOngoingTask, completeMinisteringPlan, deleteMeetingInstance } from '../db';
+import { addActionItem, addMeetingNoteTag, syncCallingNotesFromMeeting, addOngoingTaskUpdate, addMinisteringPlanUpdate, updateActionItem, dismissOngoingTask, completeMinisteringPlan, deleteMeetingInstance, getActionItemsByIds } from '../db';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { formatFull } from '../utils/dates';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import Modal from './shared/Modal';
@@ -29,6 +30,12 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const [showPriorTasks, setShowPriorTasks] = useState(false);
   const [newAgendaLabel, setNewAgendaLabel] = useState('');
 
+  // Action items live query
+  const actionItemsData = useLiveQuery(
+    () => getActionItemsByIds(actionItemIds),
+    [actionItemIds]
+  ) ?? [];
+
   // Focus Families state
   const [focusFamilies, setFocusFamilies] = useState(instance.focusFamilies || []);
 
@@ -45,8 +52,16 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const touchDragIndex = useRef(null);
   const touchClone = useRef(null);
 
-  // Expandable agenda items (collapsed by default)
-  const [expandedItems, setExpandedItems] = useState(new Set());
+  // Expandable agenda items — auto-expand items with notes when finalized
+  const [expandedItems, setExpandedItems] = useState(() => {
+    if (instance.status === 'completed') {
+      const items = instance.agendaItems || [];
+      const withNotes = new Set();
+      items.forEach((item, i) => { if (item.notes?.trim()) withNotes.add(i); });
+      return withNotes;
+    }
+    return new Set();
+  });
 
   // Note tagging state
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
@@ -893,9 +908,32 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             </button>
           )}
         </div>
-        {actionItemIds.length === 0 && <p className="text-xs text-gray-400">No action items from this meeting yet.</p>}
-        {actionItemIds.length > 0 && (
-          <p className="text-xs text-gray-500">{actionItemIds.length} action item{actionItemIds.length !== 1 ? 's' : ''} created. View them on the Actions tab.</p>
+        {actionItemsData.length === 0 && actionItemIds.length === 0 && (
+          <p className="text-xs text-gray-400">No action items from this meeting yet.</p>
+        )}
+        {actionItemsData.length > 0 && (
+          <div className="space-y-1.5">
+            {actionItemsData.map(item => (
+              <div key={item.id} className="flex items-center gap-2 card !p-2">
+                <button
+                  onClick={() => {
+                    const next = item.status === 'complete' ? 'not_started' : 'complete';
+                    updateActionItem(item.id, { status: next });
+                  }}
+                  className={`flex-shrink-0 ${item.status === 'complete' ? 'text-green-500' : 'text-gray-300 hover:text-primary-500'}`}
+                  disabled={isCompleted}
+                >
+                  <CheckCircle2 size={16} />
+                </button>
+                <span className={`text-xs flex-1 ${item.status === 'complete' ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                  {item.title}
+                </span>
+                {item.status === 'complete' && (
+                  <span className="text-[9px] text-green-600 font-medium flex-shrink-0">Done</span>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

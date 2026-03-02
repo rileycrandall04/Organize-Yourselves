@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useMeetings, useUserCallings } from '../hooks/useDb';
-import { addMeeting } from '../db';
+import { addMeeting, searchMeetingInstances } from '../db';
 import { getCallingConfig, getCallingDisplayTitle, formatCadenceLabel } from '../data/callings';
-import { Calendar, ChevronRight, Plus, Sparkles } from 'lucide-react';
+import { formatMeetingDate } from '../utils/dates';
+import { Calendar, ChevronRight, Plus, Search, X } from 'lucide-react';
 import MeetingDetail from './MeetingDetail';
 import AddMeetingForm from './AddMeetingForm';
 
@@ -13,6 +14,33 @@ export default function Meetings() {
   const { meetings, loading } = useMeetings();
   const [selectedMeeting, setSelectedMeeting] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  // Debounced search
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      const results = await searchMeetingInstances(searchQuery);
+      setSearchResults(results);
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  function handleSearchResultClick(result) {
+    const meeting = meetings.find(m => m.id === result.meetingId);
+    if (meeting) {
+      setSelectedMeeting(meeting);
+      setSearchQuery('');
+      setSearchResults([]);
+    }
+  }
 
   // Auto-select meeting if navigated from Dashboard with meeting ID
   useEffect(() => {
@@ -69,6 +97,68 @@ export default function Meetings() {
             Add
           </button>
         </div>
+      </div>
+
+      {/* Search */}
+      <div className="mb-4 relative">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search meeting notes..."
+            className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300 placeholder:text-gray-300"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        {searchQuery.trim().length >= 2 && (
+          <div className="mt-2">
+            {searching ? (
+              <p className="text-xs text-gray-400">Searching...</p>
+            ) : searchResults.length === 0 ? (
+              <p className="text-xs text-gray-400">No results found for "{searchQuery}"</p>
+            ) : (
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">
+                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
+                </p>
+                {searchResults.slice(0, 20).map(result => (
+                  <div
+                    key={result.instanceId}
+                    onClick={() => handleSearchResultClick(result)}
+                    className="card !p-2.5 cursor-pointer hover:border-primary-200 transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-gray-900">{result.meetingName}</span>
+                      <span className="text-[10px] text-gray-400">{formatMeetingDate(result.date)}</span>
+                    </div>
+                    {result.matches.slice(0, 2).map((match, i) => {
+                      const text = match.text || '';
+                      const idx = text.toLowerCase().indexOf(searchQuery.toLowerCase());
+                      const snippet = idx >= 0
+                        ? '...' + text.substring(Math.max(0, idx - 30), idx + searchQuery.length + 30) + '...'
+                        : text.substring(0, 60) + '...';
+                      return (
+                        <p key={i} className="text-[10px] text-gray-500 truncate">
+                          <span className="text-gray-400">{match.type === 'notes' ? 'Notes' : match.type === 'agenda' ? 'Agenda' : match.type === 'focus_family' ? 'Focus' : 'Agenda notes'}:</span>{' '}
+                          {snippet}
+                        </p>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
