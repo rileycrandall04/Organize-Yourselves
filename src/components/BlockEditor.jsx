@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getTasksByIds, addTask, updateTask, addTaskFollowUpNote } from '../db';
+import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote } from '../db';
 import { TASK_TYPES } from '../utils/constants';
 import {
-  Star, Share2, X,
+  Star, Share2, X, Search, Import,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
 } from 'lucide-react';
@@ -582,6 +582,157 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
   );
 }
 
+/* ── ImportTaskPicker ──────────────────────────────────────── */
+
+function ImportTaskPicker({ meetingId, content, meetings, onImport, onClose }) {
+  const [search, setSearch] = useState('');
+  const [allTasks, setAllTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Load all incomplete tasks on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const tasks = await getTasks({ excludeComplete: true });
+      if (!cancelled) {
+        setAllTasks(tasks);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // IDs already in the editor content
+  const existingIds = useMemo(() => {
+    const ids = new Set();
+    let m;
+    const re = /\{\{task:(\d+)\}\}/g;
+    while ((m = re.exec(content || '')) !== null) ids.add(Number(m[1]));
+    return ids;
+  }, [content]);
+
+  // Filter: exclude tasks already on this meeting or already in the editor
+  const available = useMemo(() => {
+    return allTasks.filter(t => {
+      if (existingIds.has(t.id)) return false;
+      if ((t.meetingIds || []).includes(meetingId)) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        if (!t.title.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [allTasks, existingIds, meetingId, search]);
+
+  // Group by source meeting
+  const grouped = useMemo(() => {
+    const meetingMap = {};
+    if (meetings) for (const m of meetings) meetingMap[m.id] = m.name;
+
+    const groups = {};
+    for (const task of available) {
+      const mIds = (task.meetingIds || []).filter(id => id !== meetingId);
+      if (mIds.length > 0) {
+        // Use the first meeting as the group key
+        const groupId = mIds[0];
+        const groupName = meetingMap[groupId] || `Meeting #${groupId}`;
+        if (!groups[groupId]) groups[groupId] = { name: groupName, tasks: [] };
+        groups[groupId].tasks.push(task);
+      } else {
+        if (!groups['_unlinked']) groups['_unlinked'] = { name: 'Unlinked Tasks', tasks: [] };
+        groups['_unlinked'].tasks.push(task);
+      }
+    }
+    return Object.values(groups);
+  }, [available, meetings, meetingId]);
+
+  async function handleImport(task) {
+    const updatedMeetingIds = [...(task.meetingIds || []), meetingId];
+    await updateTask(task.id, { meetingIds: updatedMeetingIds });
+    onImport(task.id);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={onClose}>
+      <div
+        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-5 animate-in slide-in-from-bottom max-h-[70vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <Import size={16} className="text-gray-600" />
+          Import Task from Another Meeting
+        </h3>
+
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search tasks..."
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+            autoFocus
+          />
+        </div>
+
+        {/* Task list */}
+        <div className="flex-1 overflow-y-auto -mx-1 px-1">
+          {loading ? (
+            <div className="text-center py-8 text-gray-400">
+              <div className="animate-spin w-5 h-5 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-2" />
+              <p className="text-xs">Loading tasks...</p>
+            </div>
+          ) : grouped.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <p className="text-xs">{search ? 'No matching tasks found.' : 'No tasks available to import.'}</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {grouped.map(group => (
+                <div key={group.name}>
+                  <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 px-1">
+                    {group.name}
+                  </h4>
+                  <div className="space-y-0.5">
+                    {group.tasks.map(task => {
+                      const TypeIcon = TYPE_ICONS[task.type] || CheckSquare;
+                      const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
+                      const sc = STATUS_CHAR[task.status] || '\u25CB';
+                      return (
+                        <button
+                          key={task.id}
+                          onClick={() => handleImport(task)}
+                          className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 transition-colors text-left group"
+                        >
+                          <span
+                            className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px]"
+                            style={{ background: c.bg, color: c.fg }}
+                          >
+                            {sc}
+                          </span>
+                          <span className="flex-1 text-xs text-gray-800 truncate">{task.title}</span>
+                          <TypeIcon size={12} className="text-gray-300 flex-shrink-0" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Cancel */}
+        <button onClick={onClose} className="btn-secondary w-full mt-3">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main BlockEditor Component ─────────────────────────────── */
 
 export default function BlockEditor({
@@ -596,6 +747,7 @@ export default function BlockEditor({
 }) {
   const [insertModal, setInsertModal] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [importPickerOpen, setImportPickerOpen] = useState(false);
   const focusEndRef = useRef(false);
 
   // Derive content from blocks (merge if multiple text/task_ref blocks remain)
@@ -680,6 +832,14 @@ export default function BlockEditor({
                   </button>
                 );
               })}
+              {/* Import existing task */}
+              <button
+                onClick={() => setImportPickerOpen(true)}
+                className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1 border-l border-gray-100"
+              >
+                <Import size={16} className="text-gray-500" />
+                <span className="text-[9px] text-gray-500 font-medium">Import</span>
+              </button>
             </div>
           </div>
         </div>
@@ -705,6 +865,17 @@ export default function BlockEditor({
           instanceId={instanceId}
           onInsert={handleTaskInsert}
           onClose={() => setInsertModal(null)}
+        />
+      )}
+
+      {/* Import task picker */}
+      {importPickerOpen && (
+        <ImportTaskPicker
+          meetingId={meetingId}
+          content={content}
+          meetings={meetings}
+          onImport={handleTaskInsert}
+          onClose={() => setImportPickerOpen(false)}
         />
       )}
     </div>
