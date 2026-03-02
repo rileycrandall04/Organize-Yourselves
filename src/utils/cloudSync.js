@@ -48,6 +48,32 @@ const SYNC_TABLES = [
 let _uid = null;
 let _unsubscribers = [];
 let _migrated = false;
+let _syncReady = false;
+let _syncReadyResolvers = [];
+
+/**
+ * Returns a promise that resolves when the initial cloud sync is complete.
+ * This prevents the app from showing onboarding before cloud data is pulled.
+ */
+export function waitForCloudSync() {
+  if (_syncReady) return Promise.resolve();
+  return new Promise(resolve => {
+    _syncReadyResolvers.push(resolve);
+  });
+}
+
+/**
+ * Returns whether the initial cloud sync has completed.
+ */
+export function isCloudSyncReady() {
+  return _syncReady;
+}
+
+function markSyncReady() {
+  _syncReady = true;
+  for (const resolve of _syncReadyResolvers) resolve();
+  _syncReadyResolvers = [];
+}
 
 /**
  * Initialize cloud sync for an authenticated user.
@@ -56,32 +82,44 @@ let _migrated = false;
 export async function initCloudSync(uid) {
   if (_uid === uid) return; // Already initialized for this session
   _uid = uid;
+  _syncReady = false;
 
   const firestore = getFirebaseFirestore();
-  if (!firestore) return;
-
-  // Check if this device has synced before
-  const hasSynced = localStorage.getItem(`organize_synced_${uid}`);
-
-  if (!hasSynced) {
-    // First time: check if cloud has data
-    const cloudHasData = await checkCloudHasData(uid);
-
-    if (cloudHasData) {
-      // New device — pull from cloud
-      await pullFromCloud(uid);
-    } else {
-      // First device — push local to cloud
-      await migrateLocalToCloud(uid);
-    }
-
-    localStorage.setItem(`organize_synced_${uid}`, '1');
-  } else {
-    // Device has synced before — verify critical local data still exists.
-    // IndexedDB can be evicted by the browser (especially mobile Safari)
-    // while localStorage persists, leaving the app in a broken state.
-    await ensureCriticalDataExists(uid);
+  if (!firestore) {
+    markSyncReady();
+    return;
   }
+
+  try {
+    // Check if this device has synced before
+    const hasSynced = localStorage.getItem(`organize_synced_${uid}`);
+
+    if (!hasSynced) {
+      // First time: check if cloud has data
+      const cloudHasData = await checkCloudHasData(uid);
+
+      if (cloudHasData) {
+        // New device or cache cleared — pull from cloud
+        console.log('[CloudSync] Cache cleared or new device detected — pulling from cloud...');
+        await pullFromCloud(uid);
+      } else {
+        // First device — push local to cloud
+        await migrateLocalToCloud(uid);
+      }
+
+      localStorage.setItem(`organize_synced_${uid}`, '1');
+    } else {
+      // Device has synced before — verify critical local data still exists.
+      // IndexedDB can be evicted by the browser (especially mobile Safari)
+      // while localStorage persists, leaving the app in a broken state.
+      await ensureCriticalDataExists(uid);
+    }
+  } catch (err) {
+    console.warn('[CloudSync] Init error:', err.message);
+  }
+
+  // Mark sync as ready so the app can proceed
+  markSyncReady();
 
   // Start real-time sync
   startRealtimeSync(uid);
@@ -95,6 +133,8 @@ export function resetCloudSync() {
   stopRealtimeSync();
   _uid = null;
   _migrated = false;
+  _syncReady = false;
+  _syncReadyResolvers = [];
 }
 
 /**
@@ -259,22 +299,10 @@ function startRealtimeSync(uid) {
   const firestore = getFirebaseFirestore();
   if (!firestore) return;
 
-  // Listen to all tables that matter for the app experience.
+  // Listen to all synced tables for real-time cross-device updates.
   // profile + userCallings are critical — without them the app
   // shows the onboarding screen even though the user has data.
-  const realtimeTables = [
-    'profile',
-    'userCallings',
-    'actionItems',
-    'meetings',
-    'meetingInstances',
-    'inbox',
-    'ongoingTasks',
-    'ministeringPlans',
-    'callingSlots',
-    'people',
-    'responsibilities',
-  ];
+  const realtimeTables = SYNC_TABLES;
 
   for (const tableName of realtimeTables) {
     try {

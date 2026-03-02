@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useOnboardingComplete } from './hooks/useDb';
 import { useAuth } from './hooks/useAuth';
-import { initCloudSync } from './utils/cloudSync';
+import { initCloudSync, waitForCloudSync } from './utils/cloudSync';
 import BottomNav from './components/shared/BottomNav';
 import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
@@ -23,11 +23,21 @@ export default function App() {
   const { user, loading: authLoading, signIn } = useAuth();
   const { ready, loading } = useOnboardingComplete();
   const [tutorialDone, setTutorialDone] = useState(isTutorialCompleted);
+  const [cloudSyncDone, setCloudSyncDone] = useState(false);
 
   // Initialize cloud sync when user is authenticated
+  // MUST complete before we check onboarding status to prevent data loss
   useEffect(() => {
     if (user?.uid) {
-      initCloudSync(user.uid);
+      setCloudSyncDone(false);
+      initCloudSync(user.uid).then(() => {
+        // Wait for cloud sync to finish pulling data before proceeding
+        return waitForCloudSync();
+      }).then(() => {
+        setCloudSyncDone(true);
+      });
+    } else {
+      setCloudSyncDone(false);
     }
   }, [user?.uid]);
 
@@ -48,13 +58,14 @@ export default function App() {
     return <AuthScreen onSignIn={signIn} />;
   }
 
-  // Onboarding data loading
-  if (loading) {
+  // Wait for cloud sync to complete before checking onboarding
+  // This prevents showing onboarding when cloud data exists but hasn't been pulled yet
+  if (!cloudSyncDone || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-primary-700 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-gray-400 mt-3">Loading...</p>
+          <p className="text-sm text-gray-400 mt-3">{!cloudSyncDone ? 'Syncing your data...' : 'Loading...'}</p>
         </div>
       </div>
     );

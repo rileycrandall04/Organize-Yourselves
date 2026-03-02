@@ -219,8 +219,10 @@ export async function deleteMeeting(id) {
 
 export async function deleteMeetingWithInstances(id) {
   const instances = await db.meetingInstances.where('meetingId').equals(id).toArray();
+  for (const inst of instances) syncAfterDelete('meetingInstances', inst.id);
   await db.meetingInstances.bulkDelete(instances.map(i => i.id));
   await db.meetings.delete(id);
+  syncAfterDelete('meetings', id);
   debouncedSync();
 }
 
@@ -248,6 +250,7 @@ export async function updateMeetingInstance(id, changes) {
 
 export async function deleteMeetingInstance(id) {
   await db.meetingInstances.delete(id);
+  syncAfterDelete('meetingInstances', id);
   debouncedSync();
 }
 
@@ -963,6 +966,8 @@ export async function updateLastExportDate() {
     await db.profile.update(profile.id, {
       lastExportDate: new Date().toISOString(),
     });
+    const updated = await db.profile.get(profile.id);
+    if (updated) syncAfterWrite('profile', profile.id, updated);
   }
 }
 
@@ -972,6 +977,8 @@ export async function dismissBackupReminder() {
     await db.profile.update(profile.id, {
       backupReminderDismissedAt: new Date().toISOString(),
     });
+    const updated = await db.profile.get(profile.id);
+    if (updated) syncAfterWrite('profile', profile.id, updated);
   }
 }
 
@@ -1045,7 +1052,11 @@ export async function syncAssignmentMeetings(callingKey, organizations, callingC
   for (const m of existingMeetings) {
     // Delete instances too
     const instances = await db.meetingInstances.where('meetingId').equals(m.id).toArray();
-    for (const inst of instances) await db.meetingInstances.delete(inst.id);
+    for (const inst of instances) {
+      syncAfterDelete('meetingInstances', inst.id);
+      await db.meetingInstances.delete(inst.id);
+    }
+    syncAfterDelete('meetings', m.id);
     await db.meetings.delete(m.id);
   }
 
@@ -1058,7 +1069,7 @@ export async function syncAssignmentMeetings(callingKey, organizations, callingC
     if (!presidentConfig) continue;
 
     for (const m of presidentConfig.meetings || []) {
-      await db.meetings.add({
+      const meetingData = {
         callingId: callingKey,
         name: m.name,
         cadence: m.cadence,
@@ -1066,7 +1077,9 @@ export async function syncAssignmentMeetings(callingKey, organizations, callingC
         handbook: m.handbook || '',
         source: 'assignment',
         sourceOrg: orgKey,
-      });
+      };
+      const id = await db.meetings.add(meetingData);
+      syncAfterWrite('meetings', id, { ...meetingData, id });
     }
   }
 }
@@ -1079,7 +1092,11 @@ export async function removeAssignmentMeetings(callingKey, orgKey) {
 
   for (const m of meetings) {
     const instances = await db.meetingInstances.where('meetingId').equals(m.id).toArray();
-    for (const inst of instances) await db.meetingInstances.delete(inst.id);
+    for (const inst of instances) {
+      syncAfterDelete('meetingInstances', inst.id);
+      await db.meetingInstances.delete(inst.id);
+    }
+    syncAfterDelete('meetings', m.id);
     await db.meetings.delete(m.id);
   }
 }
@@ -1148,7 +1165,7 @@ export async function initializeOrgChartForRole(callingKey) {
 
     for (let n = 0; n < count; n++) {
       const roleName = count > 1 ? `${node.roleName} ${n + 1}` : node.roleName;
-      const id = await db.callingSlots.add({
+      const slotData = {
         organization: node.organization,
         roleName,
         callingKey: node.callingKey || null,
@@ -1166,7 +1183,9 @@ export async function initializeOrgChartForRole(callingKey) {
         history: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      });
+      };
+      const id = await db.callingSlots.add(slotData);
+      syncAfterWrite('callingSlots', id, { ...slotData, id });
 
       // Only attach children to the first instance (or the single instance)
       if (n === 0 && node.children) {
@@ -1200,6 +1219,8 @@ export async function autoPopulateUserSlot(callingKey, userName) {
     currentCount: 1,
     updatedAt: new Date().toISOString(),
   });
+  const updated = await db.callingSlots.get(match.id);
+  if (updated) syncAfterWrite('callingSlots', match.id, updated);
 }
 
 // Helper: extract the relevant portion of ORG_HIERARCHY for a jurisdiction
@@ -1366,7 +1387,7 @@ export async function initializeOrgFromTemplate(orgKey, parentSlotId) {
   for (let i = 0; i < template.children.length; i++) {
     const child = template.children[i];
     const count = child.expectedCount || 1;
-    const id = await db.callingSlots.add({
+    const slotData = {
       organization: orgKey,
       roleName: child.roleName,
       parentSlotId,
@@ -1385,7 +1406,9 @@ export async function initializeOrgFromTemplate(orgKey, parentSlotId) {
       history: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    });
+    };
+    const id = await db.callingSlots.add(slotData);
+    syncAfterWrite('callingSlots', id, { ...slotData, id });
     ids.push(id);
   }
   return ids;
@@ -1397,6 +1420,8 @@ export async function updateHiddenOrgs(hiddenOrgs) {
   const profile = await getProfile();
   if (profile) {
     await db.profile.update(profile.id, { hiddenOrgs });
+    const updated = await db.profile.get(profile.id);
+    if (updated) syncAfterWrite('profile', profile.id, updated);
   }
 }
 
