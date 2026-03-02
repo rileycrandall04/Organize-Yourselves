@@ -6,7 +6,7 @@ import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../ut
 import MeetingPicker from './shared/MeetingPicker';
 import SacramentProgram from './SacramentProgram';
 import AiButton, { AiResultCard } from './shared/AiButton';
-import BlockEditor, { migrateAgendaToBlocks } from './BlockEditor';
+import BlockEditor, { migrateAgendaToBlocks, consolidateBlocks } from './BlockEditor';
 import {
   ArrowLeft, Save, CheckCircle2, Users2, Trash2,
   ArrowUpRight, X, Pencil, RotateCcw,
@@ -18,9 +18,9 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const { tags: instanceTags, remove: removeTag } = useTagsFromInstance(instance.id);
   const { meetings: allMeetings } = useMeetings();
 
-  // Initialize blocks — lazy migrate from old agendaItems format if needed
+  // Initialize blocks — migrate old formats and consolidate to text + task_ref
   const initialBlocks = useMemo(() => {
-    if (instance.blocks?.length > 0) return instance.blocks;
+    if (instance.blocks?.length > 0) return consolidateBlocks(instance.blocks);
     if (instance.agendaItems?.length > 0 || instance.notes?.trim()) {
       return migrateAgendaToBlocks(instance.agendaItems, instance.notes);
     }

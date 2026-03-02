@@ -1,12 +1,11 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getTasksByIds, addTask, updateTask, deleteTask, addTaskFollowUpNote } from '../db';
+import { getTasksByIds, addTask, updateTask, addTaskFollowUpNote } from '../db';
 import { TASK_TYPES } from '../utils/constants';
 import {
-  Plus, Trash2, GripVertical, ChevronDown, ChevronUp,
-  CheckCircle2, Circle, Clock, Pause, Star,
+  ChevronDown, Star,
+  CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
-  Type, AlignLeft, Minus, List, FileText,
 } from 'lucide-react';
 
 // ── Unique ID generator ────────────────────────────────────
@@ -16,64 +15,80 @@ function newBlockId() {
 }
 
 // ── Block factory helpers ──────────────────────────────────
-export function createHeadingBlock(text = '') {
-  return { id: newBlockId(), type: 'heading', text };
-}
 export function createTextBlock(text = '') {
   return { id: newBlockId(), type: 'text', text };
-}
-export function createBulletBlock(text = '') {
-  return { id: newBlockId(), type: 'bullet', text };
-}
-export function createNotepadBlock(text = '') {
-  return { id: newBlockId(), type: 'notepad', text };
 }
 export function createTaskRefBlock(taskId) {
   return { id: newBlockId(), type: 'task_ref', taskId };
 }
-export function createDividerBlock() {
-  return { id: newBlockId(), type: 'divider' };
-}
 
-// ── Detect "simple" agenda items that should be bullets ────
-const BULLET_PATTERNS = /^(opening\s+prayer|closing\s+prayer|opening\s+hymn|closing\s+hymn|intermediate\s+hymn|sacrament\s+hymn|invocation|benediction|presiding|conducting|announcements|sacrament|speaker\s*\d*|spiritual\s+thought|ward\s+business)/i;
+// ── Consolidate old multi-block format → simplified text + task_ref ──
+export function consolidateBlocks(blocks) {
+  if (!blocks || blocks.length === 0) return [createTextBlock('')];
 
-export function isBulletItem(text) {
-  return BULLET_PATTERNS.test(text.trim());
-}
+  // Check if consolidation is needed (any non-text, non-task_ref blocks)
+  const needsConsolidation = blocks.some(b =>
+    b.type !== 'text' && b.type !== 'task_ref'
+  );
+  if (!needsConsolidation) return blocks;
 
-// ── Migrate old agendaItems → blocks ───────────────────────
-export function migrateAgendaToBlocks(agendaItems, notes) {
-  const blocks = [];
-  for (const item of (agendaItems || [])) {
-    const label = item.label || '';
-    if (isBulletItem(label)) {
-      blocks.push(createBulletBlock(label));
-      // If there were notes on a bullet item, add them as text
-      if (item.notes?.trim()) {
-        blocks.push(createTextBlock(item.notes));
-      }
-    } else {
-      blocks.push(createHeadingBlock(label));
-      if (item.notes?.trim()) {
-        blocks.push(createTextBlock(item.notes));
+  const result = [];
+  let textAccum = '';
+
+  for (const block of blocks) {
+    if (block.type === 'task_ref') {
+      // Flush accumulated text before the task card
+      result.push({ id: newBlockId(), type: 'text', text: textAccum });
+      textAccum = '';
+      result.push({ ...block });
+    } else if (block.type === 'heading') {
+      if (textAccum) textAccum += '\n';
+      textAccum += block.text;
+    } else if (block.type === 'bullet') {
+      if (textAccum) textAccum += '\n';
+      textAccum += `• ${block.text}`;
+    } else if (block.type === 'text' || block.type === 'notepad') {
+      if (block.text) {
+        if (textAccum) textAccum += '\n';
+        textAccum += block.text;
       }
     }
+    // dividers are silently dropped
   }
-  if (notes?.trim()) {
-    blocks.push(createDividerBlock());
-    blocks.push(createNotepadBlock(notes));
-  } else {
-    blocks.push(createDividerBlock());
-    blocks.push(createNotepadBlock(''));
+
+  // Flush remaining text
+  result.push({ id: newBlockId(), type: 'text', text: textAccum });
+
+  if (result.length === 0) {
+    result.push(createTextBlock(''));
   }
-  if (blocks.length === 0) {
-    blocks.push(createNotepadBlock(''));
-  }
-  return blocks;
+
+  return result;
 }
 
-// ── Status icons ───────────────────────────────────────────
+// ── Migrate old agendaItems → blocks (simplified format) ───
+export function migrateAgendaToBlocks(agendaItems, notes) {
+  const lines = [];
+  for (const item of (agendaItems || [])) {
+    const label = item.label || '';
+    lines.push(`• ${label}`);
+    if (item.notes?.trim()) {
+      lines.push(`  ${item.notes.trim()}`);
+    }
+  }
+
+  let text = lines.join('\n');
+  if (notes?.trim()) {
+    text += (text ? '\n\n' : '') + notes.trim();
+  }
+
+  return [
+    createTextBlock(text),
+    createTextBlock(''),
+  ];
+}
+
+// ── Status icons & colors ─────────────────────────────────
 const STATUS_ICONS = {
   not_started: Circle,
   in_progress: Clock,
@@ -88,7 +103,7 @@ const STATUS_COLORS = {
   complete: 'text-green-500',
 };
 
-// ── Task type icons ────────────────────────────────────────
+// ── Task type icons & colors ──────────────────────────────
 const TYPE_ICONS = {
   action_item: CheckSquare,
   discussion: MessageSquare,
@@ -107,14 +122,14 @@ const TYPE_COLORS = {
   ongoing: 'border-l-amber-400',
 };
 
-// ── Auto-growing textarea ──────────────────────────────────
-function AutoTextarea({ value, onChange, placeholder, className = '', disabled, onKeyDown, minHeight }) {
+// ── Auto-growing textarea ─────────────────────────────────
+function AutoTextarea({ value, onChange, placeholder, className = '', disabled, minHeight = 24 }) {
   const ref = useRef(null);
 
   useEffect(() => {
     if (ref.current) {
       ref.current.style.height = 'auto';
-      ref.current.style.height = Math.max(ref.current.scrollHeight, minHeight || 24) + 'px';
+      ref.current.style.height = Math.max(ref.current.scrollHeight, minHeight) + 'px';
     }
   }, [value, minHeight]);
 
@@ -123,81 +138,31 @@ function AutoTextarea({ value, onChange, placeholder, className = '', disabled, 
       ref={ref}
       value={value}
       onChange={onChange}
-      onKeyDown={onKeyDown}
       placeholder={placeholder}
       disabled={disabled}
       rows={1}
       className={`w-full resize-none overflow-hidden bg-transparent focus:outline-none ${className}`}
-      style={{ minHeight: `${minHeight || 24}px` }}
+      style={{ minHeight: `${minHeight}px` }}
     />
   );
 }
 
-// ── Heading Block ──────────────────────────────────────────
-function HeadingBlock({ block, onChange, disabled }) {
+// ── Document Text Block ───────────────────────────────────
+function DocTextarea({ block, onChange, disabled, isMainArea }) {
   return (
     <AutoTextarea
       value={block.text}
       onChange={e => onChange({ ...block, text: e.target.value })}
-      placeholder="Section heading..."
+      placeholder={isMainArea ? 'Type your agenda and notes here...' : ''}
       disabled={disabled}
-      className="text-sm font-semibold text-gray-900 placeholder:text-gray-300 py-1"
+      className="text-sm text-gray-800 leading-relaxed placeholder:text-gray-300"
+      minHeight={isMainArea ? 80 : 24}
     />
   );
 }
 
-// ── Bullet Block (simple one-liner) ────────────────────────
-function BulletBlock({ block, onChange, disabled }) {
-  return (
-    <div className="flex items-center gap-2 py-0.5">
-      <span className="text-gray-400 flex-shrink-0 text-xs">&#x2022;</span>
-      <input
-        type="text"
-        value={block.text}
-        onChange={e => onChange({ ...block, text: e.target.value })}
-        placeholder="Item..."
-        disabled={disabled}
-        className="flex-1 text-xs text-gray-700 bg-transparent focus:outline-none placeholder:text-gray-300"
-      />
-    </div>
-  );
-}
-
-// ── Text Block ─────────────────────────────────────────────
-function TextBlock({ block, onChange, disabled }) {
-  return (
-    <AutoTextarea
-      value={block.text}
-      onChange={e => onChange({ ...block, text: e.target.value })}
-      placeholder="Type notes here..."
-      disabled={disabled}
-      className="text-xs text-gray-700 placeholder:text-gray-300 py-0.5 leading-relaxed"
-    />
-  );
-}
-
-// ── Notepad Block (large freeform area) ────────────────────
-function NotepadBlock({ block, onChange, disabled }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2">
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <FileText size={12} className="text-gray-400" />
-        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Notes</span>
-      </div>
-      <AutoTextarea
-        value={block.text}
-        onChange={e => onChange({ ...block, text: e.target.value })}
-        placeholder="Write anything here... meeting notes, decisions, follow-ups..."
-        disabled={disabled}
-        className="text-xs text-gray-700 placeholder:text-gray-300 leading-relaxed"
-        minHeight={150}
-      />
-    </div>
-  );
-}
-
-// ── Task Ref Block (inline task card) ──────────────────────
-function TaskRefBlock({ block, task, disabled, meetingId }) {
+// ── Task Ref Block (inline task card) ─────────────────────
+function TaskRefBlock({ block, task, disabled }) {
   const [expanded, setExpanded] = useState(false);
   const [noteText, setNoteText] = useState('');
 
@@ -355,7 +320,7 @@ function TaskRefBlock({ block, task, disabled, meetingId }) {
   );
 }
 
-// ── Insert Task Modal ──────────────────────────────────────
+// ── Insert Task Modal ─────────────────────────────────────
 function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -372,7 +337,6 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
       followUp: type === 'discussion' || type === 'ongoing' ? 'next' : null,
     };
 
-    // Type-specific defaults
     if (type === 'action_item') {
       taskData.priority = 'medium';
     }
@@ -432,7 +396,7 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
   );
 }
 
-// ── Main BlockEditor Component ─────────────────────────────
+// ── Main BlockEditor Component ────────────────────────────
 export default function BlockEditor({
   blocks = [],
   onChange,
@@ -441,9 +405,7 @@ export default function BlockEditor({
   disabled = false,
   finalized = false,
 }) {
-  const [insertModal, setInsertModal] = useState(null); // task type string or null
-  const [dragIndex, setDragIndex] = useState(null);
-  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [insertModal, setInsertModal] = useState(null);
 
   // Collect all task IDs from task_ref blocks
   const taskIds = useMemo(() => {
@@ -465,7 +427,7 @@ export default function BlockEditor({
     return map;
   }, [tasksData]);
 
-  // ── Block operations ──────────────────────────────────────
+  // ── Block operations ────────────────────────────────────
 
   function updateBlock(index, updated) {
     const next = [...blocks];
@@ -473,177 +435,21 @@ export default function BlockEditor({
     onChange(next);
   }
 
-  function removeBlock(index) {
-    const next = blocks.filter((_, i) => i !== index);
-    if (next.length === 0) {
-      next.push(createNotepadBlock(''));
-    }
-    onChange(next);
-  }
-
-  function insertBlockAfter(index, block) {
-    const next = [...blocks];
-    next.splice(index + 1, 0, block);
-    onChange(next);
-  }
-
-  // Insert before the notepad (if there is one at the end), otherwise at end
-  function insertBlockBeforeNotepad(block) {
-    const notepadIdx = blocks.findIndex(b => b.type === 'notepad');
-    if (notepadIdx >= 0) {
-      // Insert before the notepad (and before its divider if present)
-      let insertIdx = notepadIdx;
-      if (insertIdx > 0 && blocks[insertIdx - 1].type === 'divider') {
-        insertIdx--;
-      }
-      const next = [...blocks];
-      next.splice(insertIdx, 0, block);
-      onChange(next);
-    } else {
-      onChange([...blocks, block]);
-    }
-  }
-
   function handleTaskInsert(taskId) {
-    const block = createTaskRefBlock(taskId);
-    insertBlockBeforeNotepad(block);
-  }
-
-  // ── Drag and drop ─────────────────────────────────────────
-
-  function handleDragStart(e, index) {
-    setDragIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-  }
-
-  function handleDragOver(e, index) {
-    e.preventDefault();
-    setDragOverIndex(index);
-  }
-
-  function handleDrop(e, dropIndex) {
-    e.preventDefault();
-    if (dragIndex === null || dragIndex === dropIndex) {
-      setDragIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
+    const taskRef = createTaskRefBlock(taskId);
     const next = [...blocks];
-    const [moved] = next.splice(dragIndex, 1);
-    next.splice(dropIndex, 0, moved);
-    onChange(next);
-    setDragIndex(null);
-    setDragOverIndex(null);
-  }
-
-  function handleDragEnd() {
-    setDragIndex(null);
-    setDragOverIndex(null);
-  }
-
-  // ── Key handling (Enter to create new block) ──────────────
-
-  function handleKeyDown(e, index) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const newBlock = createTextBlock('');
-      insertBlockAfter(index, newBlock);
-      setTimeout(() => {
-        const el = document.querySelector(`[data-block-index="${index + 1}"] textarea`);
-        el?.focus();
-      }, 50);
+    // Insert before the last text block if it's empty (the freeform notes area)
+    const lastIdx = next.length - 1;
+    if (lastIdx >= 0 && next[lastIdx].type === 'text' && !next[lastIdx].text.trim()) {
+      next.splice(lastIdx, 0, taskRef);
+    } else {
+      next.push(taskRef);
+      next.push(createTextBlock(''));
     }
+    onChange(next);
   }
 
-  // ── Render blocks ─────────────────────────────────────────
-
-  function renderBlock(block, index) {
-    const isDragging = dragIndex === index;
-    const isDragOver = dragOverIndex === index;
-
-    // In finalized mode, notepad and task_ref blocks stay interactive;
-    // everything else (headings, bullets, text, dividers) is locked.
-    const isStructurallyLocked = disabled || finalized;
-    const blockDisabled = (() => {
-      if (disabled) return true;
-      if (!finalized) return false;
-      // Finalized mode: notepad & task_ref stay editable
-      if (block.type === 'notepad' || block.type === 'task_ref') return false;
-      return true;
-    })();
-
-    return (
-      <div
-        key={block.id}
-        data-block-index={index}
-        className={`group relative flex items-start gap-1 ${isDragOver ? 'ring-2 ring-primary-300 rounded-lg' : ''} ${isDragging ? 'opacity-40' : ''}`}
-        draggable={!isStructurallyLocked}
-        onDragStart={e => handleDragStart(e, index)}
-        onDragOver={e => handleDragOver(e, index)}
-        onDrop={e => handleDrop(e, index)}
-        onDragEnd={handleDragEnd}
-      >
-        {/* Drag handle + delete — hidden when finalized or disabled */}
-        {!isStructurallyLocked && (
-          <div className="flex flex-col items-center pt-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 w-5">
-            <GripVertical size={12} className="text-gray-300 cursor-grab" />
-            <button
-              onClick={() => removeBlock(index)}
-              className="mt-0.5 text-gray-200 hover:text-red-400 transition-colors"
-              title="Remove block"
-            >
-              <Trash2 size={10} />
-            </button>
-          </div>
-        )}
-
-        {/* Block content */}
-        <div className="flex-1 min-w-0">
-          {block.type === 'heading' && (
-            <HeadingBlock
-              block={block}
-              onChange={b => updateBlock(index, b)}
-              disabled={blockDisabled}
-            />
-          )}
-          {block.type === 'bullet' && (
-            <BulletBlock
-              block={block}
-              onChange={b => updateBlock(index, b)}
-              disabled={blockDisabled}
-            />
-          )}
-          {block.type === 'text' && (
-            <TextBlock
-              block={block}
-              onChange={b => updateBlock(index, b)}
-              disabled={blockDisabled}
-            />
-          )}
-          {block.type === 'notepad' && (
-            <NotepadBlock
-              block={block}
-              onChange={b => updateBlock(index, b)}
-              disabled={blockDisabled}
-            />
-          )}
-          {block.type === 'task_ref' && (
-            <TaskRefBlock
-              block={block}
-              task={taskMap[block.taskId]}
-              disabled={blockDisabled}
-              meetingId={meetingId}
-            />
-          )}
-          {block.type === 'divider' && (
-            <hr className="border-gray-200 my-2" />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Toolbar items ─────────────────────────────────────────
+  // ── Toolbar items ───────────────────────────────────────
 
   const toolbarItems = [
     { type: 'action_item', icon: CheckSquare, label: 'Action', color: 'text-primary-600' },
@@ -654,52 +460,57 @@ export default function BlockEditor({
     { type: 'ongoing', icon: RotateCw, label: 'Ongoing', color: 'text-amber-600' },
   ];
 
-  const insertItems = [
-    { action: () => insertBlockBeforeNotepad(createHeadingBlock('')), icon: Type, label: 'Heading' },
-    { action: () => insertBlockBeforeNotepad(createBulletBlock('')), icon: List, label: 'Bullet' },
-    { action: () => insertBlockBeforeNotepad(createTextBlock('')), icon: AlignLeft, label: 'Text' },
-    { action: () => insertBlockBeforeNotepad(createDividerBlock()), icon: Minus, label: 'Divider' },
-  ];
+  // Track first text block for the main area placeholder
+  let firstTextSeen = false;
 
   return (
     <div className="relative">
-      {/* Block list */}
-      <div className="space-y-1 mb-4">
-        {blocks.map((block, i) => renderBlock(block, i))}
+      {/* Document area — paper-like container */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 min-h-[200px]">
+        {blocks.map((block, i) => {
+          if (block.type === 'text') {
+            const isMainArea = !firstTextSeen;
+            firstTextSeen = true;
+            return (
+              <DocTextarea
+                key={block.id}
+                block={block}
+                onChange={b => updateBlock(i, b)}
+                disabled={disabled}
+                isMainArea={isMainArea}
+              />
+            );
+          }
+          if (block.type === 'task_ref') {
+            return (
+              <div key={block.id} className="my-2">
+                <TaskRefBlock
+                  block={block}
+                  task={taskMap[block.taskId]}
+                  disabled={disabled}
+                />
+              </div>
+            );
+          }
+          return null;
+        })}
       </div>
 
-      {/* Bottom toolbar — hidden when finalized (structure is locked) */}
+      {/* Bottom toolbar — task insertion */}
       {!disabled && !finalized && (
-        <div className="sticky bottom-16 z-20">
+        <div className="sticky bottom-16 z-20 mt-3">
           <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-2">
-            {/* Task insert buttons */}
-            <div className="flex items-center justify-between gap-1 mb-1.5">
+            <div className="flex items-center justify-between gap-1">
               {toolbarItems.map(item => {
                 const Icon = item.icon;
                 return (
                   <button
                     key={item.type}
                     onClick={() => setInsertModal(item.type)}
-                    className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1`}
+                    className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
                   >
                     <Icon size={16} className={item.color} />
                     <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {/* Block insert buttons */}
-            <div className="flex items-center gap-1 border-t border-gray-100 pt-1.5">
-              {insertItems.map((item, i) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={i}
-                    onClick={item.action}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    <Icon size={12} />
-                    {item.label}
                   </button>
                 );
               })}

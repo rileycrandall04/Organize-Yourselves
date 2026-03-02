@@ -893,120 +893,85 @@ export async function buildAutoAgenda(meetingId, forDate) {
   return agendaItems;
 }
 
-/**
- * Detect agenda items that should be simple bullets (prayers, hymns, etc.)
- */
-const _BULLET_RE = /^(opening\s+prayer|closing\s+prayer|opening\s+hymn|closing\s+hymn|intermediate\s+hymn|sacrament\s+hymn|invocation|benediction|presiding|conducting|announcements|sacrament|speaker\s*\d*|spiritual\s+thought|ward\s+business)/i;
-function _isBulletItem(text) { return _BULLET_RE.test(text.trim()); }
-
-/** Find the index of the closing prayer/hymn/benediction block */
-function _findClosingIndex(blocks) {
-  return blocks.findIndex(b =>
-    (b.type === 'heading' || b.type === 'bullet') &&
-    /closing|benediction/i.test(b.text)
-  );
-}
+/** Detect closing prayer / benediction lines in the template */
+const _CLOSING_RE = /^(closing\s+prayer|benediction|closing\s+hymn)/i;
+function _isClosingItem(text) { return _CLOSING_RE.test(text.trim()); }
 
 /**
  * Build block-based agenda for a new meeting instance.
- * Returns array of blocks (heading, bullet, text, task_ref, notepad) for the BlockEditor.
+ * Returns simplified blocks: text (single document) + task_ref (inline task cards).
  */
 export async function buildAutoAgendaBlocks(meetingId) {
   const meeting = await db.meetings.get(meetingId);
-  if (!meeting) return [{ id: _nextBlockId(), type: 'notepad', text: '' }];
+  if (!meeting) return [{ id: _nextBlockId(), type: 'text', text: '' }];
+
+  const template = meeting.agendaTemplate || [];
+
+  // Split template into items before closing and closing items
+  const beforeClosing = [];
+  const closingItems = [];
+  let reachedClosing = false;
+  for (const item of template) {
+    if (!reachedClosing && _isClosingItem(item)) reachedClosing = true;
+    (reachedClosing ? closingItems : beforeClosing).push(item);
+  }
 
   const blocks = [];
 
-  // 1. Template items — bullets for simple items, heading+text for discussion items
-  const template = meeting.agendaTemplate || [];
-  for (const item of template) {
-    if (_isBulletItem(item)) {
-      blocks.push({ id: _nextBlockId(), type: 'bullet', text: item });
-    } else {
-      blocks.push({ id: _nextBlockId(), type: 'heading', text: item });
-      blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
-    }
-  }
+  // 1. Main agenda text — template items as bullet points
+  const mainLines = beforeClosing.map(item => `• ${item}`);
+  blocks.push({ id: _nextBlockId(), type: 'text', text: mainLines.join('\n') });
 
-  // 2. Follow-up tasks from the unified tasks table
+  // 2. Follow-up tasks
   const followUps = await getFollowUpsForMeeting(meetingId);
-  if (followUps.length > 0) {
-    let insertIdx = blocks.findIndex(b =>
-      b.type === 'heading' && (b.text.toLowerCase().includes('follow') || b.text.toLowerCase().includes('action'))
-    );
-    if (insertIdx >= 0) {
-      // Insert after the heading and its text block
-      insertIdx += 1;
-      if (insertIdx < blocks.length && blocks[insertIdx].type === 'text') insertIdx += 1;
-    } else {
-      // After first heading+text pair or after first bullet
-      insertIdx = Math.min(2, blocks.length);
-    }
-
-    const followUpBlocks = followUps.map(t => ({
-      id: _nextBlockId(),
-      type: 'task_ref',
-      taskId: t.id,
-    }));
-    blocks.splice(insertIdx, 0, ...followUpBlocks);
+  for (const t of followUps) {
+    blocks.push({ id: _nextBlockId(), type: 'task_ref', taskId: t.id });
   }
 
-  // 3. Discussion tasks for this meeting
+  // 3. Discussion tasks
   const allTasks = await db.tasks.toArray();
   const discussionTasks = allTasks.filter(t =>
     t.type === 'discussion' &&
     t.status !== 'complete' &&
     (t.meetingIds || []).includes(meetingId)
   );
-  if (discussionTasks.length > 0) {
-    const closingIdx = _findClosingIndex(blocks);
-    const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
-    const discBlocks = discussionTasks.map(t => ({
-      id: _nextBlockId(),
-      type: 'task_ref',
-      taskId: t.id,
-    }));
-    blocks.splice(insertAt, 0, ...discBlocks);
+  for (const t of discussionTasks) {
+    blocks.push({ id: _nextBlockId(), type: 'task_ref', taskId: t.id });
   }
 
-  // 4. Calling pipeline items
+  // 4. Calling pipeline items + tagged notes + closing items → second text block
+  let extraText = '';
+
   const callingItems = await getCallingPipelineAgendaItems(meetingId);
   if (callingItems.length > 0) {
-    const closingIdx = _findClosingIndex(blocks);
-    const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
-    const callingBlocks = callingItems.map(item => ({
-      id: _nextBlockId(),
-      type: 'heading',
-      text: item.label,
-    }));
-    blocks.splice(insertAt, 0, ...callingBlocks);
+    extraText += callingItems.map(item => `• ${item.label}`).join('\n');
   }
 
-  // 5. Tagged notes from other meetings
   const tags = await getTagsForMeeting(meetingId);
-  if (tags.length > 0) {
-    const closingIdx = _findClosingIndex(blocks);
-    const insertAt = closingIdx >= 0 ? closingIdx : blocks.length;
-    for (const tag of tags) {
-      let sourceName = 'another meeting';
-      if (tag.sourceMeetingInstanceId) {
-        const inst = await db.meetingInstances.get(tag.sourceMeetingInstanceId);
-        if (inst) {
-          const mtg = await db.meetings.get(inst.meetingId);
-          if (mtg) sourceName = mtg.name;
-        }
+  for (const tag of tags) {
+    let sourceName = 'another meeting';
+    if (tag.sourceMeetingInstanceId) {
+      const inst = await db.meetingInstances.get(tag.sourceMeetingInstanceId);
+      if (inst) {
+        const mtg = await db.meetings.get(inst.meetingId);
+        if (mtg) sourceName = mtg.name;
       }
-      blocks.splice(insertAt, 0,
-        { id: _nextBlockId(), type: 'heading', text: `[From ${sourceName}]` },
-        { id: _nextBlockId(), type: 'text', text: tag.text },
-      );
-      await markTagConsumed(tag.id);
     }
+    extraText += (extraText ? '\n\n' : '') + `📌 From ${sourceName}:\n${tag.text}`;
+    await markTagConsumed(tag.id);
   }
 
-  // 6. Always end with a divider + notepad for freeform notes
-  blocks.push({ id: _nextBlockId(), type: 'divider' });
-  blocks.push({ id: _nextBlockId(), type: 'notepad', text: '' });
+  if (closingItems.length > 0) {
+    const closingLines = closingItems.map(item => `• ${item}`);
+    extraText += (extraText ? '\n\n' : '') + closingLines.join('\n');
+  }
+
+  if (extraText) {
+    blocks.push({ id: _nextBlockId(), type: 'text', text: extraText });
+  }
+
+  // 5. Trailing empty text block for freeform notes
+  blocks.push({ id: _nextBlockId(), type: 'text', text: '' });
 
   return blocks;
 }
