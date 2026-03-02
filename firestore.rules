@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // User data: only the authenticated user can read/write their own data
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Device data for push notifications
+    match /devices/{deviceId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

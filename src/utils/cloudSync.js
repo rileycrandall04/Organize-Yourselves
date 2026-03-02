@@ -348,6 +348,89 @@ export function stopRealtimeSync() {
 }
 
 /**
+ * Force a full sync: push ALL local Dexie data to Firestore.
+ * Use after deploying Firestore rules or to recover from sync failures.
+ * Returns a status object with success/failure details.
+ */
+export async function forceFullSync() {
+  if (!_uid) return { success: false, error: 'Not authenticated' };
+  const firestore = getFirebaseFirestore();
+  if (!firestore) return { success: false, error: 'Firestore not available' };
+
+  const results = { success: true, tables: {}, errors: [] };
+
+  for (const tableName of SYNC_TABLES) {
+    try {
+      const table = db[tableName];
+      if (!table) continue;
+
+      const rows = await table.toArray();
+      if (rows.length === 0) {
+        results.tables[tableName] = 0;
+        continue;
+      }
+
+      // Use batched writes (max 500 per batch)
+      const batchSize = 450;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = writeBatch(firestore);
+        const chunk = rows.slice(i, i + batchSize);
+
+        for (const row of chunk) {
+          const docId = String(row.id);
+          const docRef = doc(firestore, `users/${_uid}/${tableName}`, docId);
+          batch.set(docRef, sanitizeForFirestore(row));
+        }
+
+        await batch.commit();
+      }
+
+      results.tables[tableName] = rows.length;
+    } catch (err) {
+      results.success = false;
+      results.errors.push(`${tableName}: ${err.message}`);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Test if Firestore writes work by writing and reading a test document.
+ * Returns { success, error? }
+ */
+export async function testCloudConnection() {
+  if (!_uid) return { success: false, error: 'Not authenticated — sign in first' };
+  const firestore = getFirebaseFirestore();
+  if (!firestore) return { success: false, error: 'Firestore not initialized' };
+
+  try {
+    const testRef = doc(firestore, `users/${_uid}/profile`, '_sync_test');
+    await setDoc(testRef, { test: true, timestamp: new Date().toISOString() });
+    // Read it back
+    const snap = await getDocs(collection(firestore, `users/${_uid}/profile`));
+    const found = snap.docs.some(d => d.id === '_sync_test');
+    // Clean up
+    await deleteDoc(testRef);
+
+    if (found) {
+      return { success: true };
+    } else {
+      return { success: false, error: 'Write succeeded but read failed — check Firestore rules' };
+    }
+  } catch (err) {
+    const msg = err.message || String(err);
+    if (msg.includes('PERMISSION_DENIED') || msg.includes('Missing or insufficient permissions')) {
+      return {
+        success: false,
+        error: 'Firestore security rules are blocking writes. Deploy rules with: firebase deploy --only firestore:rules',
+      };
+    }
+    return { success: false, error: msg };
+  }
+}
+
+/**
  * Clean Dexie data for Firestore (remove undefined values, convert types).
  */
 function sanitizeForFirestore(obj) {

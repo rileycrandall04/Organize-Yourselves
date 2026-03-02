@@ -28,6 +28,7 @@ import {
   disableNotifications, isNotificationsEnabled, getNotificationState,
 } from '../utils/notifications';
 import { syncMeetingSchedule, removeSyncData } from '../utils/firestoreSync';
+import { forceFullSync, testCloudConnection } from '../utils/cloudSync';
 
 export default function Settings({ onBack }) {
   const { user, signOut } = useAuth();
@@ -438,6 +439,9 @@ export default function Settings({ onBack }) {
 
       {/* ── Notifications ─────────────────────────────────── */}
       <NotificationSettings />
+
+      {/* ── Cloud Sync ────────────────────────────────────── */}
+      <CloudSyncSettings />
 
       {/* ── Data Management ───────────────────────────────── */}
       <div className="mb-6">
@@ -1047,6 +1051,106 @@ function NotificationSettings() {
           <p className="text-[10px] text-gray-400 break-all">
             Token: {token.substring(0, 20)}...
           </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Cloud Sync Settings ──────────────────────────────────────
+
+function CloudSyncSettings() {
+  const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [syncResult, setSyncResult] = useState(null);
+
+  async function handleTest() {
+    setTesting(true);
+    setTestResult(null);
+    setSyncResult(null);
+    const result = await testCloudConnection();
+    setTestResult(result);
+    setTesting(false);
+  }
+
+  async function handleSync() {
+    setSyncing(true);
+    setSyncResult(null);
+    const result = await forceFullSync();
+    setSyncResult(result);
+    setSyncing(false);
+  }
+
+  const totalSynced = syncResult?.tables
+    ? Object.values(syncResult.tables).reduce((a, b) => a + b, 0)
+    : 0;
+
+  return (
+    <div className="mb-6">
+      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        Cloud Sync
+      </h2>
+      <div className="card space-y-3">
+        <div className="flex items-start gap-3">
+          <div className={`p-2 rounded-lg ${testResult?.success ? 'bg-green-50' : 'bg-blue-50'}`}>
+            <Database size={18} className={testResult?.success ? 'text-green-600' : 'text-blue-600'} />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-gray-900">Firestore Cloud Backup</p>
+            <p className="text-xs text-gray-500">
+              Your data is saved locally and synced to the cloud so it survives cache clears.
+            </p>
+          </div>
+        </div>
+
+        {/* Test Connection */}
+        <div className="flex gap-2">
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            className="btn-secondary text-xs flex-1"
+          >
+            {testing ? 'Testing...' : 'Test Connection'}
+          </button>
+          <button
+            onClick={handleSync}
+            disabled={syncing || (testResult && !testResult.success)}
+            className="btn-primary text-xs flex-1"
+          >
+            {syncing ? 'Syncing...' : 'Force Sync Now'}
+          </button>
+        </div>
+
+        {/* Test result */}
+        {testResult && (
+          <div className={`flex items-start gap-2 px-3 py-2 rounded-lg ${testResult.success ? 'bg-green-50' : 'bg-red-50'}`}>
+            {testResult.success ? (
+              <CheckCircle2 size={14} className="text-green-600 flex-shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+            )}
+            <p className={`text-xs ${testResult.success ? 'text-green-700' : 'text-red-700'}`}>
+              {testResult.success ? 'Cloud connection is working! Your data will sync.' : testResult.error}
+            </p>
+          </div>
+        )}
+
+        {/* Sync result */}
+        {syncResult && (
+          <div className={`flex items-start gap-2 px-3 py-2 rounded-lg ${syncResult.success ? 'bg-green-50' : 'bg-red-50'}`}>
+            {syncResult.success ? (
+              <CheckCircle2 size={14} className="text-green-600 flex-shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+            )}
+            <div className={`text-xs ${syncResult.success ? 'text-green-700' : 'text-red-700'}`}>
+              {syncResult.success
+                ? <p>Synced {totalSynced} records to cloud successfully!</p>
+                : syncResult.errors.map((e, i) => <p key={i}>{e}</p>)
+              }
+            </div>
+          </div>
         )}
       </div>
     </div>
