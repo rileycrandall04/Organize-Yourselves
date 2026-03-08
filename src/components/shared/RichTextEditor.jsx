@@ -7,7 +7,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getTasksByIds } from '../../db';
 import { TASK_TYPES } from '../../utils/constants';
 import {
-  Bold, Italic, Underline as UnderlineIcon, List,
+  Bold, Italic, Underline as UnderlineIcon, List, Undo2, Redo2,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
 } from 'lucide-react';
 
@@ -201,7 +201,25 @@ export function htmlToPlainText(html) {
 function FormattingToolbar({ editor, disabled, onMakeTask, hasSelection }) {
   if (!editor || disabled) return null;
 
+  // Prevent mousedown from stealing focus/selection from the editor
+  const preventFocusLoss = (e) => e.preventDefault();
+
   const buttons = [
+    {
+      icon: Undo2,
+      label: 'Undo',
+      action: () => editor.chain().focus().undo().run(),
+      active: false,
+      disabled: !editor.can().undo(),
+    },
+    {
+      icon: Redo2,
+      label: 'Redo',
+      action: () => editor.chain().focus().redo().run(),
+      active: false,
+      disabled: !editor.can().redo(),
+    },
+    { divider: true },
     {
       icon: Bold,
       label: 'Bold',
@@ -230,17 +248,22 @@ function FormattingToolbar({ editor, disabled, onMakeTask, hasSelection }) {
 
   return (
     <div className="flex items-center gap-0.5 px-2 py-1 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
-      {buttons.map(btn => {
+      {buttons.map((btn, i) => {
+        if (btn.divider) return <div key={`div-${i}`} className="w-px h-5 bg-gray-200 mx-0.5" />;
         const Icon = btn.icon;
         return (
           <button
             key={btn.label}
+            onMouseDown={preventFocusLoss}
             onClick={btn.action}
             title={btn.label}
+            disabled={btn.disabled}
             className={`p-1.5 rounded-md transition-colors ${
-              btn.active
-                ? 'bg-primary-100 text-primary-700'
-                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+              btn.disabled
+                ? 'text-gray-200 cursor-not-allowed'
+                : btn.active
+                  ? 'bg-primary-100 text-primary-700'
+                  : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
             }`}
           >
             <Icon size={16} />
@@ -250,6 +273,7 @@ function FormattingToolbar({ editor, disabled, onMakeTask, hasSelection }) {
       {/* Divider + Make Task button */}
       <div className="w-px h-5 bg-gray-200 mx-0.5" />
       <button
+        onMouseDown={preventFocusLoss}
         onClick={onMakeTask}
         title={hasSelection ? 'Make Task from selection' : 'Make Task'}
         className={`flex items-center gap-1 p-1.5 rounded-md transition-colors ${

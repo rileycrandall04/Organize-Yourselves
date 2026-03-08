@@ -235,30 +235,10 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       const orphaned = ongoingTasks.filter(t => !existingIds.has(t.id));
 
       if (orphaned.length > 0) {
-        const sectionLabels = {
-          action_item: 'Follow Up',
-          discussion: 'Discussion',
-          event: 'Announcements',
-          calling_plan: 'Callings',
-          ministering_plan: 'Fellowshipping',
-          ongoing: 'Ongoing Follow Up',
-        };
-
-        // Group orphaned tasks by type
-        const grouped = {};
-        for (const t of orphaned) {
-          const key = t.type || 'action_item';
-          if (!grouped[key]) grouped[key] = [];
-          grouped[key].push(t);
-        }
-
+        // Append orphaned task chips (no section headers — avoids duplication)
         let appendHtml = '';
-        for (const [type, tasks] of Object.entries(grouped)) {
-          appendHtml += `${sectionLabels[type] || 'Tasks'}<br>`;
-          for (const t of tasks) {
-            appendHtml += `<task-chip data-task-id="${t.id}"></task-chip><br>`;
-          }
-          appendHtml += '<br>';
+        for (const t of orphaned) {
+          appendHtml += `<task-chip data-task-id="${t.id}"></task-chip> `;
         }
 
         let newHtml;
