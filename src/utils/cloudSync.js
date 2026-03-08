@@ -23,7 +23,7 @@ import {
 import { getFirebaseFirestore } from './firebase';
 import db from '../db';
 
-// All Dexie tables to sync
+// All Dexie tables to sync (writes pushed on every save)
 const SYNC_TABLES = [
   'profile',
   'userCallings',
@@ -45,6 +45,17 @@ const SYNC_TABLES = [
   'ministeringPlans',
   'tasks',
   'meetingTaskStatuses',
+];
+
+// Only these tables get real-time onSnapshot listeners.
+// The rest are push-only (writes go to Firestore, but no live listener).
+// This dramatically reduces Firestore reads to stay within free tier quota.
+const REALTIME_TABLES = [
+  'profile',
+  'userCallings',
+  'tasks',
+  'meetings',
+  'meetingInstances',
 ];
 
 let _uid = null;
@@ -315,10 +326,9 @@ function startRealtimeSync(uid) {
   const firestore = getFirebaseFirestore();
   if (!firestore) return;
 
-  // Listen to all synced tables for real-time cross-device updates.
-  // profile + userCallings are critical — without them the app
-  // shows the onboarding screen even though the user has data.
-  const realtimeTables = SYNC_TABLES;
+  // Only listen to critical tables in real-time to stay within Firestore
+  // free tier quota. Other tables are push-only (writes still go to cloud).
+  const realtimeTables = REALTIME_TABLES;
 
   for (const tableName of realtimeTables) {
     try {
