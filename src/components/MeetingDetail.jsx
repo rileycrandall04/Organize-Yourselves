@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useMeetingInstances, useMeetingNoteTags, useTasksForMeeting, useTasks } from '../hooks/useDb';
+import { useState, useMemo } from 'react';
+import { useMeetingInstances, useMeetingNoteTags, useTasksForMeeting, useTasks, useMeetingTaskStatuses } from '../hooks/useDb';
 import { buildAutoAgenda, buildAutoAgendaBlocks, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingInstance, deleteMeetingWithInstances, addTask } from '../db';
 import { MEETING_CADENCES, formatCadenceLabel, normalizeCadence } from '../data/callings';
 import { todayStr, formatMeetingDate } from '../utils/dates';
@@ -8,11 +8,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ArrowLeft, Calendar, Plus, Clock, CheckCircle2, ListChecks, FileText,
   ArrowUpRight, RotateCw, Pencil, Trash2, Target, Heart, ClipboardList,
-  Check, Save, ChevronRight,
+  Check, Save, ChevronRight, CheckSquare, MessageSquare, CalendarDays,
 } from 'lucide-react';
 import MeetingNotes from './MeetingNotes';
+import PreMeetingReview from './PreMeetingReview';
 import AddMeetingForm from './AddMeetingForm';
 import Modal from './shared/Modal';
+import TaskEditor, { TaskRow } from './shared/TaskEditor';
 
 const cadenceOptions = Object.entries(MEETING_CADENCES);
 
@@ -22,6 +24,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const { tasks: ongoingTasks } = useTasksForMeeting(meeting.id);
   const { tasks: ministeringPlans } = useTasks({ type: 'ministering_plan', excludeComplete: true });
   const [activeInstance, setActiveInstance] = useState(null);
+  const [reviewInstance, setReviewInstance] = useState(null); // instance pending review
   const [creating, setCreating] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -40,6 +43,15 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDate, setCustomDate] = useState(todayStr());
   const [expandedSection, setExpandedSection] = useState(null);
+  const [selectedTask, setSelectedTask] = useState(null);
+
+  // Per-meeting task statuses
+  const { statuses: meetingStatusList } = useMeetingTaskStatuses(meeting.id);
+  const meetingStatusMap = useMemo(() => {
+    const map = {};
+    for (const s of meetingStatusList) map[s.taskId] = s;
+    return map;
+  }, [meetingStatusList]);
 
   // Get unresolved action items from last instance (for pending count)
   const unresolvedItems = useLiveQuery(
@@ -101,7 +113,14 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       }
 
       const id = await addInstance(newInstance);
-      setActiveInstance({ id, ...newInstance });
+      const instanceWithId = { id, ...newInstance };
+
+      // For Sacrament meetings, go directly to notes. For others, show pre-meeting review.
+      if (isSacrament) {
+        setActiveInstance(instanceWithId);
+      } else {
+        setReviewInstance(instanceWithId);
+      }
     } finally {
       setCreating(false);
     }
@@ -190,6 +209,25 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     setShowAddPlan(false);
   }
 
+  // Pre-meeting review screen (shown after creating a new instance)
+  if (reviewInstance) {
+    return (
+      <PreMeetingReview
+        meetingId={meeting.id}
+        meetingName={meeting.name}
+        onStartMeeting={() => {
+          setActiveInstance(reviewInstance);
+          setReviewInstance(null);
+        }}
+        onSkip={() => {
+          setActiveInstance(reviewInstance);
+          setReviewInstance(null);
+        }}
+        onBack={() => setReviewInstance(null)}
+      />
+    );
+  }
+
   if (activeInstance) {
     return (
       <MeetingNotes
@@ -202,12 +240,37 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     );
   }
 
+  // ── Categorize tasks by type ──────────────────────────────
+  const actionItems = ongoingTasks.filter(t => t.type === 'action_item');
+  const discussions = ongoingTasks.filter(t => t.type === 'discussion');
+  const events = ongoingTasks.filter(t => t.type === 'event');
+  const ongoingOnly = ongoingTasks.filter(t => t.type === 'ongoing');
+  const callingPlans = ongoingTasks.filter(t => t.type === 'calling_plan');
+
   // ── Quick-access section data ─────────────────────────────
   const sections = [
     {
+      key: 'actions',
+      icon: CheckSquare,
+      label: 'Actions',
+      count: actionItems.length,
+      color: 'text-primary-600',
+      bg: 'bg-primary-50',
+      border: 'border-primary-200',
+    },
+    {
+      key: 'discussions',
+      icon: MessageSquare,
+      label: 'Discuss',
+      count: discussions.length,
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-50',
+      border: 'border-indigo-200',
+    },
+    {
       key: 'pre',
       icon: ClipboardList,
-      label: 'Pre-Meeting',
+      label: 'Inbox',
       count: preMeetingCount,
       color: 'text-blue-600',
       bg: 'bg-blue-50',
@@ -218,7 +281,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       key: 'ongoing',
       icon: Target,
       label: 'Ongoing',
-      count: ongoingTasks.length,
+      count: ongoingOnly.length,
       color: 'text-green-600',
       bg: 'bg-green-50',
       border: 'border-green-200',
@@ -227,7 +290,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     {
       key: 'minister',
       icon: Heart,
-      label: 'Ministering',
+      label: 'Minister',
       count: ministeringPlans.length,
       color: 'text-teal-600',
       bg: 'bg-teal-50',
@@ -246,6 +309,19 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       color: 'text-amber-600',
       bg: 'bg-amber-50',
       border: 'border-amber-200',
+    });
+  }
+
+  // Add events section if there are items
+  if (events.length > 0) {
+    sections.push({
+      key: 'events',
+      icon: CalendarDays,
+      label: 'Events',
+      count: events.length,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+      border: 'border-emerald-200',
     });
   }
 
@@ -337,7 +413,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       )}
 
       {/* ── Quick-access icon bar ───────────────────────────── */}
-      <div className="flex items-center gap-1.5 mb-3">
+      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
         {sections.map(s => {
           const Icon = s.icon;
           const isActive = expandedSection === s.key;
@@ -366,10 +442,40 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       </div>
 
       {/* ── Expanded section content ────────────────────────── */}
+      {expandedSection === 'actions' && (
+        <div className="mb-4 border border-primary-100 rounded-lg bg-primary-50/30 p-3">
+          <span className="text-[11px] font-semibold text-primary-700 uppercase tracking-wide block mb-2">Action Items</span>
+          {actionItems.length === 0 ? (
+            <p className="text-[11px] text-gray-400">No action items for this meeting.</p>
+          ) : (
+            <div className="space-y-0.5">
+              {actionItems.map(task => (
+                <TaskRow key={task.id} task={task} onClick={() => setSelectedTask(task)} meetingStatus={meetingStatusMap[task.id]} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {expandedSection === 'discussions' && (
+        <div className="mb-4 border border-indigo-100 rounded-lg bg-indigo-50/30 p-3">
+          <span className="text-[11px] font-semibold text-indigo-700 uppercase tracking-wide block mb-2">Discussion Items</span>
+          {discussions.length === 0 ? (
+            <p className="text-[11px] text-gray-400">No discussions for this meeting.</p>
+          ) : (
+            <div className="space-y-0.5">
+              {discussions.map(task => (
+                <TaskRow key={task.id} task={task} onClick={() => setSelectedTask(task)} meetingStatus={meetingStatusMap[task.id]} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {expandedSection === 'pre' && (
         <div className="mb-4 border border-blue-100 rounded-lg bg-blue-50/30 p-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Pre-Meeting Tasks</span>
+            <span className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Inbox</span>
             <button onClick={() => setShowAddPreMeetingTask(true)} className="text-blue-600 hover:text-blue-800">
               <Plus size={14} />
             </button>
@@ -399,14 +505,12 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
               <Plus size={14} />
             </button>
           </div>
-          {ongoingTasks.length === 0 ? (
+          {ongoingOnly.length === 0 ? (
             <p className="text-[11px] text-gray-400">Tasks appear on every agenda until dismissed.</p>
           ) : (
-            <div className="space-y-1">
-              {ongoingTasks.map(task => (
-                <div key={task.id} className="py-1 px-2 bg-white rounded border border-green-100">
-                  <span className="text-xs text-gray-700">{task.title}</span>
-                </div>
+            <div className="space-y-0.5">
+              {ongoingOnly.map(task => (
+                <TaskRow key={task.id} task={task} onClick={() => setSelectedTask(task)} meetingStatus={meetingStatusMap[task.id]} />
               ))}
             </div>
           )}
@@ -424,16 +528,9 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           {ministeringPlans.length === 0 ? (
             <p className="text-[11px] text-gray-400">Plans appear on all meeting agendas until completed.</p>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {ministeringPlans.map(plan => (
-                <div key={plan.id} className="py-1 px-2 bg-white rounded border border-teal-100">
-                  <span className="text-xs text-gray-700">
-                    {plan.personName}{plan.familyName ? ` ${plan.familyName} Family` : ''}
-                  </span>
-                  {plan.description && (
-                    <p className="text-[10px] text-gray-400 mt-0.5">{plan.description}</p>
-                  )}
-                </div>
+                <TaskRow key={plan.id} task={plan} onClick={() => setSelectedTask(plan)} meetingStatus={meetingStatusMap[plan.id]} />
               ))}
             </div>
           )}
@@ -445,10 +542,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide block mb-2">Pending for Next Meeting</span>
           <div className="space-y-1">
             {unresolvedItems.map(item => (
-              <div key={item.id} className="py-1 px-2 bg-white rounded border border-amber-100 flex items-center gap-2">
-                <RotateCw size={10} className="text-amber-400 flex-shrink-0" />
-                <span className="text-xs text-gray-700">{item.title}</span>
-              </div>
+              <TaskRow key={item.id} task={item} onClick={() => setSelectedTask(item)} meetingStatus={meetingStatusMap[item.id]} />
             ))}
             {pendingTags.map(tag => (
               <div key={tag.id} className="py-1 px-2 bg-white rounded border border-amber-100 flex items-start gap-2">
@@ -459,6 +553,21 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {expandedSection === 'events' && (
+        <div className="mb-4 border border-emerald-100 rounded-lg bg-emerald-50/30 p-3">
+          <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wide block mb-2">Events & Announcements</span>
+          {events.length === 0 ? (
+            <p className="text-[11px] text-gray-400">No events for this meeting.</p>
+          ) : (
+            <div className="space-y-0.5">
+              {events.map(task => (
+                <TaskRow key={task.id} task={task} onClick={() => setSelectedTask(task)} meetingStatus={meetingStatusMap[task.id]} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -635,6 +744,16 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           </div>
         </div>
       </Modal>
+
+      {/* Task Editor (bottom sheet for selected task) */}
+      {selectedTask && (
+        <TaskEditor
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          meetingId={meeting.id}
+          meetingStatus={meetingStatusMap[selectedTask.id]}
+        />
+      )}
     </div>
   );
 }

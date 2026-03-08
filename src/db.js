@@ -211,6 +211,81 @@ db.version(7).stores({
   console.log(`[Migration v7] Migrated ${actionItems.length} action items, ${ongoingTasks.length} ongoing tasks, ${plans.length} ministering plans, ${events.length} events → unified tasks table`);
 });
 
+// Phase 8: Meeting task statuses (per-meeting status tracking) + multi-type tasks
+db.version(8).stores({
+  meetingTaskStatuses: '++id, taskId, meetingId, [taskId+meetingId]',
+}).upgrade(async tx => {
+  // Add `types` array to all existing tasks for multi-type support
+  const tasks = await tx.table('tasks').toArray();
+  for (const task of tasks) {
+    if (!task.types) {
+      await tx.table('tasks').update(task.id, {
+        types: [task.type || 'action_item'],
+      });
+    }
+  }
+  console.log(`[Migration v8] Added types[] to ${tasks.length} tasks, created meetingTaskStatuses table`);
+});
+
+// ── Meeting Task Statuses (per-meeting status) ──────────────────
+
+export async function getMeetingTaskStatus(taskId, meetingId) {
+  return await db.meetingTaskStatuses
+    .where('[taskId+meetingId]')
+    .equals([taskId, meetingId])
+    .first() ?? null;
+}
+
+export async function setMeetingTaskStatus(taskId, meetingId, meetingStatus, extra = {}) {
+  const existing = await db.meetingTaskStatuses
+    .where('[taskId+meetingId]')
+    .equals([taskId, meetingId])
+    .first();
+
+  const data = {
+    taskId,
+    meetingId,
+    meetingStatus,
+    ...extra,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (existing) {
+    await db.meetingTaskStatuses.update(existing.id, data);
+    syncAfterWrite('meetingTaskStatuses', existing.id, { ...existing, ...data });
+    return existing.id;
+  } else {
+    const id = await db.meetingTaskStatuses.add(data);
+    syncAfterWrite('meetingTaskStatuses', id, { ...data, id });
+    return id;
+  }
+}
+
+export async function getMeetingTaskStatuses(meetingId) {
+  return await db.meetingTaskStatuses
+    .where('meetingId')
+    .equals(meetingId)
+    .toArray();
+}
+
+export async function getTaskMeetingStatuses(taskId) {
+  return await db.meetingTaskStatuses
+    .where('taskId')
+    .equals(taskId)
+    .toArray();
+}
+
+export async function deleteMeetingTaskStatus(taskId, meetingId) {
+  const existing = await db.meetingTaskStatuses
+    .where('[taskId+meetingId]')
+    .equals([taskId, meetingId])
+    .first();
+  if (existing) {
+    await db.meetingTaskStatuses.delete(existing.id);
+    syncAfterDelete('meetingTaskStatuses', existing.id);
+  }
+}
+
 // ── Unified Tasks CRUD (Phase 7) ──────────────────────────────
 
 export async function getTasks(filters = {}) {
@@ -256,9 +331,11 @@ export async function getTasks(filters = {}) {
 }
 
 export async function addTask(task) {
+  const primaryType = task.type || (task.types && task.types[0]) || 'action_item';
   const data = {
     ...task,
-    type: task.type || 'action_item',
+    type: primaryType,
+    types: task.types || [primaryType],
     status: task.status || 'not_started',
     priority: task.priority || 'low',
     meetingIds: task.meetingIds || [],
@@ -922,7 +999,7 @@ function _isClosingItem(text) { return _CLOSING_RE.test(text.trim()); }
  */
 export async function buildAutoAgendaBlocks(meetingId) {
   const meeting = await db.meetings.get(meetingId);
-  if (!meeting) return [{ id: _nextBlockId(), type: 'text', text: '' }];
+  if (!meeting) return [{ id: _nextBlockId(), type: 'richtext', html: '<p></p>' }];
 
   const template = meeting.agendaTemplate || [];
 
@@ -944,7 +1021,12 @@ export async function buildAutoAgendaBlocks(meetingId) {
   }
 
   // 2. Gather all follow-up and linked tasks, categorize by type
+  //    Respect per-meeting task statuses from PreMeetingReview
   const allTasks = await db.tasks.toArray();
+  const meetingStatuses = await getMeetingTaskStatuses(meetingId);
+  const statusMap = {};
+  for (const s of meetingStatuses) statusMap[s.taskId] = s;
+
   const seen = new Set();
   const categorized = {
     action_item: [],
@@ -954,26 +1036,49 @@ export async function buildAutoAgendaBlocks(meetingId) {
     ministering_plan: [],
     ongoing: [],
   };
+  const resolvedTasks = []; // Tracked separately for "Completed" section
+
+  function addTaskIfActive(task) {
+    if (seen.has(task.id)) return;
+    if (!categorized[task.type]) return;
+
+    const mStatus = statusMap[task.id];
+    const meetingStatus = mStatus?.meetingStatus;
+
+    // Skip reassigned tasks (they belong in the target meeting)
+    if (meetingStatus === 'reassigned') { seen.add(task.id); return; }
+
+    // Snoozed tasks: only include if snoozedUntil has expired
+    if (meetingStatus === 'snoozed') {
+      const snoozedUntil = mStatus?.snoozedUntil;
+      if (snoozedUntil && new Date(snoozedUntil) > new Date()) {
+        seen.add(task.id);
+        return; // Still snoozed
+      }
+      // Snooze expired — fall through to include
+    }
+
+    // Resolved tasks go to a separate completed section
+    if (meetingStatus === 'resolved') {
+      resolvedTasks.push(task);
+      seen.add(task.id);
+      return;
+    }
+
+    // Active (keep or no status) — include on agenda
+    categorized[task.type].push(task);
+    seen.add(task.id);
+  }
 
   const followUps = await getFollowUpsForMeeting(meetingId);
-  for (const t of followUps) {
-    if (!seen.has(t.id) && categorized[t.type]) {
-      categorized[t.type].push(t);
-      seen.add(t.id);
-    }
-  }
+  for (const t of followUps) addTaskIfActive(t);
 
   const linkedTasks = allTasks.filter(t =>
     t.status !== 'complete' &&
     !seen.has(t.id) &&
     (t.meetingIds || []).includes(meetingId)
   );
-  for (const t of linkedTasks) {
-    if (categorized[t.type]) {
-      categorized[t.type].push(t);
-      seen.add(t.id);
-    }
-  }
+  for (const t of linkedTasks) addTaskIfActive(t);
 
   // Section labels
   const sectionDefs = [
@@ -991,6 +1096,14 @@ export async function buildAutoAgendaBlocks(meetingId) {
     if (tasks.length === 0) continue;
     text += `\n\n${label}`;
     for (const t of tasks) {
+      text += `\n{{task:${t.id}}}`;
+    }
+  }
+
+  // 3b. Add resolved tasks in a "Completed" section (for reference)
+  if (resolvedTasks.length > 0) {
+    text += `\n\n\u2713 Completed`;
+    for (const t of resolvedTasks) {
       text += `\n{{task:${t.id}}}`;
     }
   }
@@ -1026,12 +1139,43 @@ export async function buildAutoAgendaBlocks(meetingId) {
     text += '\n\n' + closingItems.map(item => `\u2022 ${item}`).join('\n');
   }
 
-  return [{ id: _nextBlockId(), type: 'text', text }];
+  // Convert the plain text with markers to richtext HTML
+  const html = _migrateTextToHtml(text);
+  return [{ id: _nextBlockId(), type: 'richtext', html }];
 }
 
 let _blockIdCounter = 0;
 function _nextBlockId() {
   return `b_${Date.now()}_${++_blockIdCounter}`;
+}
+
+/** Simple text-to-HTML migration for auto-agenda (server-side, no DOM) */
+function _migrateTextToHtml(text) {
+  if (!text) return '<p></p>';
+  const MARKER_RE = /\{\{task:(\d+)\}\}/g;
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  const parts = text.split(MARKER_RE);
+  let html = '';
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) {
+      const lines = parts[i].split('\n');
+      for (let j = 0; j < lines.length; j++) {
+        const line = lines[j];
+        if (line.match(/^\s*[\u2022\-\*]\s/)) {
+          html += `<li><p>${esc(line.replace(/^\s*[\u2022\-\*]\s*/, ''))}</p></li>`;
+        } else {
+          html += esc(line);
+        }
+        if (j < lines.length - 1) html += '<br>';
+      }
+    } else {
+      html += `<task-chip data-task-id="${parts[i]}"></task-chip>`;
+    }
+  }
+  if (!html.startsWith('<p>') && !html.startsWith('<ul>') && !html.startsWith('<li>')) {
+    html = `<p>${html}</p>`;
+  }
+  return html || '<p></p>';
 }
 
 /**

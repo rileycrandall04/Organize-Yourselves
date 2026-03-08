@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "3001"],
       "port": 3001,
       "cwd": "C:\\Users\\Riley Crandall\\Documents\\Organize-Yourselves"
     }

@@ -7,6 +7,7 @@ import MeetingPicker from './shared/MeetingPicker';
 import SacramentProgram from './SacramentProgram';
 import AiButton, { AiResultCard } from './shared/AiButton';
 import BlockEditor, { migrateAgendaToBlocks, consolidateBlocks } from './BlockEditor';
+import { htmlToPlainText } from './shared/RichTextEditor';
 import {
   ArrowLeft, Save, CheckCircle2, Users2, Trash2,
   ArrowUpRight, X, Pencil, RotateCcw,
@@ -55,11 +56,22 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const [aiError, setAiError] = useState('');
 
   // Derive text content for AI
-  const hasContent = blocks.some(b => (b.text || '').trim());
+  const hasContent = blocks.some(b => (b.text || b.html || '').replace(/<[^>]*>/g, '').trim());
 
   function handleBlocksChange(newBlocks) {
     setBlocks(newBlocks);
     setDirty(true);
+  }
+
+  // Auto-save handler — called by RichTextEditor's auto-save (every 60s, on unmount, on visibility change)
+  async function handleAutoSave(newBlocks) {
+    try {
+      await update(instance.id, { blocks: newBlocks });
+      setBlocks(newBlocks);
+      setDirty(false);
+    } catch {
+      // Silently fail — will retry on next auto-save
+    }
   }
 
   async function handleReopen() {
@@ -107,9 +119,14 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     }
   }
 
-  // AI — extract plain text from content (strip {{task:ID}} markers)
+  // AI — extract plain text from content (handles both old text and new richtext blocks)
   function getPlainText() {
-    return (blocks[0]?.text || '').replace(/\{\{task:\d+\}\}/g, '').trim();
+    const block = blocks[0];
+    if (!block) return '';
+    if (block.type === 'richtext') {
+      return htmlToPlainText(block.html || '').replace(/\{\{task:\d+\}\}/g, '').trim();
+    }
+    return (block.text || '').replace(/\{\{task:\d+\}\}/g, '').trim();
   }
 
   async function handleAiSummarize() {
@@ -150,9 +167,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
 
   // Note tagging
   async function handleTagMeeting(meeting) {
-    const text = (blocks[0]?.text || '')
-      .replace(/\{\{task:\d+\}\}/g, '')
-      .trim();
+    const text = getPlainText();
     if (!text) return;
 
     await addMeetingNoteTag({
@@ -314,6 +329,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
           <BlockEditor
             blocks={blocks}
             onChange={handleBlocksChange}
+            onSave={handleAutoSave}
             meetingId={meetingId || instance.meetingId}
             instanceId={instance.id}
             finalized={isCompleted}

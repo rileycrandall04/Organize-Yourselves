@@ -44,6 +44,7 @@ const SYNC_TABLES = [
   'ongoingTasks',
   'ministeringPlans',
   'tasks',
+  'meetingTaskStatuses',
 ];
 
 let _uid = null;

@@ -83,6 +83,11 @@ import db, {
   getTasksForMeeting,
   getFollowUpsForMeeting,
   addTaskFollowUpNote,
+  // Phase 8: Meeting Task Statuses
+  getMeetingTaskStatuses,
+  getTaskMeetingStatuses,
+  setMeetingTaskStatus,
+  deleteMeetingTaskStatus,
 } from '../db';
 
 // ── Profile ─────────────────────────────────────────────────
@@ -452,5 +457,33 @@ export function useFollowUpsForMeeting(meetingId) {
   return {
     followUps: items ?? [],
     loading: items === undefined,
+  };
+}
+
+// ── Phase 8: Meeting Task Statuses ──────────────────────────
+
+export function useMeetingTaskStatuses(meetingId) {
+  const statuses = useLiveQuery(
+    () => (meetingId ? getMeetingTaskStatuses(meetingId) : Promise.resolve([])),
+    [meetingId]
+  );
+  return {
+    statuses: statuses ?? [],
+    loading: statuses === undefined,
+    set: setMeetingTaskStatus,
+    remove: deleteMeetingTaskStatus,
+  };
+}
+
+export function useTaskMeetingStatuses(taskId) {
+  const statuses = useLiveQuery(
+    () => (taskId ? getTaskMeetingStatuses(taskId) : Promise.resolve([])),
+    [taskId]
+  );
+  return {
+    statuses: statuses ?? [],
+    loading: statuses === undefined,
+    set: setMeetingTaskStatus,
+    remove: deleteMeetingTaskStatus,
   };
 }

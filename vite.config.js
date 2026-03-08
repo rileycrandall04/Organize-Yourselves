@@ -7,5 +7,21 @@ export default defineConfig({
   server: {
     port: 3001,
     open: false
-  }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // Split TipTap/ProseMirror into its own chunk
+          if (id.includes('@tiptap') || id.includes('prosemirror')) {
+            return 'tiptap';
+          }
+          // Split Firebase into its own chunk
+          if (id.includes('firebase') || id.includes('@firebase')) {
+            return 'firebase';
+          }
+        },
+      },
+    },
+  },
 });

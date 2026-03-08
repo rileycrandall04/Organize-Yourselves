@@ -39,3 +39,115 @@
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
 }
+
+/* ── TipTap Rich Text Editor Styles ──────────────────────── */
+
+.rich-text-editor .tiptap {
+  outline: none;
+  min-height: 200px;
+}
+
+.rich-text-editor .tiptap p {
+  margin: 0;
+}
+
+.rich-text-editor .tiptap p + p {
+  margin-top: 0.25em;
+}
+
+.rich-text-editor .tiptap ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin: 0.25em 0;
+}
+
+.rich-text-editor .tiptap ol {
+  list-style-type: decimal;
+  padding-left: 1.5em;
+  margin: 0.25em 0;
+}
+
+.rich-text-editor .tiptap li {
+  margin: 0.125em 0;
+}
+
+.rich-text-editor .tiptap li p {
+  margin: 0;
+}
+
+.rich-text-editor .tiptap strong {
+  font-weight: 600;
+}
+
+.rich-text-editor .tiptap em {
+  font-style: italic;
+}
+
+.rich-text-editor .tiptap u {
+  text-decoration: underline;
+}
+
+.rich-text-editor .tiptap blockquote {
+  border-left: 3px solid #e5e7eb;
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: #6b7280;
+}
+
+/* Task chip inline elements */
+.rich-text-editor .tiptap task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: baseline;
+  line-height: 1.4;
+  margin: 0 2px;
+  white-space: nowrap;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+/* TipTap placeholder */
+.rich-text-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #d1d5db;
+  pointer-events: none;
+  height: 0;
+  font-size: 0.875rem;
+}
+
+/* ── Mobile responsiveness ─────────────────────────────────── */
+
+/* Safe area bottom padding for iOS */
+.safe-area-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+/* Touch-friendly tap targets on mobile */
+@media (max-width: 640px) {
+  .rich-text-editor .tiptap {
+    min-height: 180px;
+    font-size: 15px; /* Prevent iOS zoom on focus */
+  }
+}
+
+/* Ensure task chips don't overflow on small screens */
+.rich-text-editor .tiptap task-chip {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 640px) {
+  .rich-text-editor .tiptap task-chip {
+    max-width: none;
+  }
+}

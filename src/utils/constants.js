@@ -132,6 +132,16 @@ export const TASK_TYPES = {
 
 export const TASK_TYPE_LIST = Object.values(TASK_TYPES);
 
+// ── Meeting Task Statuses (per-meeting status for tasks) ────
+export const MEETING_TASK_STATUSES = {
+  keep: { key: 'keep', label: 'Keep', icon: 'RotateCw', color: 'blue' },
+  resolved: { key: 'resolved', label: 'Resolved', icon: 'CheckCircle2', color: 'green' },
+  snoozed: { key: 'snoozed', label: 'Snooze', icon: 'Clock', color: 'amber' },
+  reassigned: { key: 'reassigned', label: 'Reassign', icon: 'ArrowRightLeft', color: 'purple' },
+};
+
+export const MEETING_TASK_STATUS_LIST = Object.values(MEETING_TASK_STATUSES);
+
 // ── Follow-Up Modes ─────────────────────────────────────────
 export const FOLLOW_UP_MODES = {
   next: { key: 'next', label: 'Follow up next meeting' },

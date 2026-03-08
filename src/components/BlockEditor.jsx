@@ -1,9 +1,11 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote } from '../db';
-import { TASK_TYPES } from '../utils/constants';
+import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote, setMeetingTaskStatus } from '../db';
+import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../utils/constants';
+import { useMeetingTaskStatuses } from '../hooks/useDb';
+import useRichTextEditor, { migrateTextToHtml, extractTaskIdsFromHtml, htmlToPlainText } from './shared/RichTextEditor';
 import {
-  Star, Share2, X, Search, Import,
+  Star, Share2, X, Search, Import, Cloud, CloudOff, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
 } from 'lucide-react';
@@ -60,12 +62,16 @@ export function createTextBlock(text = '') {
   return { id: newBlockId(), type: 'text', text };
 }
 
+export function createRichTextBlock(html = '<p></p>') {
+  return { id: newBlockId(), type: 'richtext', html };
+}
+
 // Kept for backward compat during migration
 export function createTaskRefBlock(taskId) {
   return { id: newBlockId(), type: 'task_ref', taskId };
 }
 
-/* ── Text / HTML / DOM helpers ──────────────────────────────── */
+/* ── Text extraction helpers ──────────────────────────────── */
 
 function extractTaskIds(text) {
   const ids = new Set();
@@ -75,94 +81,24 @@ function extractTaskIds(text) {
   return [...ids];
 }
 
-function esc(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/** Convert source text (with {{task:ID}} markers) → HTML for contentEditable */
-function textToHtml(text, tm) {
-  if (!text) return '<br>';
-  const parts = text.split(MARKER_RE);
-  let html = '';
-  for (let i = 0; i < parts.length; i++) {
-    if (i % 2 === 0) {
-      // Plain text segment
-      html += esc(parts[i]).replace(/\n/g, '<br>');
-    } else {
-      // Task ID captured group
-      const id = Number(parts[i]);
-      const t = tm[id];
-      const c = CHIP_COLORS[t?.type] || CHIP_COLORS.action_item;
-      const sc = STATUS_CHAR[t?.status] || '\u25CB';
-      const title = t?.title || `Task #${id}`;
-      const done = t?.status === 'complete';
-      html += `<span contenteditable="false" data-task-id="${id}" `
-        + `style="display:inline-flex;align-items:center;gap:3px;`
-        + `padding:2px 8px 2px 6px;border-radius:6px;`
-        + `background:${c.bg};color:${c.fg};border:1px solid ${c.bd};`
-        + `font-size:12px;font-weight:500;cursor:pointer;user-select:none;`
-        + `vertical-align:baseline;line-height:1.4;margin:0 2px;white-space:nowrap;`
-        + `${done ? 'opacity:0.5;text-decoration:line-through;' : ''}`
-        + `">${sc}\u00a0${esc(title)}</span>`;
-    }
-  }
-  return html || '<br>';
-}
-
-/** Parse contentEditable DOM back to source text with {{task:ID}} markers */
-function domToText(el) {
-  let r = '';
-  for (const n of el.childNodes) {
-    if (n.nodeType === Node.TEXT_NODE) {
-      r += n.textContent;
-    } else if (n.nodeType === Node.ELEMENT_NODE) {
-      if (n.dataset?.taskId) {
-        r += `{{task:${n.dataset.taskId}}}`;
-      } else if (n.tagName === 'BR') {
-        r += '\n';
-      } else if (n.tagName === 'DIV' || n.tagName === 'P') {
-        if (r && !r.endsWith('\n')) r += '\n';
-        r += domToText(n);
-      } else {
-        r += domToText(n);
-      }
-    }
-  }
-  return r;
-}
-
-/** Update chip visuals in-place (no cursor loss) */
-function patchChips(el, tm) {
-  for (const chip of el.querySelectorAll('[data-task-id]')) {
-    const t = tm[Number(chip.dataset.taskId)];
-    if (!t) continue;
-    const c = CHIP_COLORS[t.type] || CHIP_COLORS.action_item;
-    const sc = STATUS_CHAR[t.status] || '\u25CB';
-    const done = t.status === 'complete';
-    chip.textContent = `${sc}\u00a0${t.title}`;
-    Object.assign(chip.style, {
-      background: c.bg, color: c.fg, borderColor: c.bd,
-      opacity: done ? '0.5' : '1',
-      textDecoration: done ? 'line-through' : 'none',
-    });
-  }
-}
-
 /* ── Block consolidation (old multi-block → single text with markers) */
 
 export function consolidateBlocks(blocks) {
-  if (!blocks?.length) return [createTextBlock('')];
+  if (!blocks?.length) return [createRichTextBlock('<p></p>')];
 
-  // Already new format? Single text block(s) with no task_ref or old types
-  const hasOld = blocks.some(b => b.type === 'task_ref' || (b.type !== 'text'));
-  if (!hasOld) {
-    // If multiple text blocks, merge them
+  // Already rich text format?
+  const hasRichText = blocks.some(b => b.type === 'richtext');
+  if (hasRichText) {
+    // If multiple richtext blocks, merge them
     if (blocks.length <= 1) return blocks;
-    const merged = blocks.map(b => b.text || '').join('\n').replace(/\n{3,}/g, '\n\n');
-    return [createTextBlock(merged)];
+    const merged = blocks.map(b => b.html || b.text || '').join('');
+    return [createRichTextBlock(merged)];
   }
 
-  // Merge everything into single text with markers
+  // Old formats — migrate to richtext
+  const hasOld = blocks.some(b => b.type === 'task_ref' || b.type === 'heading' || b.type === 'bullet' || b.type === 'notepad');
+
+  // Merge everything into a single text string first
   let text = '';
   for (const b of blocks) {
     if (b.type === 'task_ref') {
@@ -182,10 +118,12 @@ export function consolidateBlocks(blocks) {
     }
   }
 
-  return [createTextBlock(text)];
+  // Convert plain text to rich text HTML
+  const html = migrateTextToHtml(text);
+  return [createRichTextBlock(html)];
 }
 
-/** Migrate old agendaItems[] format → single text block */
+/** Migrate old agendaItems[] format → single richtext block */
 export function migrateAgendaToBlocks(agendaItems, notes) {
   const lines = [];
   for (const it of agendaItems || []) {
@@ -194,103 +132,13 @@ export function migrateAgendaToBlocks(agendaItems, notes) {
   }
   let text = lines.join('\n');
   if (notes?.trim()) text += (text ? '\n\n' : '') + notes.trim();
-  return [createTextBlock(text)];
-}
-
-/* ── DocEditor (single contentEditable with inline task chips) ── */
-
-function DocEditor({ content, taskMap, disabled, onContentChange, onClickTask, focusEndRef }) {
-  const editorRef = useRef(null);
-  const internalRef = useRef(false);
-  const taskMapRef = useRef(taskMap);
-  taskMapRef.current = taskMap;
-
-  // Render HTML when content changes externally (not from user typing)
-  useEffect(() => {
-    if (internalRef.current) {
-      internalRef.current = false;
-      return;
-    }
-    const el = editorRef.current;
-    if (!el) return;
-    el.innerHTML = textToHtml(content, taskMapRef.current);
-
-    // Focus at end when a task was just inserted
-    if (focusEndRef?.current) {
-      focusEndRef.current = false;
-      el.focus();
-      try {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        range.collapse(false);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (_) { /* ignore */ }
-    }
-  }, [content]);
-
-  // Patch chip visuals when task data changes (preserves cursor)
-  useEffect(() => {
-    if (editorRef.current) patchChips(editorRef.current, taskMap);
-  }, [taskMap]);
-
-  const handleInput = useCallback(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    internalRef.current = true;
-    onContentChange(domToText(el));
-  }, [onContentChange]);
-
-  // Strip formatting on paste — insert as plain text
-  const handlePaste = useCallback((e) => {
-    e.preventDefault();
-    const text = e.clipboardData.getData('text/plain');
-    document.execCommand('insertText', false, text);
-  }, []);
-
-  const handleClick = useCallback((e) => {
-    const chip = e.target.closest?.('[data-task-id]');
-    if (chip) {
-      e.preventDefault();
-      onClickTask(Number(chip.dataset.taskId));
-    }
-  }, [onClickTask]);
-
-  // Prevent dropping external formatted content
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    const text = e.dataTransfer.getData('text/plain');
-    if (text) document.execCommand('insertText', false, text);
-  }, []);
-
-  const isEmpty = !content?.trim();
-
-  return (
-    <div className="relative">
-      <div
-        ref={editorRef}
-        contentEditable={!disabled}
-        onInput={handleInput}
-        onPaste={handlePaste}
-        onClick={handleClick}
-        onDrop={handleDrop}
-        className="min-h-[200px] text-sm text-gray-800 leading-relaxed focus:outline-none"
-        style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-        suppressContentEditableWarning
-      />
-      {isEmpty && !disabled && (
-        <div className="absolute top-0 left-0 text-sm text-gray-300 pointer-events-none select-none">
-          Type your agenda and notes here...
-        </div>
-      )}
-    </div>
-  );
+  const html = migrateTextToHtml(text);
+  return [createRichTextBlock(html)];
 }
 
 /* ── TaskPanel (bottom sheet for viewing/editing a task) ────── */
 
-function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetingId }) {
+function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetingId, meetingStatus, onSetMeetingStatus }) {
   const [noteText, setNoteText] = useState('');
 
   if (!task) return null;
@@ -299,6 +147,20 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
   const TypeIcon = TYPE_ICONS[task.type] || CheckSquare;
   const typeLabel = TASK_TYPES[task.type]?.label || 'Task';
   const isComplete = task.status === 'complete';
+
+  // Meeting status icons map
+  const MEETING_STATUS_ICONS = {
+    keep: RotateCw,
+    resolved: CheckCircle2,
+    snoozed: Clock,
+    reassigned: ArrowRightLeft,
+  };
+  const MEETING_STATUS_COLORS = {
+    keep: 'text-blue-600 bg-blue-50 border-blue-200',
+    resolved: 'text-green-600 bg-green-50 border-green-200',
+    snoozed: 'text-amber-600 bg-amber-50 border-amber-200',
+    reassigned: 'text-purple-600 bg-purple-50 border-purple-200',
+  };
 
   async function cycleStatus() {
     if (disabled) return;
@@ -373,6 +235,34 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
             {task.followUp === 'next' ? 'Following up' : 'Follow up'}
           </button>
         </div>
+
+        {/* Per-meeting status buttons */}
+        {!disabled && onSetMeetingStatus && (
+          <div className="mb-3 pb-3 border-b border-gray-100">
+            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Meeting Status</h4>
+            <div className="flex items-center gap-1.5">
+              {MEETING_TASK_STATUS_LIST.map(ms => {
+                const MsIcon = MEETING_STATUS_ICONS[ms.key];
+                const isActive = meetingStatus?.meetingStatus === ms.key;
+                const colorClass = MEETING_STATUS_COLORS[ms.key];
+                return (
+                  <button
+                    key={ms.key}
+                    onClick={() => onSetMeetingStatus(task.id, ms.key)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-all ${
+                      isActive
+                        ? `${colorClass} ring-1 ring-offset-1 shadow-sm`
+                        : 'text-gray-400 bg-white border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {MsIcon && <MsIcon size={12} />}
+                    {ms.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Description */}
         {task.description && (
@@ -507,6 +397,7 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
     if (!title.trim()) return;
     const taskData = {
       type,
+      types: [type],
       title: title.trim(),
       description: description.trim(),
       meetingIds: meetingId ? [meetingId] : [],
@@ -582,15 +473,158 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
   );
 }
 
+/* ── MakeTaskModal (from highlighted text) ────────────────── */
+
+function MakeTaskModal({ initialTitle, meetingId, instanceId, onCreated, onClose }) {
+  const [title, setTitle] = useState(initialTitle || '');
+  const [description, setDescription] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [selectedTypes, setSelectedTypes] = useState(['action_item']);
+
+  function toggleType(typeKey) {
+    setSelectedTypes(prev => {
+      if (prev.includes(typeKey)) {
+        // Don't allow deselecting the last type
+        if (prev.length <= 1) return prev;
+        return prev.filter(t => t !== typeKey);
+      }
+      return [...prev, typeKey];
+    });
+  }
+
+  async function handleCreate() {
+    if (!title.trim()) return;
+    const primaryType = selectedTypes[0];
+    const taskData = {
+      type: primaryType,
+      types: [...selectedTypes],
+      title: title.trim(),
+      description: description.trim(),
+      meetingIds: meetingId ? [meetingId] : [],
+      sourceMeetingInstanceId: instanceId || null,
+      followUp: selectedTypes.includes('discussion') || selectedTypes.includes('ongoing') ? 'next' : null,
+    };
+    if (selectedTypes.includes('action_item')) taskData.priority = 'medium';
+    if (selectedTypes.includes('event') && eventDate) taskData.eventDate = eventDate;
+
+    const id = await addTask(taskData);
+    onCreated(id);
+    onClose();
+  }
+
+  const showEventDate = selectedTypes.includes('event');
+  const showDescription = selectedTypes.some(t => ['discussion', 'event', 'ministering_plan'].includes(t));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={onClose}>
+      <div
+        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-5 animate-in slide-in-from-bottom"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+          <CheckSquare size={16} className="text-primary-600" />
+          Make Task from Selection
+        </h3>
+        <p className="text-[11px] text-gray-400 mb-3">Create a task and insert a chip into your notes</p>
+
+        <div className="space-y-3">
+          {/* Title */}
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }}
+            placeholder="Task title..."
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+            autoFocus
+          />
+
+          {/* Type selection — multi-select checkboxes */}
+          <div>
+            <label className="text-[11px] font-medium text-gray-500 mb-1.5 block">Task Type(s)</label>
+            <div className="flex flex-wrap gap-1.5">
+              {TASK_TYPE_LIST.map(typeConfig => {
+                const typeKey = typeConfig.key;
+                const isSelected = selectedTypes.includes(typeKey);
+                const Icon = TYPE_ICONS[typeKey] || CheckSquare;
+                const c = CHIP_COLORS[typeKey] || CHIP_COLORS.action_item;
+                return (
+                  <button
+                    key={typeKey}
+                    type="button"
+                    onClick={() => toggleType(typeKey)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      isSelected
+                        ? 'ring-2 ring-offset-1 shadow-sm'
+                        : 'opacity-50 hover:opacity-75'
+                    }`}
+                    style={{
+                      background: c.bg,
+                      color: c.fg,
+                      border: `1px solid ${c.bd}`,
+                      ...(isSelected ? { ringColor: c.fg } : {}),
+                    }}
+                  >
+                    <Icon size={13} />
+                    {typeConfig.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Event date (shown when 'event' type is selected) */}
+          {showEventDate && (
+            <div>
+              <label className="text-[11px] font-medium text-gray-500 mb-1 block">Event Date</label>
+              <input
+                type="date"
+                value={eventDate}
+                onChange={e => setEventDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+              />
+            </div>
+          )}
+
+          {/* Description (shown for discussion, event, ministering) */}
+          {showDescription && (
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Description or notes..."
+              rows={2}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 resize-none"
+            />
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button
+              onClick={handleCreate}
+              disabled={!title.trim()}
+              className="btn-primary flex-1"
+            >
+              Create Task
+            </button>
+            <button onClick={onClose} className="btn-secondary flex-1">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── ImportTaskPicker ──────────────────────────────────────── */
 
-function ImportTaskPicker({ meetingId, content, meetings, onImport, onClose }) {
+function ImportTaskPicker({ meetingId, htmlContent, meetings, onImport, onClose }) {
   const [search, setSearch] = useState('');
   const [allTasks, setAllTasks] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Load all incomplete tasks on mount
-  useEffect(() => {
+  useMemo(() => {
     let cancelled = false;
     (async () => {
       const tasks = await getTasks({ excludeComplete: true });
@@ -604,12 +638,8 @@ function ImportTaskPicker({ meetingId, content, meetings, onImport, onClose }) {
 
   // IDs already in the editor content
   const existingIds = useMemo(() => {
-    const ids = new Set();
-    let m;
-    const re = /\{\{task:(\d+)\}\}/g;
-    while ((m = re.exec(content || '')) !== null) ids.add(Number(m[1]));
-    return ids;
-  }, [content]);
+    return new Set(extractTaskIdsFromHtml(htmlContent || ''));
+  }, [htmlContent]);
 
   // Filter: exclude tasks already on this meeting or already in the editor
   const available = useMemo(() => {
@@ -633,7 +663,6 @@ function ImportTaskPicker({ meetingId, content, meetings, onImport, onClose }) {
     for (const task of available) {
       const mIds = (task.meetingIds || []).filter(id => id !== meetingId);
       if (mIds.length > 0) {
-        // Use the first meeting as the group key
         const groupId = mIds[0];
         const groupName = meetingMap[groupId] || `Meeting #${groupId}`;
         if (!groups[groupId]) groups[groupId] = { name: groupName, tasks: [] };
@@ -738,6 +767,7 @@ function ImportTaskPicker({ meetingId, content, meetings, onImport, onClose }) {
 export default function BlockEditor({
   blocks = [],
   onChange,
+  onSave,
   meetingId,
   instanceId,
   disabled = false,
@@ -748,49 +778,89 @@ export default function BlockEditor({
   const [insertModal, setInsertModal] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [importPickerOpen, setImportPickerOpen] = useState(false);
-  const focusEndRef = useRef(false);
+  const [makeTaskOpen, setMakeTaskOpen] = useState(false);
+  const [makeTaskTitle, setMakeTaskTitle] = useState('');
 
-  // Derive content from blocks (merge if multiple text/task_ref blocks remain)
-  const content = useMemo(() => {
-    if (!blocks.length) return '';
-    return blocks.map(b => {
+  // Derive HTML content from blocks
+  const initialHtml = useMemo(() => {
+    if (!blocks.length) return '<p></p>';
+    // Rich text format
+    if (blocks[0]?.type === 'richtext') return blocks[0].html || '<p></p>';
+    // Plain text format — migrate
+    const text = blocks.map(b => {
       if (b.type === 'text') return b.text || '';
       if (b.type === 'task_ref') return `{{task:${b.taskId}}}`;
       return '';
     }).join('\n').replace(/\n{3,}/g, '\n\n');
-  }, [blocks]);
+    return migrateTextToHtml(text);
+  }, []); // Only compute once on mount
 
-  // Extract task IDs from content
-  const taskIds = useMemo(() => extractTaskIds(content), [content]);
+  // Current HTML for extracting task IDs (updated on each change)
+  const [currentHtml, setCurrentHtml] = useState(initialHtml);
+  const taskIds = useMemo(() => extractTaskIdsFromHtml(currentHtml), [currentHtml]);
 
-  // Live-query all referenced tasks
-  const tasksData = useLiveQuery(
-    () => taskIds.length > 0 ? getTasksByIds(taskIds) : [],
-    [taskIds.join(',')]
-  ) ?? [];
+  // Query per-meeting task statuses (reactive via useLiveQuery)
+  const { statuses: meetingStatusList } = useMeetingTaskStatuses(meetingId);
+  const meetingTaskStatusMap = useMemo(() => {
+    const map = {};
+    for (const s of meetingStatusList) map[s.taskId] = s;
+    return map;
+  }, [meetingStatusList]);
 
-  const taskMap = useMemo(() => {
-    const m = {};
-    for (const t of tasksData) m[t.id] = t;
-    return m;
-  }, [tasksData]);
+  // Initialize rich text editor
+  const {
+    editor,
+    saveStatus,
+    taskMap,
+    hasSelection,
+    insertTaskChip,
+    getSelectedText,
+    replaceSelectionWithChip,
+    FormattingToolbar,
+    EditorView,
+  } = useRichTextEditor({
+    initialHtml,
+    onContentChange: (html) => {
+      setCurrentHtml(html);
+      // Propagate to parent as richtext block
+      const id = blocks[0]?.id || newBlockId();
+      onChange?.([{ id, type: 'richtext', html }]);
+    },
+    onSave: async (html) => {
+      const id = blocks[0]?.id || newBlockId();
+      await onSave?.([{ id, type: 'richtext', html }]);
+    },
+    onClickTask: (id) => setSelectedTaskId(id),
+    onMakeTask: () => {
+      const text = getSelectedText();
+      setMakeTaskTitle(text || '');
+      setMakeTaskOpen(true);
+    },
+    disabled: disabled || finalized,
+    taskIds,
+    autoSaveMs: 60000,
+    meetingTaskStatuses: meetingTaskStatusMap,
+  });
 
   // Selected task for the panel
   const selectedTask = selectedTaskId ? taskMap[selectedTaskId] : null;
+  const selectedTaskMeetingStatus = selectedTaskId ? meetingTaskStatusMap[selectedTaskId] : null;
 
-  function handleContentChange(newContent) {
-    const id = blocks[0]?.id || newBlockId();
-    onChange([{ id, type: 'text', text: newContent }]);
-  }
-
+  // Handle task insertion from modal
   function handleTaskInsert(taskId) {
-    const marker = `{{task:${taskId}}}`;
-    const newText = (content || '').trimEnd() + '\n' + marker + '\n';
-    focusEndRef.current = true;
-    handleContentChange(newText);
+    insertTaskChip(taskId);
   }
 
-  // Toolbar items
+  // Handle task created from "Make Task" (replaces selected text with chip)
+  function handleMakeTaskCreated(taskId) {
+    if (hasSelection) {
+      replaceSelectionWithChip(taskId);
+    } else {
+      insertTaskChip(taskId);
+    }
+  }
+
+  // Toolbar items (task creation)
   const toolbarItems = [
     { type: 'action_item', icon: CheckSquare, label: 'Action', color: 'text-primary-600' },
     { type: 'discussion', icon: MessageSquare, label: 'Discuss', color: 'text-indigo-600' },
@@ -802,16 +872,30 @@ export default function BlockEditor({
 
   return (
     <div className="relative">
-      {/* Document area — paper-like container */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 min-h-[200px]">
-        <DocEditor
-          content={content}
-          taskMap={taskMap}
-          disabled={disabled}
-          onContentChange={handleContentChange}
-          onClickTask={id => setSelectedTaskId(id)}
-          focusEndRef={focusEndRef}
-        />
+      {/* Document area — paper-like container with formatting toolbar */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[200px]">
+        {/* Formatting toolbar */}
+        {!disabled && !finalized && <FormattingToolbar />}
+
+        {/* Editor content */}
+        <EditorView />
+
+        {/* Auto-save status indicator */}
+        {saveStatus && (
+          <div className="flex items-center gap-1 px-3 py-1 border-t border-gray-100 bg-gray-50/50">
+            {saveStatus === 'saving' ? (
+              <>
+                <Cloud size={12} className="text-blue-400 animate-pulse" />
+                <span className="text-[10px] text-gray-400">Saving...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={12} className="text-green-400" />
+                <span className="text-[10px] text-gray-400">Saved</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bottom toolbar — task insertion */}
@@ -854,6 +938,10 @@ export default function BlockEditor({
           onTagTask={onTagTask}
           meetings={meetings}
           currentMeetingId={meetingId}
+          meetingStatus={selectedTaskMeetingStatus}
+          onSetMeetingStatus={async (taskId, status) => {
+            await setMeetingTaskStatus(taskId, meetingId, status);
+          }}
         />
       )}
 
@@ -872,10 +960,21 @@ export default function BlockEditor({
       {importPickerOpen && (
         <ImportTaskPicker
           meetingId={meetingId}
-          content={content}
+          htmlContent={currentHtml}
           meetings={meetings}
           onImport={handleTaskInsert}
           onClose={() => setImportPickerOpen(false)}
+        />
+      )}
+
+      {/* Make Task modal (from highlighted text) */}
+      {makeTaskOpen && (
+        <MakeTaskModal
+          initialTitle={makeTaskTitle}
+          meetingId={meetingId}
+          instanceId={instanceId}
+          onCreated={handleMakeTaskCreated}
+          onClose={() => { setMakeTaskOpen(false); setMakeTaskTitle(''); }}
         />
       )}
     </div>
