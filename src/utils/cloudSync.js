@@ -47,16 +47,6 @@ const SYNC_TABLES = [
   'meetingTaskStatuses',
 ];
 
-// Only these tables get real-time onSnapshot listeners.
-// The rest are push-only (writes go to Firestore, but no live listener).
-// This dramatically reduces Firestore reads to stay within free tier quota.
-const REALTIME_TABLES = [
-  'profile',
-  'userCallings',
-  'tasks',
-  'meetings',
-  'meetingInstances',
-];
 
 let _uid = null;
 let _unsubscribers = [];
@@ -136,8 +126,9 @@ export async function initCloudSync(uid) {
       console.warn('[CloudSync] Init error:', err.message);
     }
 
-    // Start real-time sync
-    startRealtimeSync(uid);
+    // No real-time listeners — push-only sync to save Firestore quota.
+    // Data is pushed to cloud on every save. Pull happens on first
+    // login, new device, or manual force sync from Settings.
   } catch (err) {
     console.warn('[CloudSync] Fatal init error:', err.message);
   } finally {
