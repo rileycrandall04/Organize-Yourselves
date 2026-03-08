@@ -105,23 +105,17 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
           benediction: '',
           notes: '',
         };
+        const id = await addInstance(newInstance);
+        setActiveInstance({ id, ...newInstance });
       } else {
-        const autoBlocks = await buildAutoAgendaBlocks(meeting.id);
-        newInstance.blocks = autoBlocks;
+        // 1. Clear old per-meeting task statuses so pre-meeting review starts fresh
+        await clearMeetingTaskStatuses(meeting.id);
+        // 2. Create instance with placeholder blocks — real blocks are built after review
+        newInstance.blocks = [{ id: `b_${Date.now()}`, type: 'richtext', html: '<p></p>' }];
         const autoAgenda = await buildAutoAgenda(meeting.id, instanceDate);
         newInstance.agendaItems = autoAgenda;
-      }
-
-      const id = await addInstance(newInstance);
-      const instanceWithId = { id, ...newInstance };
-
-      // For Sacrament meetings, go directly to notes. For others, show pre-meeting review.
-      if (isSacrament) {
-        setActiveInstance(instanceWithId);
-      } else {
-        // Clear old per-meeting task statuses so pre-meeting review starts fresh
-        await clearMeetingTaskStatuses(meeting.id);
-        setReviewInstance(instanceWithId);
+        const id = await addInstance(newInstance);
+        setReviewInstance({ id, ...newInstance });
       }
     } finally {
       setCreating(false);

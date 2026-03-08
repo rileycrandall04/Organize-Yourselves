@@ -774,6 +774,7 @@ export default function BlockEditor({
   finalized = false,
   onTagTask,
   meetings,
+  onInsertRef,
 }) {
   const [insertModal, setInsertModal] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
@@ -841,6 +842,11 @@ export default function BlockEditor({
     autoSaveMs: 60000,
     meetingTaskStatuses: meetingTaskStatusMap,
   });
+
+  // Expose insertTaskChip to parent via callback ref
+  useMemo(() => {
+    if (onInsertRef) onInsertRef(insertTaskChip);
+  }, [onInsertRef, insertTaskChip]);
 
   // Selected task for the panel
   const selectedTask = selectedTaskId ? taskMap[selectedTaskId] : null;

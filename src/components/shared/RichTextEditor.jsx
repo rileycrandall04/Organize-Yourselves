@@ -55,7 +55,17 @@ const TaskChipNode = Node.create({
 
   addAttributes() {
     return {
-      taskId: { default: null },
+      taskId: {
+        default: null,
+        parseHTML: element => {
+          const val = element.getAttribute('data-task-id');
+          return val != null ? Number(val) : null;
+        },
+        renderHTML: attributes => {
+          if (attributes.taskId == null) return {};
+          return { 'data-task-id': attributes.taskId };
+        },
+      },
     };
   },
 
@@ -63,11 +73,11 @@ const TaskChipNode = Node.create({
     return [{ tag: 'task-chip[data-task-id]' }];
   },
 
-  renderHTML({ HTMLAttributes }) {
-    return ['task-chip', mergeAttributes(HTMLAttributes, {
-      'data-task-id': HTMLAttributes.taskId,
+  renderHTML({ node }) {
+    return ['task-chip', {
+      'data-task-id': node.attrs.taskId,
       contenteditable: 'false',
-    })];
+    }];
   },
 });
 
@@ -398,8 +408,10 @@ export default function RichTextEditor({
       if (chip) {
         e.preventDefault();
         e.stopPropagation();
-        const taskId = Number(chip.getAttribute('data-task-id'));
-        if (taskId) onClickTask?.(taskId);
+        const raw = chip.getAttribute('data-task-id');
+        if (raw == null) return;
+        const taskId = Number(raw);
+        if (!isNaN(taskId)) onClickTask?.(taskId);
       }
     };
 
@@ -415,7 +427,10 @@ export default function RichTextEditor({
     const editorEl = editor.view.dom;
     const chips = editorEl.querySelectorAll('task-chip');
     chips.forEach(chip => {
-      const id = Number(chip.getAttribute('data-task-id'));
+      const raw = chip.getAttribute('data-task-id');
+      if (raw == null) return;
+      const id = Number(raw);
+      if (isNaN(id)) return;
       const task = taskMap[id];
       if (!task) {
         chip.textContent = `Task #${id}`;

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
 import { addMeetingNoteTag, syncCallingNotesFromMeeting, deleteMeetingInstance, updateTask, getTasksByIds, getTasks } from '../db';
 import { formatFull } from '../utils/dates';
@@ -48,6 +48,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
 
   // Import tasks from other meetings
   const [importPickerOpen, setImportPickerOpen] = useState(false);
+  const insertChipRef = useRef(null);
+  const handleInsertRef = useCallback((fn) => { insertChipRef.current = fn; }, []);
 
   // Task sharing to other meetings
   const [shareTaskId, setShareTaskId] = useState(null);
@@ -197,23 +199,13 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     setShareTaskId(null);
   }
 
-  // Import a task from another meeting into the current meeting + editor
+  // Import a task from another meeting into the current meeting + insert chip into editor
   async function handleImportTask(task) {
     const updatedMeetingIds = [...new Set([...(task.meetingIds || []), meetingId || instance.meetingId])];
     await updateTask(task.id, { meetingIds: updatedMeetingIds });
-    // Insert task chip at the end of the first block's HTML
-    const updatedBlocks = [...blocks];
-    if (updatedBlocks.length > 0 && updatedBlocks[0].type === 'richtext') {
-      const chip = `<task-chip data-task-id="${task.id}"></task-chip>`;
-      // Append before closing tag or at end
-      let html = updatedBlocks[0].html || '';
-      if (html.endsWith('</p>')) {
-        html = html.slice(0, -4) + `<br>${chip}</p>`;
-      } else {
-        html += `<p>${chip}</p>`;
-      }
-      updatedBlocks[0] = { ...updatedBlocks[0], html };
-      handleBlocksChange(updatedBlocks);
+    // Insert task chip into the TipTap editor via BlockEditor's insertTaskChip
+    if (insertChipRef.current) {
+      insertChipRef.current(task.id);
     }
   }
 
@@ -373,6 +365,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             finalized={isCompleted}
             onTagTask={(taskId) => setShareTaskId(taskId)}
             meetings={allMeetings}
+            onInsertRef={handleInsertRef}
           />
         </div>
       )}
