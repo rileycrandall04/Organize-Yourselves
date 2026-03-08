@@ -14,19 +14,23 @@ function debouncedSync() {
   }, 2000);
 }
 
-// Cloud sync helper — fire-and-forget push after each Dexie write
+// Cloud sync helper — push after each Dexie write
 async function syncAfterWrite(tableName, id, data) {
   try {
     const { pushToCloud } = await import('./utils/cloudSync');
-    pushToCloud(tableName, id, data);
-  } catch {}
+    await pushToCloud(tableName, id, data);
+  } catch (err) {
+    console.warn(`[DB] syncAfterWrite failed for ${tableName}/${id}:`, err?.message || err);
+  }
 }
 
 async function syncAfterDelete(tableName, id) {
   try {
     const { deleteFromCloud } = await import('./utils/cloudSync');
-    deleteFromCloud(tableName, id);
-  } catch {}
+    await deleteFromCloud(tableName, id);
+  } catch (err) {
+    console.warn(`[DB] syncAfterDelete failed for ${tableName}/${id}:`, err?.message || err);
+  }
 }
 
 const db = new Dexie('CallingOrganizer');
@@ -343,6 +347,7 @@ export async function getTasks(filters = {}) {
 
 export async function addTask(task) {
   const primaryType = task.type || (task.types && task.types[0]) || 'action_item';
+  const now = new Date().toISOString();
   const data = {
     ...task,
     type: primaryType,
@@ -352,7 +357,8 @@ export async function addTask(task) {
     meetingIds: task.meetingIds || [],
     followUp: task.followUp || null,
     followUpNotes: task.followUpNotes || [],
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
     completedAt: null,
   };
   const id = await db.tasks.add(data);
@@ -361,6 +367,7 @@ export async function addTask(task) {
 }
 
 export async function updateTask(id, changes) {
+  changes.updatedAt = new Date().toISOString();
   if (changes.status === 'complete' && !changes.completedAt) {
     changes.completedAt = new Date().toISOString();
   }
@@ -376,13 +383,13 @@ export async function snoozeTask(id, days = 7) {
   const until = new Date();
   until.setDate(until.getDate() + days);
   const snoozedUntil = until.toISOString().split('T')[0];
-  await db.tasks.update(id, { snoozedUntil });
+  await db.tasks.update(id, { snoozedUntil, updatedAt: new Date().toISOString() });
   const updated = await db.tasks.get(id);
   if (updated) syncAfterWrite('tasks', id, updated);
 }
 
 export async function unsnoozeTask(id) {
-  await db.tasks.update(id, { snoozedUntil: null });
+  await db.tasks.update(id, { snoozedUntil: null, updatedAt: new Date().toISOString() });
   const updated = await db.tasks.get(id);
   if (updated) syncAfterWrite('tasks', id, updated);
 }
@@ -422,12 +429,13 @@ export async function getFollowUpsForMeeting(meetingId) {
 export async function addTaskFollowUpNote(id, note) {
   const task = await db.tasks.get(id);
   if (!task) return;
+  const now = new Date().toISOString();
   const followUpNotes = [...(task.followUpNotes || []), {
     ...note,
-    date: note.date || new Date().toISOString(),
+    date: note.date || now,
   }];
-  await db.tasks.update(id, { followUpNotes });
-  syncAfterWrite('tasks', id, { ...task, followUpNotes });
+  await db.tasks.update(id, { followUpNotes, updatedAt: now });
+  syncAfterWrite('tasks', id, { ...task, followUpNotes, updatedAt: now });
 }
 
 export async function getTasksByIds(ids) {
@@ -444,6 +452,7 @@ export async function getProfile() {
 }
 
 export async function saveProfile(profile) {
+  profile.updatedAt = new Date().toISOString();
   const existing = await getProfile();
   if (existing) {
     await db.profile.update(existing.id, profile);
@@ -484,6 +493,7 @@ export async function addResponsibility(resp) {
 }
 
 export async function updateResponsibility(id, changes) {
+  changes.updatedAt = new Date().toISOString();
   await db.responsibilities.update(id, changes);
   const updated = await db.responsibilities.get(id);
   if (updated) syncAfterWrite('responsibilities', id, updated);
@@ -506,6 +516,7 @@ export async function addPerson(person) {
 }
 
 export async function updatePerson(id, changes) {
+  changes.updatedAt = new Date().toISOString();
   await db.people.update(id, changes);
   const updated = await db.people.get(id);
   if (updated) syncAfterWrite('people', id, updated);
@@ -539,6 +550,7 @@ export async function addMeeting(meeting) {
 }
 
 export async function updateMeeting(id, changes) {
+  changes.updatedAt = new Date().toISOString();
   const result = await db.meetings.update(id, changes);
   const updated = await db.meetings.get(id);
   if (updated) syncAfterWrite('meetings', id, updated);
@@ -578,6 +590,7 @@ export async function addMeetingInstance(instance) {
 }
 
 export async function updateMeetingInstance(id, changes) {
+  changes.updatedAt = new Date().toISOString();
   await db.meetingInstances.update(id, changes);
   const updated = await db.meetingInstances.get(id);
   if (updated) syncAfterWrite('meetingInstances', id, updated);
@@ -676,6 +689,7 @@ export async function addActionItem(item) {
 }
 
 export async function updateActionItem(id, changes) {
+  changes.updatedAt = new Date().toISOString();
   if (changes.status === 'complete' && !changes.completedAt) {
     changes.completedAt = new Date().toISOString();
   }

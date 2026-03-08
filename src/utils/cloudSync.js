@@ -269,15 +269,21 @@ export async function pullFromCloud(uid) {
  * Called after each Dexie write. Fire-and-forget.
  */
 export async function pushToCloud(tableName, id, data) {
-  if (!_uid) return;
+  if (!_uid) {
+    console.warn(`[CloudSync] Push skipped for ${tableName}/${id}: no authenticated user`);
+    return;
+  }
   const firestore = getFirebaseFirestore();
-  if (!firestore) return;
+  if (!firestore) {
+    console.warn(`[CloudSync] Push skipped for ${tableName}/${id}: Firestore not initialized`);
+    return;
+  }
 
   try {
     const docRef = doc(firestore, `users/${_uid}/${tableName}`, String(id));
     await setDoc(docRef, sanitizeForFirestore(data));
   } catch (err) {
-    console.warn(`[CloudSync] Push failed for ${tableName}/${id}:`, err.message);
+    console.error(`[CloudSync] Push FAILED for ${tableName}/${id}:`, err.message, err);
   }
 }
 
@@ -328,6 +334,14 @@ function startRealtimeSync(uid) {
 
           try {
             if (change.type === 'added' || change.type === 'modified') {
+              // Check if local record is newer (has a more recent updatedAt)
+              // to prevent stale cloud data from overwriting fresh local changes
+              const existing = await table.get(docId);
+              if (existing?.updatedAt && data.updatedAt && existing.updatedAt > data.updatedAt) {
+                // Local is newer — skip overwrite, re-push local to cloud
+                pushToCloud(tableName, docId, existing);
+                return;
+              }
               await table.put({ ...data, id: docId });
             } else if (change.type === 'removed') {
               await table.delete(docId);
