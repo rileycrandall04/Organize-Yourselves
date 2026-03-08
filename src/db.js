@@ -286,6 +286,17 @@ export async function deleteMeetingTaskStatus(taskId, meetingId) {
   }
 }
 
+export async function clearMeetingTaskStatuses(meetingId) {
+  const all = await db.meetingTaskStatuses
+    .where('meetingId')
+    .equals(meetingId)
+    .toArray();
+  for (const s of all) {
+    await db.meetingTaskStatuses.delete(s.id);
+    syncAfterDelete('meetingTaskStatuses', s.id);
+  }
+}
+
 // ── Unified Tasks CRUD (Phase 7) ──────────────────────────────
 
 export async function getTasks(filters = {}) {

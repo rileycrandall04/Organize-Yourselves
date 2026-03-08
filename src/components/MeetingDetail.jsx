@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useMeetingInstances, useMeetingNoteTags, useTasksForMeeting, useTasks, useMeetingTaskStatuses } from '../hooks/useDb';
-import { buildAutoAgenda, buildAutoAgendaBlocks, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingInstance, deleteMeetingWithInstances, addTask } from '../db';
+import { buildAutoAgenda, buildAutoAgendaBlocks, getUnresolvedActionItems, updateMeeting, updateMeetingInstance, deleteMeetingInstance, deleteMeetingWithInstances, addTask, clearMeetingTaskStatuses } from '../db';
 import { MEETING_CADENCES, formatCadenceLabel, normalizeCadence } from '../data/callings';
 import { todayStr, formatMeetingDate } from '../utils/dates';
 import { MEETING_STATUSES } from '../utils/constants';
@@ -119,6 +119,8 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       if (isSacrament) {
         setActiveInstance(instanceWithId);
       } else {
+        // Clear old per-meeting task statuses so pre-meeting review starts fresh
+        await clearMeetingTaskStatuses(meeting.id);
         setReviewInstance(instanceWithId);
       }
     } finally {
@@ -215,12 +217,18 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       <PreMeetingReview
         meetingId={meeting.id}
         meetingName={meeting.name}
-        onStartMeeting={() => {
-          setActiveInstance(reviewInstance);
+        onStartMeeting={async () => {
+          // Rebuild blocks now that statuses are set during review
+          const newBlocks = await buildAutoAgendaBlocks(meeting.id);
+          await updateMeetingInstance(reviewInstance.id, { blocks: newBlocks });
+          setActiveInstance({ ...reviewInstance, blocks: newBlocks });
           setReviewInstance(null);
         }}
-        onSkip={() => {
-          setActiveInstance(reviewInstance);
+        onSkip={async () => {
+          // Rebuild blocks with current task state
+          const newBlocks = await buildAutoAgendaBlocks(meeting.id);
+          await updateMeetingInstance(reviewInstance.id, { blocks: newBlocks });
+          setActiveInstance({ ...reviewInstance, blocks: newBlocks });
           setReviewInstance(null);
         }}
         onBack={() => setReviewInstance(null)}

@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react';
-import { useFollowUpsForMeeting, useTasksForMeeting, useMeetingNoteTags, useMeetingTaskStatuses } from '../hooks/useDb';
-import { setMeetingTaskStatus } from '../db';
+import { useState, useMemo, useEffect } from 'react';
+import { useFollowUpsForMeeting, useTasksForMeeting, useMeetingNoteTags, useMeetingTaskStatuses, useMeetings } from '../hooks/useDb';
+import { setMeetingTaskStatus, getTasks, updateTask } from '../db';
 import { TASK_TYPES, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../utils/constants';
 import {
-  ArrowLeft, ChevronDown, ChevronRight, Play, SkipForward,
+  ArrowLeft, ChevronDown, ChevronRight, Play, SkipForward, Plus, Search, Import, X,
   CheckCircle2, RotateCw, Clock, ArrowRightLeft,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
   ArrowUpRight,
@@ -27,6 +27,13 @@ const CHIP_COLORS = {
   calling_plan:     { bg: '#faf5ff', fg: '#7e22ce', bd: '#e9d5ff' },
   ministering_plan: { bg: '#fff1f2', fg: '#be123c', bd: '#fecdd3' },
   ongoing:          { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' },
+};
+
+const STATUS_CHAR = {
+  not_started: '\u25CB',
+  in_progress: '\u25D0',
+  waiting: '\u23F8',
+  complete: '\u2713',
 };
 
 const STATUS_ICONS = {
@@ -182,6 +189,146 @@ function TaggedNoteRow({ tag }) {
   );
 }
 
+/* ── Import Task Picker ────────────────────────────────────── */
+
+function ImportTaskPicker({ meetingId, onClose }) {
+  const [search, setSearch] = useState('');
+  const [allTasks, setAllTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { meetings } = useMeetings();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const tasks = await getTasks({ excludeComplete: true });
+      if (!cancelled) {
+        setAllTasks(tasks);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Filter: exclude tasks already on this meeting
+  const available = useMemo(() => {
+    return allTasks.filter(t => {
+      if ((t.meetingIds || []).includes(meetingId)) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        if (!t.title.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [allTasks, meetingId, search]);
+
+  // Group by source meeting
+  const grouped = useMemo(() => {
+    const meetingMap = {};
+    if (meetings) for (const m of meetings) meetingMap[m.id] = m.name;
+
+    const groups = {};
+    for (const task of available) {
+      const mIds = (task.meetingIds || []).filter(id => id !== meetingId);
+      if (mIds.length > 0) {
+        const groupId = mIds[0];
+        const groupName = meetingMap[groupId] || `Meeting #${groupId}`;
+        if (!groups[groupId]) groups[groupId] = { name: groupName, tasks: [] };
+        groups[groupId].tasks.push(task);
+      } else {
+        if (!groups['_unlinked']) groups['_unlinked'] = { name: 'Unlinked Tasks', tasks: [] };
+        groups['_unlinked'].tasks.push(task);
+      }
+    }
+    return Object.values(groups);
+  }, [available, meetings, meetingId]);
+
+  async function handleImport(task) {
+    const updatedMeetingIds = [...new Set([...(task.meetingIds || []), meetingId])];
+    await updateTask(task.id, { meetingIds: updatedMeetingIds });
+    // Don't close — let user add multiple tasks
+    setAllTasks(prev => prev.filter(t => t.id !== task.id));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={onClose}>
+      <div
+        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-5 animate-in slide-in-from-bottom max-h-[70vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <Import size={16} className="text-gray-600" />
+          Add Tasks from Other Meetings
+        </h3>
+
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search tasks..."
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+            autoFocus
+          />
+        </div>
+
+        {/* Task list */}
+        <div className="flex-1 overflow-y-auto -mx-1 px-1">
+          {loading ? (
+            <div className="text-center py-8 text-gray-400">
+              <div className="animate-spin w-5 h-5 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-2" />
+              <p className="text-xs">Loading tasks...</p>
+            </div>
+          ) : grouped.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <p className="text-xs">{search ? 'No matching tasks found.' : 'No tasks available to add.'}</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {grouped.map(group => (
+                <div key={group.name}>
+                  <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 px-1">
+                    {group.name}
+                  </h4>
+                  <div className="space-y-0.5">
+                    {group.tasks.map(task => {
+                      const TypeIcon = TYPE_ICONS[task.type] || CheckSquare;
+                      const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
+                      const sc = STATUS_CHAR[task.status] || '\u25CB';
+                      return (
+                        <button
+                          key={task.id}
+                          onClick={() => handleImport(task)}
+                          className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 transition-colors text-left group"
+                        >
+                          <span
+                            className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px]"
+                            style={{ background: c.bg, color: c.fg }}
+                          >
+                            {sc}
+                          </span>
+                          <span className="flex-1 text-xs text-gray-800 truncate">{task.title}</span>
+                          <Plus size={14} className="text-gray-300 group-hover:text-primary-500 flex-shrink-0" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Done */}
+        <button onClick={onClose} className="btn-primary w-full mt-3">
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main PreMeetingReview Component ────────────────────────── */
 
 export default function PreMeetingReview({ meetingId, meetingName, onStartMeeting, onSkip, onBack }) {
@@ -189,6 +336,7 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
   const { tasks: meetingTasks } = useTasksForMeeting(meetingId);
   const { tags: pendingTags } = useMeetingNoteTags(meetingId);
   const { statuses: meetingStatusList } = useMeetingTaskStatuses(meetingId);
+  const [importPickerOpen, setImportPickerOpen] = useState(false);
 
   // Build status map { taskId: statusRecord }
   const statusMap = useMemo(() => {
@@ -244,7 +392,7 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
         <p className="text-sm text-gray-500 mt-0.5">Pre-Meeting Review</p>
       </div>
 
-      {/* Summary */}
+      {/* Summary + Add Tasks button */}
       <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-5">
         <div className="flex items-center justify-between">
           <div>
@@ -257,6 +405,13 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
               </span>
             )}
           </div>
+          <button
+            onClick={() => setImportPickerOpen(true)}
+            className="flex items-center gap-1 text-[11px] font-medium text-primary-600 hover:text-primary-800 px-2 py-1 rounded-lg hover:bg-primary-50 transition-colors"
+          >
+            <Plus size={12} />
+            Add Tasks
+          </button>
         </div>
         <p className="text-[11px] text-gray-400 mt-1">
           Assign a status to each task: Keep on agenda, mark Resolved, Snooze for later, or Reassign to another meeting.
@@ -373,7 +528,14 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
         <div className="text-center py-8 text-gray-400">
           <CheckCircle2 size={32} className="mx-auto mb-2 text-gray-300" />
           <p className="text-sm font-medium text-gray-500 mb-1">All clear!</p>
-          <p className="text-xs">No pending tasks or notes to review.</p>
+          <p className="text-xs mb-3">No pending tasks or notes to review.</p>
+          <button
+            onClick={() => setImportPickerOpen(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 px-3 py-1.5 rounded-lg border border-primary-200 hover:bg-primary-50 transition-colors"
+          >
+            <Import size={14} />
+            Add tasks from other meetings
+          </button>
         </div>
       )}
 
@@ -396,6 +558,14 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
           </button>
         </div>
       </div>
+
+      {/* Import task picker */}
+      {importPickerOpen && (
+        <ImportTaskPicker
+          meetingId={meetingId}
+          onClose={() => setImportPickerOpen(false)}
+        />
+      )}
     </div>
   );
 }

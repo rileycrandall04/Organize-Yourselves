@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
-import { addMeetingNoteTag, syncCallingNotesFromMeeting, deleteMeetingInstance, updateTask, getTasksByIds } from '../db';
+import { addMeetingNoteTag, syncCallingNotesFromMeeting, deleteMeetingInstance, updateTask, getTasksByIds, getTasks } from '../db';
 import { formatFull } from '../utils/dates';
+import { TASK_TYPES } from '../utils/constants';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import MeetingPicker from './shared/MeetingPicker';
 import SacramentProgram from './SacramentProgram';
@@ -10,7 +11,8 @@ import BlockEditor, { migrateAgendaToBlocks, consolidateBlocks } from './BlockEd
 import { htmlToPlainText } from './shared/RichTextEditor';
 import {
   ArrowLeft, Save, CheckCircle2, Users2, Trash2,
-  ArrowUpRight, X, Pencil, RotateCcw,
+  ArrowUpRight, X, Pencil, RotateCcw, Plus, Search, Import,
+  CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
 } from 'lucide-react';
 
 export default function MeetingNotes({ instance, meetingName, meetingId, participants, onBack }) {
@@ -43,6 +45,9 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
 
   // Note tagging
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
+
+  // Import tasks from other meetings
+  const [importPickerOpen, setImportPickerOpen] = useState(false);
 
   // Task sharing to other meetings
   const [shareTaskId, setShareTaskId] = useState(null);
@@ -192,6 +197,26 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     setShareTaskId(null);
   }
 
+  // Import a task from another meeting into the current meeting + editor
+  async function handleImportTask(task) {
+    const updatedMeetingIds = [...new Set([...(task.meetingIds || []), meetingId || instance.meetingId])];
+    await updateTask(task.id, { meetingIds: updatedMeetingIds });
+    // Insert task chip at the end of the first block's HTML
+    const updatedBlocks = [...blocks];
+    if (updatedBlocks.length > 0 && updatedBlocks[0].type === 'richtext') {
+      const chip = `<task-chip data-task-id="${task.id}"></task-chip>`;
+      // Append before closing tag or at end
+      let html = updatedBlocks[0].html || '';
+      if (html.endsWith('</p>')) {
+        html = html.slice(0, -4) + `<br>${chip}</p>`;
+      } else {
+        html += `<p>${chip}</p>`;
+      }
+      updatedBlocks[0] = { ...updatedBlocks[0], html };
+      handleBlocksChange(updatedBlocks);
+    }
+  }
+
   function getMeetingNameById(id) {
     const mtg = allMeetings.find(m => m.id === id);
     return mtg?.name || 'Meeting';
@@ -323,6 +348,19 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
         </div>
       )}
 
+      {/* Add Tasks button (above editor) */}
+      {!isSacrament && !isCompleted && (
+        <div className="mb-3">
+          <button
+            onClick={() => setImportPickerOpen(true)}
+            className="flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 px-3 py-2 rounded-lg border border-primary-200 hover:bg-primary-50 transition-colors w-full justify-center"
+          >
+            <Import size={14} />
+            Add tasks from other meetings
+          </button>
+        </div>
+      )}
+
       {/* Block Editor — the main meeting document */}
       {!isSacrament && (
         <div className="mb-6">
@@ -410,6 +448,180 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
 
       {/* Task sharing picker */}
       <MeetingPicker open={!!shareTaskId} onClose={() => setShareTaskId(null)} onSelect={handleShareTaskToMeeting} excludeIds={[instance.meetingId]} title="Share Task to Meeting" />
+
+      {/* Import tasks from other meetings */}
+      {importPickerOpen && (
+        <MeetingImportPicker
+          meetingId={meetingId || instance.meetingId}
+          meetings={allMeetings}
+          onImport={handleImportTask}
+          onClose={() => setImportPickerOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Import Task Picker for MeetingNotes ─────────────────────── */
+
+const TYPE_ICONS = {
+  action_item: CheckSquare,
+  discussion: MessageSquare,
+  event: CalendarDays,
+  calling_plan: Briefcase,
+  ministering_plan: Heart,
+  ongoing: RotateCw,
+};
+
+const CHIP_COLORS = {
+  action_item:      { bg: '#eff6ff', fg: '#1d4ed8' },
+  discussion:       { bg: '#eef2ff', fg: '#4338ca' },
+  event:            { bg: '#f0fdf4', fg: '#15803d' },
+  calling_plan:     { bg: '#faf5ff', fg: '#7e22ce' },
+  ministering_plan: { bg: '#fff1f2', fg: '#be123c' },
+  ongoing:          { bg: '#fffbeb', fg: '#b45309' },
+};
+
+const STATUS_CHAR = {
+  not_started: '\u25CB',
+  in_progress: '\u25D0',
+  waiting: '\u23F8',
+  complete: '\u2713',
+};
+
+function MeetingImportPicker({ meetingId, meetings, onImport, onClose }) {
+  const [search, setSearch] = useState('');
+  const [allTasks, setAllTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [imported, setImported] = useState(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const tasks = await getTasks({ excludeComplete: true });
+      if (!cancelled) {
+        setAllTasks(tasks);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Filter: exclude tasks already on this meeting or already imported
+  const available = useMemo(() => {
+    return allTasks.filter(t => {
+      if ((t.meetingIds || []).includes(meetingId)) return false;
+      if (imported.has(t.id)) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        if (!t.title.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [allTasks, meetingId, search, imported]);
+
+  // Group by source meeting
+  const grouped = useMemo(() => {
+    const meetingMap = {};
+    if (meetings) for (const m of meetings) meetingMap[m.id] = m.name;
+
+    const groups = {};
+    for (const task of available) {
+      const mIds = (task.meetingIds || []).filter(id => id !== meetingId);
+      if (mIds.length > 0) {
+        const groupId = mIds[0];
+        const groupName = meetingMap[groupId] || `Meeting #${groupId}`;
+        if (!groups[groupId]) groups[groupId] = { name: groupName, tasks: [] };
+        groups[groupId].tasks.push(task);
+      } else {
+        if (!groups['_unlinked']) groups['_unlinked'] = { name: 'Unlinked Tasks', tasks: [] };
+        groups['_unlinked'].tasks.push(task);
+      }
+    }
+    return Object.values(groups);
+  }, [available, meetings, meetingId]);
+
+  async function handleImport(task) {
+    await onImport(task);
+    setImported(prev => new Set([...prev, task.id]));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={onClose}>
+      <div
+        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-5 animate-in slide-in-from-bottom max-h-[70vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <Import size={16} className="text-gray-600" />
+          Add Tasks from Other Meetings
+        </h3>
+
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search tasks..."
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+            autoFocus
+          />
+        </div>
+
+        {/* Task list */}
+        <div className="flex-1 overflow-y-auto -mx-1 px-1">
+          {loading ? (
+            <div className="text-center py-8 text-gray-400">
+              <div className="animate-spin w-5 h-5 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-2" />
+              <p className="text-xs">Loading tasks...</p>
+            </div>
+          ) : grouped.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <p className="text-xs">{search ? 'No matching tasks found.' : 'No tasks available to add.'}</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {grouped.map(group => (
+                <div key={group.name}>
+                  <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 px-1">
+                    {group.name}
+                  </h4>
+                  <div className="space-y-0.5">
+                    {group.tasks.map(task => {
+                      const TypeIcon = TYPE_ICONS[task.type] || CheckSquare;
+                      const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
+                      const sc = STATUS_CHAR[task.status] || '\u25CB';
+                      return (
+                        <button
+                          key={task.id}
+                          onClick={() => handleImport(task)}
+                          className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 transition-colors text-left group"
+                        >
+                          <span
+                            className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px]"
+                            style={{ background: c.bg, color: c.fg }}
+                          >
+                            {sc}
+                          </span>
+                          <span className="flex-1 text-xs text-gray-800 truncate">{task.title}</span>
+                          <Plus size={14} className="text-gray-300 group-hover:text-primary-500 flex-shrink-0" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Done */}
+        <button onClick={onClose} className="btn-primary w-full mt-3">
+          Done
+        </button>
+      </div>
     </div>
   );
 }
