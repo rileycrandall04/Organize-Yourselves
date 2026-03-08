@@ -334,14 +334,27 @@ function startRealtimeSync(uid) {
 
           try {
             if (change.type === 'added' || change.type === 'modified') {
-              // Check if local record is newer (has a more recent updatedAt)
-              // to prevent stale cloud data from overwriting fresh local changes
               const existing = await table.get(docId);
-              if (existing?.updatedAt && data.updatedAt && existing.updatedAt > data.updatedAt) {
-                // Local is newer — skip overwrite, re-push local to cloud
-                pushToCloud(tableName, docId, existing);
-                return;
+              if (existing) {
+                // Local record exists — decide whether to overwrite
+                if (data.updatedAt && existing.updatedAt) {
+                  // Both have timestamps — keep the newer one
+                  if (existing.updatedAt > data.updatedAt) {
+                    pushToCloud(tableName, docId, existing);
+                    return;
+                  }
+                  // Cloud is newer or same — accept cloud data
+                } else if (existing.updatedAt && !data.updatedAt) {
+                  // Local has timestamp, cloud doesn't — local is newer, re-push
+                  pushToCloud(tableName, docId, existing);
+                  return;
+                } else if (!existing.updatedAt && !data.updatedAt) {
+                  // Neither has timestamps — prefer local (cloud may be stale)
+                  return;
+                }
+                // else: cloud has timestamp, local doesn't — cloud is from new code, accept it
               }
+              // No local record, or cloud is definitively newer — accept cloud data
               await table.put({ ...data, id: docId });
             } else if (change.type === 'removed') {
               await table.delete(docId);
@@ -373,6 +386,7 @@ export function stopRealtimeSync() {
 
 /**
  * Force a full sync: push ALL local Dexie data to Firestore.
+ * Stamps updatedAt on all records so they're protected from stale overwrites.
  * Use after deploying Firestore rules or to recover from sync failures.
  * Returns a status object with success/failure details.
  */
@@ -382,6 +396,7 @@ export async function forceFullSync() {
   if (!firestore) return { success: false, error: 'Firestore not available' };
 
   const results = { success: true, tables: {}, errors: [] };
+  const now = new Date().toISOString();
 
   for (const tableName of SYNC_TABLES) {
     try {
@@ -392,6 +407,14 @@ export async function forceFullSync() {
       if (rows.length === 0) {
         results.tables[tableName] = 0;
         continue;
+      }
+
+      // Stamp updatedAt on all records that don't have it yet
+      for (const row of rows) {
+        if (!row.updatedAt) {
+          row.updatedAt = now;
+          await table.update(row.id, { updatedAt: now });
+        }
       }
 
       // Use batched writes (max 500 per batch)
