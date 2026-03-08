@@ -15,6 +15,7 @@ import PreMeetingReview from './PreMeetingReview';
 import AddMeetingForm from './AddMeetingForm';
 import Modal from './shared/Modal';
 import TaskEditor, { TaskRow } from './shared/TaskEditor';
+import { extractTaskIdsFromHtml } from './shared/RichTextEditor';
 
 const cadenceOptions = Object.entries(MEETING_CADENCES);
 
@@ -203,6 +204,80 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     setNewPlanFamily('');
     setNewPlanDesc('');
     setShowAddPlan(false);
+  }
+
+  // Open an existing instance — inject any assigned tasks not yet in the blocks
+  async function openInstance(inst) {
+    if (inst.status !== 'completed') {
+      const blocks = inst.blocks || [];
+      const firstBlock = blocks[0];
+      // Extract task IDs from the blocks (handles richtext and old text formats)
+      let html = '';
+      if (firstBlock?.type === 'richtext') {
+        html = firstBlock.html || '';
+      } else if (firstBlock?.type === 'text' && firstBlock.text) {
+        // Old text format uses {{task:ID}} markers
+        const markerRe = /\{\{task:(\d+)\}\}/g;
+        let m;
+        while ((m = markerRe.exec(firstBlock.text)) !== null) {
+          html += `<task-chip data-task-id="${m[1]}"></task-chip>`;
+        }
+      }
+      // Also check task_ref blocks
+      for (const b of blocks) {
+        if (b.type === 'task_ref' && b.taskId) {
+          html += `<task-chip data-task-id="${b.taskId}"></task-chip>`;
+        }
+      }
+      const existingIds = new Set(extractTaskIdsFromHtml(html));
+
+      // ongoingTasks = all incomplete tasks assigned to this meeting (from hook)
+      const orphaned = ongoingTasks.filter(t => !existingIds.has(t.id));
+
+      if (orphaned.length > 0) {
+        const sectionLabels = {
+          action_item: 'Follow Up',
+          discussion: 'Discussion',
+          event: 'Announcements',
+          calling_plan: 'Callings',
+          ministering_plan: 'Fellowshipping',
+          ongoing: 'Ongoing Follow Up',
+        };
+
+        // Group orphaned tasks by type
+        const grouped = {};
+        for (const t of orphaned) {
+          const key = t.type || 'action_item';
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(t);
+        }
+
+        let appendHtml = '';
+        for (const [type, tasks] of Object.entries(grouped)) {
+          appendHtml += `${sectionLabels[type] || 'Tasks'}<br>`;
+          for (const t of tasks) {
+            appendHtml += `<task-chip data-task-id="${t.id}"></task-chip><br>`;
+          }
+          appendHtml += '<br>';
+        }
+
+        let newHtml;
+        if (!html || html === '<p></p>') {
+          newHtml = `<p>${appendHtml}</p>`;
+        } else if (html.endsWith('</p>')) {
+          newHtml = html.slice(0, -4) + `<br><br>${appendHtml}</p>`;
+        } else {
+          newHtml = html + `<p>${appendHtml}</p>`;
+        }
+
+        const blockId = firstBlock?.id || `b_${Date.now()}`;
+        const newBlocks = [{ id: blockId, type: 'richtext', html: newHtml }];
+        await updateMeetingInstance(inst.id, { blocks: newBlocks });
+        setActiveInstance({ ...inst, blocks: newBlocks });
+        return;
+      }
+    }
+    setActiveInstance(inst);
   }
 
   // Pre-meeting review screen (shown after creating a new instance)
@@ -683,7 +758,7 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
               <InstanceRow
                 key={inst.id}
                 instance={inst}
-                onPress={() => setActiveInstance(inst)}
+                onPress={() => openInstance(inst)}
                 onDelete={async () => { await deleteMeetingInstance(inst.id); }}
               />
             ))}
