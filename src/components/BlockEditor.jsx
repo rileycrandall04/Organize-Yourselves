@@ -922,14 +922,6 @@ export default function BlockEditor({
                   </button>
                 );
               })}
-              {/* Import existing task */}
-              <button
-                onClick={() => setImportPickerOpen(true)}
-                className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1 border-l border-gray-100"
-              >
-                <Import size={16} className="text-gray-500" />
-                <span className="text-[9px] text-gray-500 font-medium">Import</span>
-              </button>
             </div>
           </div>
         </div>

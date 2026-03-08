@@ -4,7 +4,7 @@ import { setMeetingTaskStatus, getTasks, updateTask } from '../db';
 import { TASK_TYPES, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../utils/constants';
 import {
   ArrowLeft, ChevronDown, ChevronRight, Play, SkipForward, Plus, Search, Import, X,
-  CheckCircle2, RotateCw, Clock, ArrowRightLeft,
+  CheckCircle2, RotateCw, Clock, ArrowRightLeft, FileText,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
   ArrowUpRight,
 } from 'lucide-react';
@@ -553,8 +553,8 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
             onClick={handleStartMeeting}
             className="btn-primary flex items-center justify-center gap-1.5 flex-1"
           >
-            <Play size={14} />
-            Start Meeting
+            <FileText size={14} />
+            Open Meeting Notes
           </button>
         </div>
       </div>

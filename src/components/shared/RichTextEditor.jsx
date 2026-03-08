@@ -52,6 +52,7 @@ const TaskChipNode = Node.create({
   group: 'inline',
   inline: true,
   atom: true,
+  draggable: true,
 
   addAttributes() {
     return {
@@ -466,7 +467,7 @@ export default function RichTextEditor({
       const task = currentTaskMap[id];
       if (!task) {
         chip.textContent = `Task #${id}`;
-        chip.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:#f3f4f6;color:#9ca3af;font-size:12px;cursor:pointer;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;';
+        chip.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:#f3f4f6;color:#9ca3af;font-size:12px;cursor:grab;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;';
         return;
       }
       const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
@@ -495,7 +496,7 @@ export default function RichTextEditor({
         chip.appendChild(badge);
       }
 
-      chip.style.cssText = `display:inline-flex;align-items:center;gap:3px;padding:2px 8px 2px 6px;border-radius:6px;background:${c.bg};color:${c.fg};border:1px solid ${c.bd};font-size:12px;font-weight:500;cursor:pointer;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;white-space:nowrap;${dimmed ? 'opacity:0.5;text-decoration:line-through;' : ''}`;
+      chip.style.cssText = `display:inline-flex;align-items:center;gap:3px;padding:2px 8px 2px 6px;border-radius:6px;background:${c.bg};color:${c.fg};border:1px solid ${c.bd};font-size:12px;font-weight:500;cursor:grab;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;white-space:nowrap;${dimmed ? 'opacity:0.5;text-decoration:line-through;' : ''}`;
     });
   }, [editor]);
 

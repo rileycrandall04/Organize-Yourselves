@@ -103,7 +103,7 @@
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  cursor: pointer;
+  cursor: grab;
   user-select: none;
   vertical-align: baseline;
   line-height: 1.4;
@@ -112,6 +112,10 @@
   background: #eff6ff;
   color: #1d4ed8;
   border: 1px solid #bfdbfe;
+}
+
+.rich-text-editor .tiptap task-chip:active {
+  cursor: grabbing;
 }
 
 /* TipTap placeholder */
