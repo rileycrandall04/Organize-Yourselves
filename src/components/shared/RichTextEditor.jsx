@@ -73,11 +73,10 @@ const TaskChipNode = Node.create({
     return [{ tag: 'task-chip[data-task-id]' }];
   },
 
-  renderHTML({ node }) {
-    return ['task-chip', {
-      'data-task-id': node.attrs.taskId,
+  renderHTML({ HTMLAttributes }) {
+    return ['task-chip', mergeAttributes(HTMLAttributes, {
       contenteditable: 'false',
-    }];
+    })];
   },
 });
 

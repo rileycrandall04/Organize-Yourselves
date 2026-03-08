@@ -1023,14 +1023,6 @@ export async function buildAutoAgendaBlocks(meetingId) {
     (reachedClosing ? closingItems : beforeClosing).push(item);
   }
 
-  // Build single text document with {{task:ID}} markers inline
-  let text = '';
-
-  // 1. Template items as bullet points
-  if (beforeClosing.length > 0) {
-    text += beforeClosing.map(item => `\u2022 ${item}`).join('\n');
-  }
-
   // 2. Gather all follow-up and linked tasks, categorize by type
   //    Respect per-meeting task statuses from PreMeetingReview
   const allTasks = await db.tasks.toArray();
@@ -1100,6 +1092,23 @@ export async function buildAutoAgendaBlocks(meetingId) {
     { key: 'ministering_plan', label: 'Fellowshipping' },
     { key: 'ongoing', label: 'Ongoing Follow Up' },
   ];
+
+  // Build set of section labels that have tasks (case-insensitive)
+  const activeSectionLabels = new Set();
+  for (const { key, label } of sectionDefs) {
+    if (categorized[key].length > 0) activeSectionLabels.add(label.toLowerCase());
+  }
+
+  // Build single text document with {{task:ID}} markers inline
+  let text = '';
+
+  // 1. Template items as bullet points — skip items that match task section headers
+  if (beforeClosing.length > 0) {
+    const filtered = beforeClosing.filter(item => !activeSectionLabels.has(item.toLowerCase().trim()));
+    if (filtered.length > 0) {
+      text += filtered.map(item => `\u2022 ${item}`).join('\n');
+    }
+  }
 
   // 3. Add categorized sections with inline task markers
   for (const { key, label } of sectionDefs) {
