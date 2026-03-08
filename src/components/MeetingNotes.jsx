@@ -96,8 +96,10 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     if (saving) return;
     setSaving(true);
     try {
-      await update(instance.id, { blocks });
-      setDirty(false);
+      if (dirty) {
+        await update(instance.id, { blocks });
+        setDirty(false);
+      }
       onBack(); // Return to meeting home page
     } finally {
       setSaving(false);
@@ -422,7 +424,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
       {/* Bottom actions */}
       {!isCompleted ? (
         <div className="flex gap-3 mb-6">
-          <button onClick={handleSave} disabled={!dirty || saving} className="btn-secondary flex-1 flex items-center justify-center gap-1.5">
+          <button onClick={handleSave} disabled={saving} className="btn-secondary flex-1 flex items-center justify-center gap-1.5">
             <Save size={16} /> {saving ? 'Saving...' : 'Save Draft'}
           </button>
           <button onClick={handleFinalize} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-1.5">
