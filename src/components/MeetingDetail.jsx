@@ -206,7 +206,39 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
     setShowAddPlan(false);
   }
 
-  // Open an existing instance — inject any assigned tasks not yet in the blocks
+  // Section labels used by buildAutoAgendaBlocks — normalized for matching
+  const SECTION_LABEL_SET = new Set([
+    'follow up', 'follow-up', 'followup', 'follow ups', 'follow-ups',
+    'discussion', 'discussions', 'discussion items',
+    'announcements', 'announcement',
+    'callings', 'calling',
+    'fellowshipping', 'ministering',
+    'ongoing follow up', 'ongoing follow-up', 'ongoing', 'ongoing items',
+  ]);
+
+  // Strip bullet-point <li> items that duplicate task section headers
+  function cleanDuplicateHeadings(html) {
+    // Find section headings that appear before task chips (plain text labels)
+    const headingRe = /(?:^|<br>)\s*([A-Za-z\u2713][A-Za-z0-9 \-]*?)\s*<br>\s*<task-chip/g;
+    const activeHeadings = new Set();
+    let m;
+    while ((m = headingRe.exec(html)) !== null) {
+      activeHeadings.add(m[1].trim().toLowerCase().replace(/[-_]/g, ' '));
+    }
+    if (activeHeadings.size === 0) return html;
+
+    // Remove <li><p>LABEL</p></li> entries that match active section headings or known labels
+    let cleaned = html.replace(/<li><p>([^<]+)<\/p><\/li>/g, (match, text) => {
+      const norm = text.trim().toLowerCase().replace(/[-_]/g, ' ');
+      if (activeHeadings.has(norm) || SECTION_LABEL_SET.has(norm)) return '';
+      return match;
+    });
+    // Clean up stray consecutive <br> tags left behind
+    cleaned = cleaned.replace(/(<br>\s*){3,}/g, '<br><br>');
+    return cleaned;
+  }
+
+  // Open an existing instance — inject orphaned tasks + clean duplicate headings
   async function openInstance(inst) {
     if (inst.status !== 'completed') {
       const blocks = inst.blocks || [];
@@ -216,14 +248,12 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
       if (firstBlock?.type === 'richtext') {
         html = firstBlock.html || '';
       } else if (firstBlock?.type === 'text' && firstBlock.text) {
-        // Old text format uses {{task:ID}} markers
         const markerRe = /\{\{task:(\d+)\}\}/g;
         let m;
         while ((m = markerRe.exec(firstBlock.text)) !== null) {
           html += `<task-chip data-task-id="${m[1]}"></task-chip>`;
         }
       }
-      // Also check task_ref blocks
       for (const b of blocks) {
         if (b.type === 'task_ref' && b.taskId) {
           html += `<task-chip data-task-id="${b.taskId}"></task-chip>`;
@@ -233,25 +263,37 @@ export default function MeetingDetail({ meeting, onBack, onMeetingDeleted }) {
 
       // ongoingTasks = all incomplete tasks assigned to this meeting (from hook)
       const orphaned = ongoingTasks.filter(t => !existingIds.has(t.id));
+      let needsUpdate = false;
 
+      // Append orphaned task chips
       if (orphaned.length > 0) {
-        // Append orphaned task chips (no section headers — avoids duplication)
         let appendHtml = '';
         for (const t of orphaned) {
           appendHtml += `<task-chip data-task-id="${t.id}"></task-chip> `;
         }
 
-        let newHtml;
         if (!html || html === '<p></p>') {
-          newHtml = `<p>${appendHtml}</p>`;
+          html = `<p>${appendHtml}</p>`;
         } else if (html.endsWith('</p>')) {
-          newHtml = html.slice(0, -4) + `<br><br>${appendHtml}</p>`;
+          html = html.slice(0, -4) + `<br><br>${appendHtml}</p>`;
         } else {
-          newHtml = html + `<p>${appendHtml}</p>`;
+          html = html + `<p>${appendHtml}</p>`;
         }
+        needsUpdate = true;
+      }
 
+      // Clean up duplicate section headings (bullet labels that match task section headers)
+      if (firstBlock?.type === 'richtext') {
+        const cleaned = cleanDuplicateHeadings(html);
+        if (cleaned !== html) {
+          html = cleaned;
+          needsUpdate = true;
+        }
+      }
+
+      if (needsUpdate) {
         const blockId = firstBlock?.id || `b_${Date.now()}`;
-        const newBlocks = [{ id: blockId, type: 'richtext', html: newHtml }];
+        const newBlocks = [{ id: blockId, type: 'richtext', html }];
         await updateMeetingInstance(inst.id, { blocks: newBlocks });
         setActiveInstance({ ...inst, blocks: newBlocks });
         return;

@@ -539,7 +539,7 @@ export default function RichTextEditor({
     insertTaskChip,
     getSelectedText,
     replaceSelectionWithChip,
-    FormattingToolbar: () => (
+    formattingToolbar: (
       <FormattingToolbar
         editor={editor}
         disabled={disabled}
@@ -547,7 +547,7 @@ export default function RichTextEditor({
         hasSelection={hasSelection}
       />
     ),
-    EditorView: () => (
+    editorView: (
       <EditorContent
         editor={editor}
         className="rich-text-editor min-h-[200px] text-sm text-gray-800 leading-relaxed focus:outline-none px-4 py-3"

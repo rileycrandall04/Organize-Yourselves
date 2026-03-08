@@ -817,8 +817,8 @@ export default function BlockEditor({
     insertTaskChip,
     getSelectedText,
     replaceSelectionWithChip,
-    FormattingToolbar,
-    EditorView,
+    formattingToolbar,
+    editorView,
   } = useRichTextEditor({
     initialHtml,
     onContentChange: (html) => {
@@ -881,10 +881,10 @@ export default function BlockEditor({
       {/* Document area — paper-like container with formatting toolbar */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[200px]">
         {/* Formatting toolbar */}
-        {!disabled && !finalized && <FormattingToolbar />}
+        {!disabled && !finalized && formattingToolbar}
 
         {/* Editor content */}
-        <EditorView />
+        {editorView}
 
         {/* Auto-save status indicator */}
         {saveStatus && (
