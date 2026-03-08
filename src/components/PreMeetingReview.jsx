@@ -540,7 +540,7 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
       )}
 
       {/* Bottom action bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 safe-area-bottom z-30">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 safe-area-bottom z-50">
         <div className="max-w-lg mx-auto flex gap-3">
           <button
             onClick={onSkip}
