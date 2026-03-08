@@ -156,7 +156,7 @@ export default function Dashboard() {
 
       {/* To Do — collapsible with filter toggle */}
       {totalCount > 0 && (
-        <div className="mb-4">
+        <div className="mb-4 bg-white rounded-xl border border-gray-200 shadow-sm p-3">
           {/* Header with collapse + filter */}
           <div className="flex items-center justify-between mb-2">
             <button
