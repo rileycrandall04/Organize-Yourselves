@@ -250,9 +250,9 @@ function ImportTaskPicker({ meetingId, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-5 animate-in slide-in-from-bottom max-h-[70vh] flex flex-col"
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 animate-in fade-in max-h-[70vh] flex flex-col mx-4"
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">

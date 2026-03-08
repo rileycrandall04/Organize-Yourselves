@@ -42,9 +42,9 @@ export default function Modal({ open, onClose, title, children, size = 'md' }) {
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
     >
-      <div className={`bg-white w-full ${sizeClass} rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[90vh] flex flex-col`}>
+      <div className={`bg-white w-full ${sizeClass} rounded-2xl shadow-xl max-h-[90vh] flex flex-col mx-4`}>
         {/* Header */}
         {title && (
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">

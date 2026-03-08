@@ -190,9 +190,9 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/20" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
       <div
-        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-4 pb-6 max-h-[55vh] overflow-y-auto animate-in slide-in-from-bottom duration-200"
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-4 pb-6 max-h-[55vh] overflow-y-auto animate-in fade-in duration-200 mx-4"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -413,9 +413,9 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-5 animate-in slide-in-from-bottom"
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 animate-in fade-in mx-4"
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -516,9 +516,9 @@ function MakeTaskModal({ initialTitle, meetingId, instanceId, onCreated, onClose
   const showDescription = selectedTypes.some(t => ['discussion', 'event', 'ministering_plan'].includes(t));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-5 animate-in slide-in-from-bottom"
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 animate-in fade-in mx-4"
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
@@ -683,9 +683,9 @@ function ImportTaskPicker({ meetingId, htmlContent, meetings, onImport, onClose 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-5 animate-in slide-in-from-bottom max-h-[70vh] flex flex-col"
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 animate-in fade-in max-h-[70vh] flex flex-col mx-4"
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">

@@ -443,18 +443,27 @@ export default function RichTextEditor({
     return () => editorEl.removeEventListener('click', handleClick);
   }, [editor, onClickTask]);
 
-  // ── Task chip rendering (update chips when task data changes) ──
+  // ── Task chip rendering (update chips when task data changes OR DOM changes) ──
 
-  useEffect(() => {
+  // Keep latest data in refs so the transaction handler always sees current values
+  const taskMapRef = useRef(taskMap);
+  taskMapRef.current = taskMap;
+  const meetingStatusRef = useRef(meetingTaskStatuses);
+  meetingStatusRef.current = meetingTaskStatuses;
+
+  const styleAllChips = useCallback(() => {
     if (!editor) return;
     const editorEl = editor.view.dom;
     const chips = editorEl.querySelectorAll('task-chip');
+    const currentTaskMap = taskMapRef.current;
+    const currentStatuses = meetingStatusRef.current;
+
     chips.forEach(chip => {
       const raw = chip.getAttribute('data-task-id');
       if (raw == null) return;
       const id = Number(raw);
       if (isNaN(id)) return;
-      const task = taskMap[id];
+      const task = currentTaskMap[id];
       if (!task) {
         chip.textContent = `Task #${id}`;
         chip.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:#f3f4f6;color:#9ca3af;font-size:12px;cursor:pointer;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;';
@@ -465,12 +474,9 @@ export default function RichTextEditor({
       const done = task.status === 'complete';
 
       // Check for per-meeting status
-      const mStatus = meetingTaskStatuses[id];
+      const mStatus = currentStatuses[id];
       const mIndicator = mStatus ? MEETING_STATUS_INDICATOR[mStatus.meetingStatus] : null;
-      const isResolved = mStatus?.meetingStatus === 'resolved';
-      const isSnoozed = mStatus?.meetingStatus === 'snoozed';
-      const isReassigned = mStatus?.meetingStatus === 'reassigned';
-      const dimmed = done || isResolved;
+      const dimmed = done || mStatus?.meetingStatus === 'resolved';
 
       // Build chip content: status char + title + optional meeting status badge
       chip.innerHTML = '';
@@ -491,7 +497,20 @@ export default function RichTextEditor({
 
       chip.style.cssText = `display:inline-flex;align-items:center;gap:3px;padding:2px 8px 2px 6px;border-radius:6px;background:${c.bg};color:${c.fg};border:1px solid ${c.bd};font-size:12px;font-weight:500;cursor:pointer;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;white-space:nowrap;${dimmed ? 'opacity:0.5;text-decoration:line-through;' : ''}`;
     });
-  }, [editor, tasksData, meetingTaskStatuses]);
+  }, [editor]);
+
+  // Re-style chips when task data changes
+  useEffect(() => {
+    styleAllChips();
+  }, [editor, tasksData, meetingTaskStatuses, styleAllChips]);
+
+  // Re-style chips after every editor transaction (handles Enter, paste, undo, etc.)
+  useEffect(() => {
+    if (!editor) return;
+    const onTransaction = () => styleAllChips();
+    editor.on('transaction', onTransaction);
+    return () => editor.off('transaction', onTransaction);
+  }, [editor, styleAllChips]);
 
   // ── Insert task chip at current position ───────────────────
 

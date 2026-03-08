@@ -151,9 +151,9 @@ export default function TaskEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/20" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
       <div
-        className="w-full max-w-lg bg-white rounded-t-2xl shadow-xl p-4 pb-6 max-h-[60vh] overflow-y-auto animate-in slide-in-from-bottom duration-200"
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-4 pb-6 max-h-[60vh] overflow-y-auto animate-in fade-in duration-200 mx-4"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
