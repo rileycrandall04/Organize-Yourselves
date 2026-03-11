@@ -11,6 +11,7 @@ import {
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { useAuth } from '../hooks/useAuth';
 import DashboardChat from './DashboardChat';
+import ActionItemForm from './ActionItemForm';
 import { formatFriendly } from '../utils/dates';
 import { isDateToday } from '../utils/meetingSchedule';
 import { formatCadenceLabel } from '../data/callings';
@@ -21,7 +22,7 @@ export default function Dashboard() {
   const { profile } = useProfile();
   const { stats } = useDashboardStats();
   const { add: addInboxItem } = useInbox();
-  const { tasks: allTasks, update: updateTask } = useTasks({ excludeComplete: true });
+  const { tasks: allTasks, update: updateTask, add: addTask, remove: removeTask } = useTasks({ excludeComplete: true });
   const { callings } = useUserCallings();
   const { meetings: upcomingMeetings } = useUpcomingMeetings();
 
@@ -41,6 +42,8 @@ export default function Dashboard() {
   // To-do section state
   const [todoCollapsed, setTodoCollapsed] = useState(false);
   const [todoShowAll, setTodoShowAll] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
 
   async function handleDismissReminder() {
     setReminderDismissed(true);
@@ -81,6 +84,23 @@ export default function Dashboard() {
 
   async function handleSnooze(id) {
     await snoozeTask(id, 7);
+  }
+
+  function handlePressTask(item) {
+    setEditItem(item);
+    setFormOpen(true);
+  }
+
+  async function handleSaveTask(data, id) {
+    if (id) {
+      await updateTask(id, data);
+    } else {
+      await addTask(data);
+    }
+  }
+
+  async function handleDeleteTask(id) {
+    await removeTask(id);
   }
 
   const hasContent = allTasks.length > 0 || upcomingMeetings.length > 0;
@@ -211,7 +231,7 @@ export default function Dashboard() {
                     item={item}
                     onToggleStatus={handleToggleStatus}
                     onSnooze={handleSnooze}
-                    onPress={() => navigate('/actions')}
+                    onPress={handlePressTask}
                   />
                 ))
               ) : (
@@ -292,6 +312,15 @@ export default function Dashboard() {
           <p className="text-sm">No items yet. Star action items or add meetings and they&apos;ll appear here.</p>
         </div>
       )}
+
+      {/* Task edit form */}
+      <ActionItemForm
+        open={formOpen}
+        onClose={() => { setFormOpen(false); setEditItem(null); }}
+        onSave={handleSaveTask}
+        onDelete={handleDeleteTask}
+        item={editItem}
+      />
     </div>
   );
 }
