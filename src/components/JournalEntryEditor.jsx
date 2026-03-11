@@ -72,10 +72,9 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     entryIdRef.current = entryId;
   }, [entryId]);
 
-  // Keep ref in sync
-  useEffect(() => {
-    latestBlocksRef.current = blocks;
-  }, [blocks]);
+  // NOTE: latestBlocksRef is updated synchronously in handleChange (below)
+  // so that handleSaveAndBack always reads the latest editor content,
+  // even if React hasn't re-rendered yet (fixes save-erases-changes bug).
 
   // Create entry on first edit if new — uses ref + promise lock to prevent duplicates
   const ensureEntry = useCallback(async (html) => {
@@ -134,8 +133,10 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     onSwitchList(targetList.id);
   }, [handleSave, onSwitchList]);
 
-  // Change handler
+  // Change handler — updates ref synchronously so handleSaveAndBack always
+  // has the latest content, even if the user clicks Save/Back before React re-renders.
   const handleChange = useCallback((newBlocks) => {
+    latestBlocksRef.current = newBlocks;
     setBlocks(newBlocks);
   }, []);
 
