@@ -118,8 +118,8 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     }
   }, [ensureEntry, title]);
 
-  // Manual save (Save button) — saves and navigates back
-  const handleManualSave = useCallback(async () => {
+  // Auto-save + navigate back (used by both Save button and Back button)
+  const handleSaveAndBack = useCallback(async () => {
     const currentBlocks = latestBlocksRef.current;
     await handleSave(currentBlocks);
     onBack();
@@ -255,7 +255,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <button onClick={onBack} className="flex items-center gap-1 text-sm text-primary-600">
+        <button onClick={readOnly ? onBack : handleSaveAndBack} className="flex items-center gap-1 text-sm text-primary-600">
           <ArrowLeft size={16} />
           {readOnly ? 'Back' : 'Back to List'}
         </button>
@@ -263,7 +263,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
           {/* Save button */}
           {!readOnly && (
             <button
-              onClick={handleManualSave}
+              onClick={handleSaveAndBack}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 saveFlash
                   ? 'bg-green-50 text-green-600 border border-green-200'
