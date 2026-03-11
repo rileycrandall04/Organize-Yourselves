@@ -26,6 +26,7 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
   const [meetingIds, setMeetingIds] = useState([]);
+  const [selectedTypes, setSelectedTypes] = useState(['action_item']);
   const [assignedTo, setAssignedTo] = useState(null);
   const [assigneeInput, setAssigneeInput] = useState('');
   const [showAssigneePicker, setShowAssigneePicker] = useState(false);
@@ -37,6 +38,7 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
       setForm(item ? { ...EMPTY_FORM, ...item } : EMPTY_FORM);
       // Support both old targetMeetingIds and new meetingIds
       setMeetingIds(item?.meetingIds || item?.targetMeetingIds || []);
+      setSelectedTypes(item?.types || (item?.type ? [item.type] : ['action_item']));
       setAssignedTo(item?.assignedTo || null);
       setAssigneeInput('');
       setConfirmDelete(false);
@@ -52,8 +54,10 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
     if (!form.title.trim() || saving) return;
     setSaving(true);
     try {
+      const primaryType = selectedTypes[0] || 'action_item';
       const data = {
-        type: form.type || 'action_item',
+        type: primaryType,
+        types: [...selectedTypes],
         title: form.title.trim(),
         description: form.description.trim(),
         priority: form.priority,
@@ -67,7 +71,7 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
       };
 
       // Type-specific fields
-      if (form.type === 'event') {
+      if (selectedTypes.includes('event')) {
         data.eventDate = form.eventDate || form.dueDate || undefined;
         data.organization = form.organization || undefined;
       }
@@ -88,29 +92,40 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
     onClose();
   }
 
-  const showActionFields = form.type === 'action_item';
-  const showEventFields = form.type === 'event';
+  const showActionFields = selectedTypes.includes('action_item');
+  const showEventFields = selectedTypes.includes('event');
 
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Task' : 'New Task'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Type selector */}
+        {/* Type selector (multi-select) */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Type <span className="text-gray-400 font-normal">(select multiple)</span></label>
           <div className="flex gap-1.5 flex-wrap">
-            {TASK_TYPE_LIST.map(t => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => set('type', t.key)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors
-                  ${form.type === t.key
-                    ? 'bg-primary-700 text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-              >
-                {t.label}
-              </button>
-            ))}
+            {TASK_TYPE_LIST.map(t => {
+              const isActive = selectedTypes.includes(t.key);
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => {
+                    setSelectedTypes(prev => {
+                      if (prev.includes(t.key)) {
+                        if (prev.length <= 1) return prev; // Keep at least one
+                        return prev.filter(k => k !== t.key);
+                      }
+                      return [...prev, t.key];
+                    });
+                  }}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors
+                    ${isActive
+                      ? 'bg-primary-700 text-white'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 

@@ -373,7 +373,7 @@ export async function getTasks(filters = {}) {
   const today = new Date().toISOString().split('T')[0];
 
   return items.filter(item => {
-    if (filters.type && item.type !== filters.type) return false;
+    if (filters.type && item.type !== filters.type && !(item.types || []).includes(filters.type)) return false;
     if (filters.status && item.status !== filters.status) return false;
     if (filters.priority && item.priority !== filters.priority) return false;
     if (filters.excludeComplete && item.status === 'complete') return false;
