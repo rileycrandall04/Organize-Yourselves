@@ -19,11 +19,21 @@ import { ArrowLeft, Trash2, Save, CheckCircle2 } from 'lucide-react';
 export default function JournalEntryEditor({ entry, list, onBack, readOnly = false }) {
   const [entryId, setEntryId] = useState(entry?.id || null);
   const [title, setTitle] = useState(entry?.title || '');
-  const [blocks, setBlocks] = useState([]);
+  // Initialize blocks synchronously so BlockEditor sees them on the first render.
+  // (Using useEffect would delay initialization until after the first render,
+  //  causing BlockEditor's useMemo to see an empty array and init TipTap blank.)
+  const [blocks, setBlocks] = useState(() => {
+    if (entry?.html) {
+      return [{ id: 'j1', type: 'richtext', html: entry.html }];
+    } else if (entry?.text) {
+      const html = entry.text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+      return [{ id: 'j1', type: 'richtext', html }];
+    }
+    return [{ id: 'j1', type: 'richtext', html: '<p></p>' }];
+  });
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveFlash, setSaveFlash] = useState(false);
-  const hasInitialized = useRef(false);
   const latestBlocksRef = useRef(blocks);
   const entryIdRef = useRef(entryId); // Ref to prevent duplicate creation race condition
   const creatingRef = useRef(null); // Promise lock for entry creation
@@ -34,21 +44,6 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
   useEffect(() => {
     entryIdRef.current = entryId;
   }, [entryId]);
-
-  // Initialize blocks from entry
-  useEffect(() => {
-    if (hasInitialized.current) return;
-    hasInitialized.current = true;
-
-    if (entry?.html) {
-      setBlocks([{ id: 'j1', type: 'richtext', html: entry.html }]);
-    } else if (entry?.text) {
-      const html = entry.text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
-      setBlocks([{ id: 'j1', type: 'richtext', html }]);
-    } else {
-      setBlocks([{ id: 'j1', type: 'richtext', html: '<p></p>' }]);
-    }
-  }, [entry]);
 
   // Keep ref in sync
   useEffect(() => {
@@ -96,13 +91,12 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
     }
   }, [ensureEntry, title]);
 
-  // Manual save (Save button)
+  // Manual save (Save button) — saves and navigates back
   const handleManualSave = useCallback(async () => {
     const currentBlocks = latestBlocksRef.current;
     await handleSave(currentBlocks);
-    setSaveFlash(true);
-    setTimeout(() => setSaveFlash(false), 2000);
-  }, [handleSave]);
+    onBack();
+  }, [handleSave, onBack]);
 
   // Change handler
   const handleChange = useCallback((newBlocks) => {

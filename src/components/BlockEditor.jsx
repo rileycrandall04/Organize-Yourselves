@@ -996,6 +996,7 @@ export default function BlockEditor({
   onTagTask,
   meetings,
   onInsertRef,
+  onGetSelectedTextRef,
   // Journal mode props
   mode = 'meeting',
   journalEntryId,
@@ -1083,6 +1084,11 @@ export default function BlockEditor({
   useMemo(() => {
     if (onInsertRef) onInsertRef(insertTaskChip);
   }, [onInsertRef, insertTaskChip]);
+
+  // Expose getSelectedText to parent via callback ref
+  useMemo(() => {
+    if (onGetSelectedTextRef) onGetSelectedTextRef(getSelectedText);
+  }, [onGetSelectedTextRef, getSelectedText]);
 
   // Selected task for the panel
   const selectedTask = selectedTaskId ? taskMap[selectedTaskId] : null;

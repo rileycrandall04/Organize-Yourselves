@@ -53,6 +53,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const [importPickerOpen, setImportPickerOpen] = useState(false);
   const insertChipRef = useRef(null);
   const handleInsertRef = useCallback((fn) => { insertChipRef.current = fn; }, []);
+  const getSelectedTextRef = useRef(null);
+  const handleGetSelectedTextRef = useCallback((fn) => { getSelectedTextRef.current = fn; }, []);
 
   // Task sharing to other meetings
   const [shareTaskId, setShareTaskId] = useState(null);
@@ -192,15 +194,18 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     setTagPickerOpen(false);
   }
 
-  // Tag notes to a journal list
+  // Tag notes to a journal list — uses highlighted text if available, otherwise full note
   async function handleTagJournalList(list) {
-    const text = getPlainText();
+    const selectedText = getSelectedTextRef.current?.();
+    const text = selectedText?.trim() || getPlainText();
     if (!text) return;
+    // Wrap plain text in html paragraphs for the journal entry
+    const html = text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
     await addJournalEntry({
       listId: list.id,
+      title: selectedText ? '' : `From: ${meetingName}`,
       text: text.trim(),
-      html: '',
-      date: new Date().toISOString(),
+      html,
       tags: [],
       sourceMeetingInstanceId: instance.id,
     });
@@ -387,6 +392,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             onTagTask={(taskId) => setShareTaskId(taskId)}
             meetings={allMeetings}
             onInsertRef={handleInsertRef}
+            onGetSelectedTextRef={handleGetSelectedTextRef}
           />
         </div>
       )}

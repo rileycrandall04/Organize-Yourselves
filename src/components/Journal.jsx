@@ -129,6 +129,7 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
   const [deleteConfirmList, setDeleteConfirmList] = useState(null);
   const [manageListsOpen, setManageListsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [globalSearch, setGlobalSearch] = useState('');
 
   // Ensure defaults exist on first load
   useEffect(() => {
@@ -217,6 +218,25 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
         </div>
       </div>
 
+      {/* Global search bar — searches across all lists */}
+      {!listsLoading && lists.length > 0 && (
+        <div className="relative mb-4">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={globalSearch}
+            onChange={e => setGlobalSearch(e.target.value)}
+            placeholder="Search all notes..."
+            className="input-field pl-9 pr-8 w-full"
+          />
+          {globalSearch && (
+            <button onClick={() => setGlobalSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+              <X size={16} className="text-gray-400" />
+            </button>
+          )}
+        </div>
+      )}
+
       {listsLoading ? (
         <div className="text-center py-12 text-gray-400">
           <div className="animate-spin w-6 h-6 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-3" />
@@ -233,6 +253,18 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
             <Plus size={14} className="inline mr-1" /> Create Your First List
           </button>
         </div>
+      ) : globalSearch.trim() ? (
+        /* Global search results across all lists */
+        <GlobalSearchResults
+          entries={allEntries}
+          query={globalSearch}
+          lists={lists}
+          onOpenEntry={(entry) => {
+            // Switch to the entry's list tab, then open it
+            if (entry.listId) setActiveListId(entry.listId);
+            setEditingEntry(entry);
+          }}
+        />
       ) : (
         <>
           {/* Tab pills — horizontal scrollable */}
@@ -392,6 +424,71 @@ function ActiveListEntries({ list, search, setSearch, onOpenEntry }) {
         </div>
       )}
     </>
+  );
+}
+
+// ── Global Search Results (across all lists) ───────────────
+
+function GlobalSearchResults({ entries, query, lists, onOpenEntry }) {
+  const q = query.toLowerCase();
+  const filtered = entries
+    .filter(e =>
+      (e.title || '').toLowerCase().includes(q) ||
+      (e.text || '').toLowerCase().includes(q) ||
+      (e.tags && e.tags.some(t => t.toLowerCase().includes(q)))
+    )
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const listMap = {};
+  for (const l of lists) listMap[l.id] = l;
+
+  function getPreview(entry) {
+    const text = entry.text || '';
+    if (text.length <= 80) return text;
+    return text.substring(0, 80) + '...';
+  }
+
+  if (filtered.length === 0) {
+    return (
+      <div className="card text-center text-gray-400 py-12">
+        <Search size={40} className="mx-auto mb-3 text-gray-300" />
+        <p className="text-sm">No entries matching &ldquo;{query}&rdquo;</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {filtered.map(entry => {
+        const list = listMap[entry.listId];
+        const color = list ? getJournalListColor(list.color) : null;
+        return (
+          <div
+            key={entry.id}
+            className="card cursor-pointer hover:border-primary-300 py-3"
+            onClick={() => onOpenEntry(entry)}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-gray-900 truncate">
+                {entry.title || 'Untitled'}
+              </span>
+              <span className="text-xs text-gray-400 flex-shrink-0">
+                {formatRelative(entry.date)}
+              </span>
+            </div>
+            {entry.text && (
+              <p className="text-xs text-gray-500 mt-1 line-clamp-1">{getPreview(entry)}</p>
+            )}
+            {list && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <div className={`w-2 h-2 rounded-full ${color?.dot || 'bg-gray-300'}`} />
+                <span className="text-[10px] text-gray-400">{list.name}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
