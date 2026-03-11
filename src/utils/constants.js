@@ -130,6 +130,7 @@ export const TASK_TYPES = {
   ongoing: { key: 'ongoing', label: 'Ongoing Task', icon: 'RotateCw', color: 'amber' },
   follow_up: { key: 'follow_up', label: 'Follow Up', icon: 'PhoneForwarded', color: 'teal' },
   spiritual_thought: { key: 'spiritual_thought', label: 'Spiritual Thought', icon: 'Sparkles', color: 'violet' },
+  journal_entry: { key: 'journal_entry', label: 'Journal Entry', icon: 'BookOpen', color: 'sky' },
 };
 
 export const TASK_TYPE_LIST = Object.values(TASK_TYPES);

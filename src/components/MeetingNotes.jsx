@@ -6,6 +6,7 @@ import { TASK_TYPES } from '../utils/constants';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import MeetingPicker from './shared/MeetingPicker';
 import JournalListPicker from './shared/JournalListPicker';
+import Modal from './shared/Modal';
 import SacramentProgram from './SacramentProgram';
 import AiButton, { AiResultCard } from './shared/AiButton';
 import BlockEditor, { migrateAgendaToBlocks, consolidateBlocks } from './BlockEditor';
@@ -48,6 +49,10 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   // Note tagging
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [journalListPickerOpen, setJournalListPickerOpen] = useState(false);
+  const [tagTitleModalOpen, setTagTitleModalOpen] = useState(false);
+  const [tagTargetList, setTagTargetList] = useState(null);
+  const [tagTitle, setTagTitle] = useState('');
+  const [tagText, setTagText] = useState('');
 
   // Import tasks from other meetings
   const [importPickerOpen, setImportPickerOpen] = useState(false);
@@ -195,21 +200,34 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   }
 
   // Tag notes to a journal list — uses highlighted text if available, otherwise full note
-  async function handleTagJournalList(list) {
+  // Step 1: user picks a list → capture text and show title prompt
+  function handleTagJournalList(list) {
     const selectedText = getSelectedTextRef.current?.();
     const text = selectedText?.trim() || getPlainText();
     if (!text) return;
-    // Wrap plain text in html paragraphs for the journal entry
-    const html = text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+    setTagText(text);
+    setTagTargetList(list);
+    setJournalListPickerOpen(false);
+    setTagTitle('');
+    setTagTitleModalOpen(true);
+  }
+
+  // Step 2: user confirms title → create the entry
+  async function handleTagTitleConfirm() {
+    if (!tagText || !tagTargetList) return;
+    const html = tagText.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
     await addJournalEntry({
-      listId: list.id,
-      title: selectedText ? '' : `From: ${meetingName}`,
-      text: text.trim(),
+      listId: tagTargetList.id,
+      title: tagTitle.trim() || '',
+      text: tagText.trim(),
       html,
       tags: [],
       sourceMeetingInstanceId: instance.id,
     });
-    setJournalListPickerOpen(false);
+    setTagTitleModalOpen(false);
+    setTagTargetList(null);
+    setTagTitle('');
+    setTagText('');
   }
 
   // Task sharing — add task to another meeting's agenda
@@ -476,6 +494,42 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
 
       {/* Journal list picker (notes → journal) */}
       <JournalListPicker open={journalListPickerOpen} onClose={() => setJournalListPickerOpen(false)} onSelect={handleTagJournalList} title="Tag to Journal List" />
+
+      {/* Title prompt for new journal entry */}
+      <Modal
+        open={tagTitleModalOpen}
+        onClose={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); }}
+        title="New Entry Title"
+        size="sm"
+      >
+        <div className="space-y-3">
+          {tagText && (
+            <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
+              {tagText.length > 200 ? tagText.substring(0, 200) + '...' : tagText}
+            </div>
+          )}
+          <input
+            type="text"
+            value={tagTitle}
+            onChange={e => setTagTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleTagTitleConfirm(); }}
+            placeholder="Enter a title (optional)"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+            autoFocus
+          />
+          <div className="flex gap-3">
+            <button onClick={handleTagTitleConfirm} className="btn-primary flex-1">
+              Create Entry
+            </button>
+            <button
+              onClick={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); }}
+              className="btn-secondary flex-1"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Task sharing picker */}
       <MeetingPicker open={!!shareTaskId} onClose={() => setShareTaskId(null)} onSelect={handleShareTaskToMeeting} excludeIds={[instance.meetingId]} title="Share Task to Meeting" />

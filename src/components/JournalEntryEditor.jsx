@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { addJournalEntry, updateJournalEntry, deleteJournalEntry, addJournalMeetingTag } from '../db';
+import { addJournalEntry, updateJournalEntry, deleteJournalEntry, addTask } from '../db';
 import { getJournalListColor } from '../utils/constants';
 import { formatFull } from '../utils/dates';
 import { htmlToPlainText } from './shared/RichTextEditor';
@@ -36,14 +36,26 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveFlash, setSaveFlash] = useState(false);
+
+  // Tag-to-list state
   const [journalListPickerOpen, setJournalListPickerOpen] = useState(false);
+  const [tagTitleModalOpen, setTagTitleModalOpen] = useState(false);
+  const [tagTargetList, setTagTargetList] = useState(null);
+  const [tagTitle, setTagTitle] = useState('');
+
+  // Tag-to-meeting state
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
+
+  // Shared tag state
   const [tagText, setTagText] = useState(''); // selected text to tag
+
   const latestBlocksRef = useRef(blocks);
   const entryIdRef = useRef(entryId); // Ref to prevent duplicate creation race condition
   const creatingRef = useRef(null); // Promise lock for entry creation
   const getSelectedTextRef = useRef(null);
   const handleGetSelectedTextRef = useCallback((fn) => { getSelectedTextRef.current = fn; }, []);
+  const insertChipRef = useRef(null);
+  const handleInsertRef = useCallback((fn) => { insertChipRef.current = fn; }, []);
 
   const color = getJournalListColor(list?.color);
 
@@ -129,29 +141,40 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
     }
   }
 
-  // Tag selected text to another journal list
+  // ── Tag to another journal list ──────────────────────────
   function handleTagToList(selectedText) {
     setTagText(selectedText || '');
     setJournalListPickerOpen(true);
   }
 
-  async function handlePickJournalList(targetList) {
+  // Step 1: user picks a list → show title prompt
+  function handleListPicked(targetList) {
+    setTagTargetList(targetList);
+    setJournalListPickerOpen(false);
+    setTagTitle('');
+    setTagTitleModalOpen(true);
+  }
+
+  // Step 2: user confirms title → create the entry
+  async function handleTagTitleConfirm() {
     const text = tagText.trim() || htmlToPlainText(latestBlocksRef.current?.[0]?.html || '');
-    if (!text) return;
+    if (!text || !tagTargetList) return;
     const html = text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
     await addJournalEntry({
-      listId: targetList.id,
-      title: '',
+      listId: tagTargetList.id,
+      title: tagTitle.trim() || '',
       text: text.trim(),
       html,
       tags: [],
       sourceEntryId: entryId || null,
     });
-    setJournalListPickerOpen(false);
+    setTagTitleModalOpen(false);
+    setTagTargetList(null);
+    setTagTitle('');
     setTagText('');
   }
 
-  // Tag selected text to a meeting
+  // ── Tag to a meeting (creates journal_entry task + chip) ──
   function handleTagToMeeting(selectedText) {
     setTagText(selectedText || '');
     setMeetingPickerOpen(true);
@@ -160,15 +183,27 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
   async function handlePickMeeting(meeting) {
     const text = tagText.trim() || htmlToPlainText(latestBlocksRef.current?.[0]?.html || '');
     if (!text) return;
-    // Ensure the entry is saved first so we have an ID
-    const currentId = entryIdRef.current || await ensureEntry(latestBlocksRef.current?.[0]?.html || '');
-    if (currentId) {
-      await addJournalMeetingTag({
-        journalEntryId: currentId,
-        targetMeetingId: meeting.id,
-        text: text.trim(),
-      });
+
+    // Create a journal_entry task with the text stored in journalText
+    const preview = text.length > 50 ? text.substring(0, 50) + '...' : text;
+    const taskId = await addTask({
+      type: 'journal_entry',
+      types: ['journal_entry'],
+      title: `Journal: ${preview}`,
+      description: '',
+      journalText: text.trim(),
+      sourceEntryId: entryId || null,
+      sourceListName: list?.name || '',
+      meetingIds: [meeting.id],
+      status: 'not_started',
+      priority: 'low',
+    });
+
+    // Insert the chip into the current journal entry's editor
+    if (insertChipRef.current) {
+      insertChipRef.current(taskId);
     }
+
     setMeetingPickerOpen(false);
     setTagText('');
   }
@@ -252,6 +287,7 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
         journalListId={list?.id}
         autoSaveMs={5000}
         onGetSelectedTextRef={handleGetSelectedTextRef}
+        onInsertRef={handleInsertRef}
         onTagJournalList={readOnly ? undefined : handleTagToList}
         onTagMeeting={readOnly ? undefined : handleTagToMeeting}
       />
@@ -260,12 +296,48 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
       <JournalListPicker
         open={journalListPickerOpen}
         onClose={() => { setJournalListPickerOpen(false); setTagText(''); }}
-        onSelect={handlePickJournalList}
+        onSelect={handleListPicked}
         excludeIds={list?.id ? [list.id] : []}
         title="Tag to Journal List"
       />
 
-      {/* Meeting picker (tag text to a meeting) */}
+      {/* Title prompt for new journal entry */}
+      <Modal
+        open={tagTitleModalOpen}
+        onClose={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); }}
+        title="New Entry Title"
+        size="sm"
+      >
+        <div className="space-y-3">
+          {tagText && (
+            <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
+              {tagText.length > 200 ? tagText.substring(0, 200) + '...' : tagText}
+            </div>
+          )}
+          <input
+            type="text"
+            value={tagTitle}
+            onChange={e => setTagTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleTagTitleConfirm(); }}
+            placeholder="Enter a title (optional)"
+            className="input-field w-full"
+            autoFocus
+          />
+          <div className="flex gap-3">
+            <button onClick={handleTagTitleConfirm} className="btn-primary flex-1">
+              Create Entry
+            </button>
+            <button
+              onClick={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); }}
+              className="btn-secondary flex-1"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Meeting picker (tag text as journal_entry task) */}
       <MeetingPicker
         open={meetingPickerOpen}
         onClose={() => { setMeetingPickerOpen(false); setTagText(''); }}

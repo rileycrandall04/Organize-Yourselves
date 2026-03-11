@@ -25,6 +25,7 @@ const TASK_TYPE_ICONS = {
   ongoing: RotateCw,
   follow_up: PhoneForwarded,
   spiritual_thought: Sparkles,
+  journal_entry: BookOpen,
 };
 
 const TASK_CHIP_COLORS = {
@@ -36,6 +37,7 @@ const TASK_CHIP_COLORS = {
   ongoing:          { bg: '#fffbeb', fg: '#b45309' },
   follow_up:        { bg: '#f0fdfa', fg: '#0f766e' },
   spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9' },
+  journal_entry:    { bg: '#f0f9ff', fg: '#0369a1' },
 };
 
 // Strip {{task:ID}} markers from text for display

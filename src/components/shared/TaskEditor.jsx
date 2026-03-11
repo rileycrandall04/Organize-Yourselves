@@ -5,7 +5,7 @@ import {
   Star, Share2, X, RotateCw, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
-  PhoneForwarded, Sparkles,
+  PhoneForwarded, Sparkles, BookOpen, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -19,6 +19,7 @@ const TYPE_ICONS = {
   ongoing: RotateCw,
   follow_up: PhoneForwarded,
   spiritual_thought: Sparkles,
+  journal_entry: BookOpen,
 };
 
 const STATUS_ICONS = {
@@ -58,6 +59,7 @@ const CHIP_COLORS = {
   ongoing:          { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' },
   follow_up:        { bg: '#f0fdfa', fg: '#0f766e', bd: '#99f6e4' },
   spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' },
+  journal_entry:    { bg: '#f0f9ff', fg: '#0369a1', bd: '#bae6fd' },
 };
 
 /* ── Compact Task Row (for lists) ───────────────────────────── */
@@ -112,6 +114,7 @@ export default function TaskEditor({
   meetings,
 }) {
   const [noteText, setNoteText] = useState('');
+  const [journalTextExpanded, setJournalTextExpanded] = useState(false);
 
   if (!task) return null;
 
@@ -247,6 +250,25 @@ export default function TaskEditor({
         {/* Description */}
         {task.description && (
           <p className="text-xs text-gray-600 mb-3">{task.description}</p>
+        )}
+
+        {/* Journal entry text (expand/collapse) */}
+        {task.type === 'journal_entry' && task.journalText && (
+          <div className="mb-3">
+            <button
+              onClick={() => setJournalTextExpanded(!journalTextExpanded)}
+              className="flex items-center gap-1.5 text-xs font-medium text-sky-600 hover:text-sky-800 mb-1"
+            >
+              <BookOpen size={12} />
+              {journalTextExpanded ? 'Collapse' : 'Expand'} journal text
+              {journalTextExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+            {journalTextExpanded && (
+              <div className="text-xs text-gray-700 bg-sky-50/50 border border-sky-100 rounded-lg px-3 py-2 whitespace-pre-wrap leading-relaxed">
+                {task.journalText}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Metadata pills */}
