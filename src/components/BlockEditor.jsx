@@ -145,7 +145,7 @@ export function migrateAgendaToBlocks(agendaItems, notes) {
 
 /* ── TaskPanel (bottom sheet for viewing/editing a task) ────── */
 
-function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetingId, meetingStatus, onSetMeetingStatus }) {
+function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, meetings, currentMeetingId, meetingStatus, onSetMeetingStatus }) {
   const [noteText, setNoteText] = useState('');
 
   if (!task) return null;
@@ -243,8 +243,8 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
           </button>
         </div>
 
-        {/* Per-meeting status buttons */}
-        {!disabled && onSetMeetingStatus && (
+        {/* Per-meeting status buttons (hidden for spiritual_thought and journal_entry) */}
+        {!disabled && onSetMeetingStatus && task.type !== 'spiritual_thought' && task.type !== 'journal_entry' && (
           <div className="mb-3 pb-3 border-b border-gray-100">
             <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Meeting Status</h4>
             <div className="flex items-center gap-1.5">
@@ -382,9 +382,19 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
         {!disabled && onTagTask && (
           <button
             onClick={() => { onTagTask(task.id); onClose(); }}
-            className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium"
+            className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium mb-2"
           >
             <Share2 size={12} /> Add to another meeting
+          </button>
+        )}
+
+        {/* Convert journal entry chip to inline text */}
+        {!disabled && onConvertToText && task.type === 'journal_entry' && task.journalText && (
+          <button
+            onClick={() => { onConvertToText(task.id); onClose(); }}
+            className="flex items-center gap-1.5 text-xs text-sky-500 hover:text-sky-700 font-medium"
+          >
+            <BookOpen size={12} /> Convert to inline text
           </button>
         )}
       </div>
@@ -1101,6 +1111,33 @@ export default function BlockEditor({
     insertTaskChip(taskId);
   }
 
+  // Handle converting a journal_entry task chip to inline text
+  function handleConvertToText(taskId) {
+    if (!editor) return;
+    const task = taskMap[taskId];
+    const text = task?.journalText || task?.title || '';
+    if (!text) return;
+
+    // Find the taskChip node with the matching taskId
+    const { doc } = editor.state;
+    let chipPos = null;
+    let chipNode = null;
+    doc.descendants((node, pos) => {
+      if (node.type.name === 'taskChip' && Number(node.attrs.taskId) === taskId) {
+        chipPos = pos;
+        chipNode = node;
+        return false; // stop searching
+      }
+    });
+
+    if (chipPos === null || !chipNode) return;
+
+    // Replace the chip with the journal text as a text node
+    const { tr } = editor.state;
+    tr.replaceWith(chipPos, chipPos + chipNode.nodeSize, editor.schema.text(text));
+    editor.view.dispatch(tr);
+  }
+
   // Handle task created from "Make Task" (replaces selected text with chip)
   function handleMakeTaskCreated(taskId) {
     if (hasSelection) {
@@ -1174,7 +1211,7 @@ export default function BlockEditor({
                     })}
                     {onTagJournalList && (
                       <button
-                        onClick={() => onTagJournalList(getSelectedText())}
+                        onClick={() => onTagJournalList(getSelectedText(), currentHtml)}
                         className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
                       >
                         <Tag size={15} className="text-violet-600" />
@@ -1183,7 +1220,7 @@ export default function BlockEditor({
                     )}
                     {onTagMeeting && (
                       <button
-                        onClick={() => onTagMeeting(getSelectedText())}
+                        onClick={() => onTagMeeting(getSelectedText(), currentHtml)}
                         className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
                       >
                         <CalendarDays size={15} className="text-indigo-600" />
@@ -1226,6 +1263,7 @@ export default function BlockEditor({
           onClose={() => setSelectedTaskId(null)}
           disabled={disabled}
           onTagTask={onTagTask}
+          onConvertToText={handleConvertToText}
           meetings={meetings}
           currentMeetingId={meetingId}
           meetingStatus={selectedTaskMeetingStatus}

@@ -7,18 +7,20 @@ import BlockEditor from './BlockEditor';
 import JournalListPicker from './shared/JournalListPicker';
 import MeetingPicker from './shared/MeetingPicker';
 import Modal from './shared/Modal';
-import { ArrowLeft, Trash2, Save, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Trash2, Save, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 /**
  * JournalEntryEditor — Full-page rich text editor for a journal entry.
  *
  * Props:
- *   entry     — existing entry object to edit, or null for new entry
- *   list      — the journal list this entry belongs to
- *   onBack    — callback to navigate back
- *   readOnly  — if true, disable editing (for viewing from meeting review)
+ *   entry        — existing entry object to edit, or null for new entry
+ *   list         — the journal list this entry belongs to
+ *   lists        — all journal lists (for list navigation)
+ *   onBack       — callback to navigate back
+ *   onSwitchList — callback to switch to another list (auto-saves first)
+ *   readOnly     — if true, disable editing (for viewing from meeting review)
  */
-export default function JournalEntryEditor({ entry, list, onBack, readOnly = false }) {
+export default function JournalEntryEditor({ entry, list, lists = [], onBack, onSwitchList, readOnly = false }) {
   const [entryId, setEntryId] = useState(entry?.id || null);
   const [title, setTitle] = useState(entry?.title || '');
   // Initialize blocks synchronously so BlockEditor sees them on the first render.
@@ -48,6 +50,7 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
 
   // Shared tag state
   const [tagText, setTagText] = useState(''); // selected text to tag
+  const [tagHtml, setTagHtml] = useState(''); // full editor HTML captured at click time
 
   const latestBlocksRef = useRef(blocks);
   const entryIdRef = useRef(entryId); // Ref to prevent duplicate creation race condition
@@ -58,6 +61,11 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
   const handleInsertRef = useCallback((fn) => { insertChipRef.current = fn; }, []);
 
   const color = getJournalListColor(list?.color);
+
+  // List navigation helpers
+  const currentListIdx = lists.findIndex(l => l.id === list?.id);
+  const prevList = currentListIdx > 0 ? lists[currentListIdx - 1] : null;
+  const nextList = currentListIdx >= 0 && currentListIdx < lists.length - 1 ? lists[currentListIdx + 1] : null;
 
   // Keep entryId ref in sync
   useEffect(() => {
@@ -117,6 +125,15 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
     onBack();
   }, [handleSave, onBack]);
 
+  // Auto-save + navigate to another list
+  const handleSwitchList = useCallback(async (targetList) => {
+    if (!onSwitchList) return;
+    // Auto-save current entry before switching
+    const currentBlocks = latestBlocksRef.current;
+    await handleSave(currentBlocks);
+    onSwitchList(targetList.id);
+  }, [handleSave, onSwitchList]);
+
   // Change handler
   const handleChange = useCallback((newBlocks) => {
     setBlocks(newBlocks);
@@ -142,8 +159,10 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
   }
 
   // ── Tag to another journal list ──────────────────────────
-  function handleTagToList(selectedText) {
+  // Now receives (selectedText, fullHtml) from BlockEditor
+  function handleTagToList(selectedText, fullHtml) {
     setTagText(selectedText || '');
+    setTagHtml(fullHtml || ''); // Capture current editor HTML at click time
     setJournalListPickerOpen(true);
   }
 
@@ -157,9 +176,22 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
 
   // Step 2: user confirms title → create the entry
   async function handleTagTitleConfirm() {
-    const text = tagText.trim() || htmlToPlainText(latestBlocksRef.current?.[0]?.html || '');
-    if (!text || !tagTargetList) return;
-    const html = text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+    if (!tagTargetList) return;
+
+    let text, html;
+    if (tagText.trim()) {
+      // Selected text — create from plain text (strip any task markers)
+      text = tagText.trim().replace(/\{\{task:\d+\}\}/g, '').replace(/\s{2,}/g, ' ').trim();
+      if (!text) return;
+      html = text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+    } else {
+      // Full note — use the raw HTML captured at click time (preserves task chips)
+      html = tagHtml || latestBlocksRef.current?.[0]?.html || '';
+      // Plain text for search/preview — strip task markers
+      text = htmlToPlainText(html).replace(/\{\{task:\d+\}\}/g, '').replace(/\s{2,}/g, ' ').trim();
+      if (!text && !html) return;
+    }
+
     await addJournalEntry({
       listId: tagTargetList.id,
       title: tagTitle.trim() || '',
@@ -172,16 +204,26 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
     setTagTargetList(null);
     setTagTitle('');
     setTagText('');
+    setTagHtml('');
   }
 
   // ── Tag to a meeting (creates journal_entry task + chip) ──
-  function handleTagToMeeting(selectedText) {
+  // Now receives (selectedText, fullHtml) from BlockEditor
+  function handleTagToMeeting(selectedText, fullHtml) {
     setTagText(selectedText || '');
+    setTagHtml(fullHtml || '');
     setMeetingPickerOpen(true);
   }
 
   async function handlePickMeeting(meeting) {
-    const text = tagText.trim() || htmlToPlainText(latestBlocksRef.current?.[0]?.html || '');
+    // Use selected text, or fall back to the full note plain text (captured at click time)
+    let text;
+    if (tagText.trim()) {
+      text = tagText.trim().replace(/\{\{task:\d+\}\}/g, '').replace(/\s{2,}/g, ' ').trim();
+    } else {
+      const html = tagHtml || latestBlocksRef.current?.[0]?.html || '';
+      text = htmlToPlainText(html).replace(/\{\{task:\d+\}\}/g, '').replace(/\s{2,}/g, ' ').trim();
+    }
     if (!text) return;
 
     // Create a journal_entry task with the text stored in journalText
@@ -206,6 +248,7 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
 
     setMeetingPickerOpen(false);
     setTagText('');
+    setTagHtml('');
   }
 
   return (
@@ -252,6 +295,30 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
         </div>
       </div>
 
+      {/* List navigation pills (switch between lists) */}
+      {!readOnly && lists.length > 1 && onSwitchList && (
+        <div className="flex items-center gap-1.5 mb-3 overflow-x-auto scrollbar-hide -mx-1 px-1">
+          {lists.map(l => {
+            const c = getJournalListColor(l.color);
+            const isActive = l.id === list?.id;
+            return (
+              <button
+                key={l.id}
+                onClick={() => { if (!isActive) handleSwitchList(l); }}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+                  isActive
+                    ? `${c.active} shadow-sm`
+                    : `${c.bg} ${c.text} hover:shadow-sm`
+                }`}
+              >
+                <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-white/60' : c.dot}`} />
+                {l.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Title field */}
       <div className="flex items-center gap-2 mb-2">
         <div className={`w-3 h-3 rounded-full flex-shrink-0 ${color.dot}`} />
@@ -295,7 +362,7 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
       {/* Journal list picker (tag text to another list) */}
       <JournalListPicker
         open={journalListPickerOpen}
-        onClose={() => { setJournalListPickerOpen(false); setTagText(''); }}
+        onClose={() => { setJournalListPickerOpen(false); setTagText(''); setTagHtml(''); }}
         onSelect={handleListPicked}
         excludeIds={list?.id ? [list.id] : []}
         title="Tag to Journal List"
@@ -304,7 +371,7 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
       {/* Title prompt for new journal entry */}
       <Modal
         open={tagTitleModalOpen}
-        onClose={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); }}
+        onClose={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); setTagHtml(''); }}
         title="New Entry Title"
         size="sm"
       >
@@ -328,7 +395,7 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
               Create Entry
             </button>
             <button
-              onClick={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); }}
+              onClick={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); setTagHtml(''); }}
               className="btn-secondary flex-1"
             >
               Cancel
@@ -340,7 +407,7 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
       {/* Meeting picker (tag text as journal_entry task) */}
       <MeetingPicker
         open={meetingPickerOpen}
-        onClose={() => { setMeetingPickerOpen(false); setTagText(''); }}
+        onClose={() => { setMeetingPickerOpen(false); setTagText(''); setTagHtml(''); }}
         onSelect={handlePickMeeting}
         title="Tag to Meeting"
       />

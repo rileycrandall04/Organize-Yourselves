@@ -212,7 +212,6 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
   const [editingList, setEditingList] = useState(null);
   const [deleteConfirmList, setDeleteConfirmList] = useState(null);
   const [manageListsOpen, setManageListsOpen] = useState(false);
-  const [search, setSearch] = useState('');
   const [globalSearch, setGlobalSearch] = useState('');
 
   // Ensure defaults exist on first load
@@ -249,7 +248,12 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
         key={editingEntry?.id || 'new'}
         entry={editingEntry}
         list={activeList}
+        lists={lists}
         onBack={() => setEditingEntry(undefined)}
+        onSwitchList={(listId) => {
+          setEditingEntry(undefined);
+          setActiveListId(listId);
+        }}
       />
     );
   }
@@ -359,7 +363,7 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
               return (
                 <button
                   key={list.id}
-                  onClick={() => { setActiveListId(list.id); setSearch(''); }}
+                  onClick={() => setActiveListId(list.id)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                     isActive
                       ? `${color.active} shadow-sm`
@@ -371,14 +375,20 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
                 </button>
               );
             })}
+            {/* Quick-add list button */}
+            <button
+              onClick={() => { setEditingList(null); setListFormOpen(true); }}
+              className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-full text-sm text-gray-400 hover:text-gray-600 hover:bg-gray-100 whitespace-nowrap flex-shrink-0 transition-colors"
+              title="Add list"
+            >
+              <Plus size={14} />
+            </button>
           </div>
 
           {/* Entries for active tab */}
           {activeList && (
             <ActiveListEntries
               list={activeList}
-              search={search}
-              setSearch={setSearch}
               onOpenEntry={(entry) => setEditingEntry(entry)}
             />
           )}
@@ -419,18 +429,8 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
 
 // ── Active List Entries (inline below tabs) ──────────────
 
-function ActiveListEntries({ list, search, setSearch, onOpenEntry }) {
+function ActiveListEntries({ list, onOpenEntry }) {
   const { entries, loading } = useJournalByList(list.id, 200);
-
-  let filtered = entries;
-  if (search.trim()) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter(e =>
-      (e.title || '').toLowerCase().includes(q) ||
-      (e.text || '').toLowerCase().includes(q) ||
-      (e.tags && e.tags.some(t => t.toLowerCase().includes(q)))
-    );
-  }
 
   function getPreview(entry) {
     const text = stripTaskMarkers(entry.text);
@@ -440,30 +440,13 @@ function ActiveListEntries({ list, search, setSearch, onOpenEntry }) {
 
   return (
     <>
-      {/* New Entry + Search row */}
-      <div className="flex items-center gap-2 mb-4">
-        {entries.length > 0 && (
-          <div className="relative flex-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search entries..."
-              className="input-field pl-9 pr-8 w-full"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-                <X size={16} className="text-gray-400" />
-              </button>
-            )}
-          </div>
-        )}
+      {/* New Entry button */}
+      <div className="flex items-center justify-end mb-4">
         <button
           onClick={() => onOpenEntry(null)}
-          className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg whitespace-nowrap flex-shrink-0"
+          className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg whitespace-nowrap"
         >
-          <Plus size={16} /> New
+          <Plus size={16} /> New Entry
         </button>
       </div>
 
@@ -472,21 +455,17 @@ function ActiveListEntries({ list, search, setSearch, onOpenEntry }) {
           <div className="animate-spin w-6 h-6 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-3" />
           <p className="text-sm">Loading...</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : entries.length === 0 ? (
         <div className="card text-center text-gray-400 py-12">
           <Sparkles size={40} className="mx-auto mb-3 text-gray-300" />
-          <p className="text-sm">
-            {search ? `No entries matching "${search}"` : 'No entries yet.'}
-          </p>
-          {!search && (
-            <button onClick={() => onOpenEntry(null)} className="btn-primary mt-3 text-sm">
-              <Plus size={14} className="inline mr-1" /> Write Your First Entry
-            </button>
-          )}
+          <p className="text-sm">No entries yet.</p>
+          <button onClick={() => onOpenEntry(null)} className="btn-primary mt-3 text-sm">
+            <Plus size={14} className="inline mr-1" /> Write Your First Entry
+          </button>
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map(entry => {
+          {entries.map(entry => {
             const taskIds = getEntryTaskIds(entry);
             return (
               <div

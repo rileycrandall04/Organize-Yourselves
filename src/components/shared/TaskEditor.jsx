@@ -111,6 +111,7 @@ export default function TaskEditor({
   meetingId,
   meetingStatus,
   onTagTask,
+  onConvertToText,
   meetings,
 }) {
   const [noteText, setNoteText] = useState('');
@@ -219,8 +220,8 @@ export default function TaskEditor({
           </button>
         </div>
 
-        {/* Per-meeting status buttons */}
-        {!disabled && meetingId && (
+        {/* Per-meeting status buttons (hidden for spiritual_thought and journal_entry) */}
+        {!disabled && meetingId && task.type !== 'spiritual_thought' && task.type !== 'journal_entry' && (
           <div className="mb-3 pb-3 border-b border-gray-100">
             <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Meeting Status</h4>
             <div className="flex items-center gap-1.5">
@@ -396,9 +397,19 @@ export default function TaskEditor({
         {!disabled && onTagTask && (
           <button
             onClick={() => { onTagTask(task.id); onClose(); }}
-            className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium"
+            className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium mb-2"
           >
             <Share2 size={12} /> Add to another meeting
+          </button>
+        )}
+
+        {/* Convert journal entry chip to inline text */}
+        {!disabled && onConvertToText && task.type === 'journal_entry' && task.journalText && (
+          <button
+            onClick={() => { onConvertToText(task.id); onClose(); }}
+            className="flex items-center gap-1.5 text-xs text-sky-500 hover:text-sky-700 font-medium"
+          >
+            <BookOpen size={12} /> Convert to inline text
           </button>
         )}
       </div>
