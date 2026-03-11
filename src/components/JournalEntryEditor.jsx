@@ -85,7 +85,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     if (creatingRef.current) return creatingRef.current;
 
     const text = htmlToPlainText(html);
-    if (!text.trim()) return null;
+    if (!text.trim() && !title.trim()) return null; // Allow creation with just a title
 
     // Lock: store the creation promise
     creatingRef.current = (async () => {
@@ -112,7 +112,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     const currentId = entryIdRef.current;
     if (currentId) {
       await updateJournalEntry(currentId, { html, text, title: title.trim() || '' });
-    } else if (text.trim()) {
+    } else if (text.trim() || title.trim()) {
       await ensureEntry(html);
     }
   }, [ensureEntry, title]);
