@@ -42,7 +42,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   // Tag-to-list state
   const [journalListPickerOpen, setJournalListPickerOpen] = useState(false);
   const [tagTitleModalOpen, setTagTitleModalOpen] = useState(false);
-  const [tagTargetList, setTagTargetList] = useState(null);
+  const [tagCreatedEntryId, setTagCreatedEntryId] = useState(null); // ID of just-created entry
   const [tagTitle, setTagTitle] = useState('');
 
   // Tag-to-meeting state
@@ -167,45 +167,49 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     setJournalListPickerOpen(true);
   }
 
-  // Step 1: user picks a list → show title prompt
-  function handleListPicked(targetList) {
-    setTagTargetList(targetList);
+  // Step 1: user picks a list → create entry immediately, then offer title update
+  async function handleListPicked(targetList) {
     setJournalListPickerOpen(false);
-    setTagTitle('');
-    setTagTitleModalOpen(true);
-  }
-
-  // Step 2: user confirms title → create the entry
-  async function handleTagTitleConfirm() {
-    if (!tagTargetList) return;
 
     let text, html;
     if (tagText.trim()) {
       // Selected text — create from plain text (strip any task markers)
       text = tagText.trim().replace(/\{\{task:\d+\}\}/g, '').replace(/\s{2,}/g, ' ').trim();
-      if (!text) return;
+      if (!text) { setTagText(''); setTagHtml(''); return; }
       html = text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
     } else {
       // Full note — use the raw HTML captured at click time (preserves task chips)
       html = tagHtml || latestBlocksRef.current?.[0]?.html || '';
-      // Plain text for search/preview — strip task markers
       text = htmlToPlainText(html).replace(/\{\{task:\d+\}\}/g, '').replace(/\s{2,}/g, ' ').trim();
-      if (!text && !html) return;
+      if (!text && !html) { setTagText(''); setTagHtml(''); return; }
     }
 
-    await addJournalEntry({
-      listId: tagTargetList.id,
-      title: tagTitle.trim() || '',
+    // Create entry immediately (untitled)
+    const newId = await addJournalEntry({
+      listId: targetList.id,
+      title: '',
       text: text.trim(),
       html,
       tags: [],
       sourceEntryId: entryId || null,
     });
-    setTagTitleModalOpen(false);
-    setTagTargetList(null);
+
+    // Show title modal so user can optionally add a title
+    setTagCreatedEntryId(newId);
     setTagTitle('');
     setTagText('');
     setTagHtml('');
+    setTagTitleModalOpen(true);
+  }
+
+  // Step 2: user adds/skips title → update the already-created entry
+  async function handleTagTitleConfirm() {
+    if (tagCreatedEntryId && tagTitle.trim()) {
+      await updateJournalEntry(tagCreatedEntryId, { title: tagTitle.trim() });
+    }
+    setTagTitleModalOpen(false);
+    setTagCreatedEntryId(null);
+    setTagTitle('');
   }
 
   // ── Tag to a meeting (creates journal_entry task + chip) ──
@@ -369,19 +373,15 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         title="Tag to Journal List"
       />
 
-      {/* Title prompt for new journal entry */}
+      {/* Title prompt for already-created tagged entry */}
       <Modal
         open={tagTitleModalOpen}
-        onClose={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); setTagHtml(''); }}
-        title="New Entry Title"
+        onClose={() => { setTagTitleModalOpen(false); setTagCreatedEntryId(null); setTagTitle(''); }}
+        title="Add Title"
         size="sm"
       >
         <div className="space-y-3">
-          {tagText && (
-            <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 max-h-24 overflow-y-auto whitespace-pre-wrap">
-              {tagText.length > 200 ? tagText.substring(0, 200) + '...' : tagText}
-            </div>
-          )}
+          <p className="text-xs text-gray-500">Entry created! Add a title?</p>
           <input
             type="text"
             value={tagTitle}
@@ -393,13 +393,13 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
           />
           <div className="flex gap-3">
             <button onClick={handleTagTitleConfirm} className="btn-primary flex-1">
-              Create Entry
+              {tagTitle.trim() ? 'Save Title' : 'Skip'}
             </button>
             <button
-              onClick={() => { setTagTitleModalOpen(false); setTagTargetList(null); setTagText(''); setTagHtml(''); }}
+              onClick={() => { setTagTitleModalOpen(false); setTagCreatedEntryId(null); setTagTitle(''); }}
               className="btn-secondary flex-1"
             >
-              Cancel
+              Skip
             </button>
           </div>
         </div>
