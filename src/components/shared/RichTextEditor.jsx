@@ -314,6 +314,7 @@ export default function RichTextEditor({
 }) {
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved'
   const [hasSelection, setHasSelection] = useState(false);
+  const cachedSelectionRef = useRef(''); // Cache selected text so it survives focus loss
   const saveTimerRef = useRef(null);   // debounce timer
   const lastSavedRef = useRef(initialHtml);
   const isDirtyRef = useRef(false);
@@ -367,7 +368,10 @@ export default function RichTextEditor({
     },
     onSelectionUpdate({ editor }) {
       const { from, to } = editor.state.selection;
-      setHasSelection(from !== to);
+      const hasSel = from !== to;
+      setHasSelection(hasSel);
+      // Cache selected text so it survives focus loss (mobile touch, button clicks)
+      cachedSelectionRef.current = hasSel ? editor.state.doc.textBetween(from, to, ' ') : '';
     },
   });
 
@@ -548,9 +552,12 @@ export default function RichTextEditor({
   // ── Get selected text (for "Make Task") ────────────────────
 
   const getSelectedText = useCallback(() => {
-    if (!editor) return '';
+    if (!editor) return cachedSelectionRef.current || '';
     const { from, to } = editor.state.selection;
-    if (from === to) return '';
+    if (from === to) {
+      // Selection may have been cleared by focus loss — return cached text
+      return cachedSelectionRef.current || '';
+    }
     return editor.state.doc.textBetween(from, to, ' ');
   }, [editor]);
 
