@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { onAuthChange, signInWithGoogle, signOutUser } from '../utils/firebase';
-import { resetCloudSync } from '../utils/cloudSync';
+import { initCloudSync, resetCloudSync } from '../utils/cloudSync';
 
 export function useAuth() {
   const [user, setUser] = useState(null);
@@ -13,6 +13,8 @@ export function useAuth() {
       // Store uid for offline access
       if (firebaseUser) {
         localStorage.setItem('organize_uid', firebaseUser.uid);
+        // Initialize cloud sync so pushToCloud knows the user's uid
+        initCloudSync(firebaseUser.uid);
       } else {
         localStorage.removeItem('organize_uid');
         // Reset cloud sync state so re-login properly re-initializes

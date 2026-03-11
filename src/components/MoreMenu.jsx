@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useUserCallings, useInbox } from '../hooks/useDb';
-import { Settings, BookOpen, Users, ClipboardList, ChevronRight, Inbox, Heart, GitBranch } from 'lucide-react';
+import { Settings, CalendarDays, Users, ClipboardList, ChevronRight, Inbox, Heart, GitBranch } from 'lucide-react';
 
 export default function MoreMenu() {
   const navigate = useNavigate();
@@ -23,7 +23,7 @@ export default function MoreMenu() {
         {showMinistering && (
           <MenuItem icon={Heart} label="Ministering" subtitle="Manage ministering assignments" onPress={() => navigate('/ministering')} />
         )}
-        <MenuItem icon={BookOpen} label="Journal" subtitle="Spiritual impressions" onPress={() => navigate('/journal')} />
+        <MenuItem icon={CalendarDays} label="Calendar" subtitle="View upcoming events" onPress={() => navigate('/calendar')} />
         <MenuItem icon={Users} label="People" subtitle="Manage contacts" onPress={() => navigate('/people')} />
         <MenuItem icon={Settings} label="Settings" subtitle="Backup, restore, and manage data" onPress={() => navigate('/settings')} />
       </div>

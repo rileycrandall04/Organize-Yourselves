@@ -128,9 +128,35 @@ export const TASK_TYPES = {
   calling_plan: { key: 'calling_plan', label: 'Calling Plan', icon: 'Briefcase', color: 'purple' },
   ministering_plan: { key: 'ministering_plan', label: 'Ministering', icon: 'Heart', color: 'rose' },
   ongoing: { key: 'ongoing', label: 'Ongoing Task', icon: 'RotateCw', color: 'amber' },
+  follow_up: { key: 'follow_up', label: 'Follow Up', icon: 'PhoneForwarded', color: 'teal' },
+  spiritual_thought: { key: 'spiritual_thought', label: 'Spiritual Thought', icon: 'Sparkles', color: 'violet' },
 };
 
 export const TASK_TYPE_LIST = Object.values(TASK_TYPES);
+
+// ── Journal Sections (legacy — kept for backward compat) ────
+export const JOURNAL_SECTIONS = [
+  { key: 'spiritual_thoughts', label: 'Spiritual Thoughts' },
+  { key: 'impressions', label: 'Impressions' },
+  { key: 'promptings', label: 'Promptings' },
+  { key: 'gratitude', label: 'Gratitude' },
+];
+
+// ── Journal List Colors ─────────────────────────────────────
+export const JOURNAL_LIST_COLORS = [
+  { key: 'blue', label: 'Blue', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', active: 'bg-blue-600 text-white', dot: 'bg-blue-500' },
+  { key: 'violet', label: 'Violet', bg: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-200', active: 'bg-violet-600 text-white', dot: 'bg-violet-500' },
+  { key: 'amber', label: 'Amber', bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', active: 'bg-amber-600 text-white', dot: 'bg-amber-500' },
+  { key: 'emerald', label: 'Emerald', bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', active: 'bg-emerald-600 text-white', dot: 'bg-emerald-500' },
+  { key: 'rose', label: 'Rose', bg: 'bg-rose-50', text: 'text-rose-600', border: 'border-rose-200', active: 'bg-rose-600 text-white', dot: 'bg-rose-500' },
+  { key: 'indigo', label: 'Indigo', bg: 'bg-indigo-50', text: 'text-indigo-600', border: 'border-indigo-200', active: 'bg-indigo-600 text-white', dot: 'bg-indigo-500' },
+  { key: 'teal', label: 'Teal', bg: 'bg-teal-50', text: 'text-teal-600', border: 'border-teal-200', active: 'bg-teal-600 text-white', dot: 'bg-teal-500' },
+  { key: 'orange', label: 'Orange', bg: 'bg-orange-50', text: 'text-orange-600', border: 'border-orange-200', active: 'bg-orange-600 text-white', dot: 'bg-orange-500' },
+];
+
+export function getJournalListColor(colorKey) {
+  return JOURNAL_LIST_COLORS.find(c => c.key === colorKey) || JOURNAL_LIST_COLORS[0];
+}
 
 // ── Meeting Task Statuses (per-meeting status for tasks) ────
 export const MEETING_TASK_STATUSES = {

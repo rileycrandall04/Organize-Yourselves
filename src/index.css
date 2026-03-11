@@ -108,7 +108,6 @@
   vertical-align: baseline;
   line-height: 1.4;
   margin: 0 2px;
-  white-space: nowrap;
   background: #eff6ff;
   color: #1d4ed8;
   border: 1px solid #bfdbfe;
@@ -140,18 +139,5 @@
   .rich-text-editor .tiptap {
     min-height: 180px;
     font-size: 15px; /* Prevent iOS zoom on focus */
-  }
-}
-
-/* Ensure task chips don't overflow on small screens */
-.rich-text-editor .tiptap task-chip {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@media (min-width: 640px) {
-  .rich-text-editor .tiptap task-chip {
-    max-width: none;
   }
 }

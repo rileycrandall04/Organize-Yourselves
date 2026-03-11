@@ -32,7 +32,19 @@ import db, {
   markInboxProcessed,
   deleteInboxItem,
   getJournalEntries,
+  getJournalEntriesBySection,
   addJournalEntry,
+  updateJournalEntry,
+  deleteJournalEntry,
+  getJournalEntry,
+  getJournalEntriesByList,
+  getJournalLists,
+  addJournalList,
+  updateJournalList,
+  deleteJournalList,
+  getJournalMeetingTagsForMeeting,
+  addJournalMeetingTag,
+  deleteJournalMeetingTag,
   getDashboardStats,
   // Phase 2
   addMeetingNoteTag,
@@ -225,6 +237,56 @@ export function useJournal(limit = 20) {
     entries: entries ?? [],
     loading: entries === undefined,
     add: addJournalEntry,
+  };
+}
+
+export function useJournalBySection(section, limit = 50) {
+  const entries = useLiveQuery(
+    () => getJournalEntriesBySection(section, limit),
+    [section, limit]
+  );
+  return {
+    entries: entries ?? [],
+    loading: entries === undefined,
+    add: addJournalEntry,
+  };
+}
+
+export function useJournalLists() {
+  const lists = useLiveQuery(() => getJournalLists());
+  return {
+    lists: lists ?? [],
+    loading: lists === undefined,
+    add: addJournalList,
+    update: updateJournalList,
+    remove: deleteJournalList,
+  };
+}
+
+export function useJournalByList(listId, limit = 50) {
+  const entries = useLiveQuery(
+    () => (listId ? getJournalEntriesByList(listId, limit) : Promise.resolve([])),
+    [listId, limit]
+  );
+  return {
+    entries: entries ?? [],
+    loading: entries === undefined,
+    add: addJournalEntry,
+    update: updateJournalEntry,
+    remove: deleteJournalEntry,
+  };
+}
+
+export function useJournalMeetingTags(meetingId) {
+  const tags = useLiveQuery(
+    () => (meetingId ? getJournalMeetingTagsForMeeting(meetingId) : Promise.resolve([])),
+    [meetingId]
+  );
+  return {
+    tags: tags ?? [],
+    loading: tags === undefined,
+    add: addJournalMeetingTag,
+    remove: deleteJournalMeetingTag,
   };
 }
 

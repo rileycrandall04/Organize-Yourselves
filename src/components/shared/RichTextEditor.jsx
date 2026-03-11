@@ -9,6 +9,7 @@ import { TASK_TYPES } from '../../utils/constants';
 import {
   Bold, Italic, Underline as UnderlineIcon, List, Undo2, Redo2,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
+  PhoneForwarded, Sparkles,
 } from 'lucide-react';
 
 /* ── Constants ─────────────────────────────────────────────── */
@@ -20,6 +21,8 @@ const CHIP_COLORS = {
   calling_plan:     { bg: '#faf5ff', fg: '#7e22ce', bd: '#e9d5ff' },
   ministering_plan: { bg: '#fff1f2', fg: '#be123c', bd: '#fecdd3' },
   ongoing:          { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' },
+  follow_up:        { bg: '#f0fdfa', fg: '#0f766e', bd: '#99f6e4' },
+  spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' },
 };
 
 const STATUS_CHAR = {
@@ -36,6 +39,8 @@ const TYPE_ICONS = {
   calling_plan: Briefcase,
   ministering_plan: Heart,
   ongoing: RotateCw,
+  follow_up: PhoneForwarded,
+  spiritual_thought: Sparkles,
 };
 
 // Meeting-level status indicators (overlaid on chips)
@@ -102,7 +107,7 @@ function TaskChipView({ taskId, taskMap, onClick }) {
 
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium cursor-pointer select-none whitespace-nowrap"
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium cursor-pointer select-none"
       style={{
         background: c.bg,
         color: c.fg,
@@ -496,7 +501,7 @@ export default function RichTextEditor({
         chip.appendChild(badge);
       }
 
-      chip.style.cssText = `display:inline-flex;align-items:center;gap:3px;padding:2px 8px 2px 6px;border-radius:6px;background:${c.bg};color:${c.fg};border:1px solid ${c.bd};font-size:12px;font-weight:500;cursor:grab;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;white-space:nowrap;${dimmed ? 'opacity:0.5;text-decoration:line-through;' : ''}`;
+      chip.style.cssText = `display:inline-flex;align-items:center;gap:3px;padding:2px 8px 2px 6px;border-radius:6px;background:${c.bg};color:${c.fg};border:1px solid ${c.bd};font-size:12px;font-weight:500;cursor:grab;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;${dimmed ? 'opacity:0.5;text-decoration:line-through;' : ''}`;
     });
   }, [editor]);
 

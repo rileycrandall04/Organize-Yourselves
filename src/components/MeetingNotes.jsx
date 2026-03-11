@@ -1,18 +1,20 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
-import { addMeetingNoteTag, syncCallingNotesFromMeeting, deleteMeetingInstance, updateTask, getTasksByIds, getTasks } from '../db';
+import { addMeetingNoteTag, addJournalEntry, syncCallingNotesFromMeeting, deleteMeetingInstance, updateTask, getTasksByIds, getTasks } from '../db';
 import { formatFull } from '../utils/dates';
 import { TASK_TYPES } from '../utils/constants';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import MeetingPicker from './shared/MeetingPicker';
+import JournalListPicker from './shared/JournalListPicker';
 import SacramentProgram from './SacramentProgram';
 import AiButton, { AiResultCard } from './shared/AiButton';
 import BlockEditor, { migrateAgendaToBlocks, consolidateBlocks } from './BlockEditor';
 import { htmlToPlainText } from './shared/RichTextEditor';
 import {
   ArrowLeft, Save, CheckCircle2, Users2, Trash2,
-  ArrowUpRight, X, Pencil, RotateCcw, Plus, Search, Import,
+  ArrowUpRight, X, Pencil, RotateCcw, Plus, Search, Import, BookOpen,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
+  PhoneForwarded, Sparkles,
 } from 'lucide-react';
 
 export default function MeetingNotes({ instance, meetingName, meetingId, participants, onBack }) {
@@ -45,6 +47,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
 
   // Note tagging
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [journalListPickerOpen, setJournalListPickerOpen] = useState(false);
 
   // Import tasks from other meetings
   const [importPickerOpen, setImportPickerOpen] = useState(false);
@@ -187,6 +190,21 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
       agendaItemIndex: -1,
     });
     setTagPickerOpen(false);
+  }
+
+  // Tag notes to a journal list
+  async function handleTagJournalList(list) {
+    const text = getPlainText();
+    if (!text) return;
+    await addJournalEntry({
+      listId: list.id,
+      text: text.trim(),
+      html: '',
+      date: new Date().toISOString(),
+      tags: [],
+      sourceMeetingInstanceId: instance.id,
+    });
+    setJournalListPickerOpen(false);
   }
 
   // Task sharing — add task to another meeting's agenda
@@ -398,14 +416,22 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
         </div>
       )}
 
-      {/* Tag notes to another meeting */}
+      {/* Tag notes to another meeting / journal list */}
       {!isCompleted && hasContent && (
-        <button
-          onClick={() => setTagPickerOpen(true)}
-          className="flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-700 mb-6"
-        >
-          <ArrowUpRight size={12} /> Tag notes for another meeting
-        </button>
+        <div className="flex items-center gap-4 mb-6">
+          <button
+            onClick={() => setTagPickerOpen(true)}
+            className="flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-700"
+          >
+            <ArrowUpRight size={12} /> Tag for meeting
+          </button>
+          <button
+            onClick={() => setJournalListPickerOpen(true)}
+            className="flex items-center gap-1 text-[11px] text-violet-500 hover:text-violet-700"
+          >
+            <BookOpen size={12} /> Tag to journal list
+          </button>
+        </div>
       )}
 
       {/* AI Features */}
@@ -442,6 +468,9 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
       {/* Meeting tag picker (notes) */}
       <MeetingPicker open={tagPickerOpen} onClose={() => setTagPickerOpen(false)} onSelect={handleTagMeeting} excludeIds={[instance.meetingId]} title="Tag for Meeting" />
 
+      {/* Journal list picker (notes → journal) */}
+      <JournalListPicker open={journalListPickerOpen} onClose={() => setJournalListPickerOpen(false)} onSelect={handleTagJournalList} title="Tag to Journal List" />
+
       {/* Task sharing picker */}
       <MeetingPicker open={!!shareTaskId} onClose={() => setShareTaskId(null)} onSelect={handleShareTaskToMeeting} excludeIds={[instance.meetingId]} title="Share Task to Meeting" />
 
@@ -467,6 +496,8 @@ const TYPE_ICONS = {
   calling_plan: Briefcase,
   ministering_plan: Heart,
   ongoing: RotateCw,
+  follow_up: PhoneForwarded,
+  spiritual_thought: Sparkles,
 };
 
 const CHIP_COLORS = {
@@ -476,6 +507,8 @@ const CHIP_COLORS = {
   calling_plan:     { bg: '#faf5ff', fg: '#7e22ce' },
   ministering_plan: { bg: '#fff1f2', fg: '#be123c' },
   ongoing:          { bg: '#fffbeb', fg: '#b45309' },
+  follow_up:        { bg: '#f0fdfa', fg: '#0f766e' },
+  spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9' },
 };
 
 const STATUS_CHAR = {

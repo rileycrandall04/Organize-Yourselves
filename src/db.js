@@ -231,6 +231,70 @@ db.version(8).stores({
   console.log(`[Migration v8] Added types[] to ${tasks.length} tasks, created meetingTaskStatuses table`);
 });
 
+// Phase 9: Journal sections
+db.version(9).stores({
+  journal: '++id, text, date, *tags, section',
+});
+
+// Phase 10: Journal revamp — user-configurable lists, rich text, cross-tagging
+db.version(10).stores({
+  journalLists: '++id, name, sortOrder',
+  journal: '++id, text, date, *tags, section, listId',
+  journalMeetingTags: '++id, journalEntryId, targetMeetingId, consumed, createdAt',
+}).upgrade(async tx => {
+  const listsTable = tx.table('journalLists');
+  const journalTable = tx.table('journal');
+
+  // Section key → display name + color mapping
+  const sectionToList = {
+    spiritual_thoughts: { name: 'Spiritual Thoughts', color: 'violet' },
+    impressions: { name: 'Impressions', color: 'blue' },
+    promptings: { name: 'Promptings', color: 'amber' },
+    gratitude: { name: 'Gratitude', color: 'emerald' },
+  };
+
+  // Check which old sections actually have entries
+  const allEntries = await journalTable.toArray();
+  const usedSections = new Set(allEntries.map(e => e.section).filter(Boolean));
+
+  // Always create 3 default lists
+  const defaultLists = [
+    { name: 'Scripture Study', color: 'blue', sortOrder: 0, isDefault: true, createdAt: new Date().toISOString() },
+    { name: 'Spiritual Thoughts', color: 'violet', sortOrder: 1, isDefault: true, createdAt: new Date().toISOString() },
+    { name: 'Talks', color: 'amber', sortOrder: 2, isDefault: true, createdAt: new Date().toISOString() },
+  ];
+
+  const listIdMap = {};
+  for (const list of defaultLists) {
+    const id = await listsTable.add(list);
+    if (list.name === 'Spiritual Thoughts') listIdMap['spiritual_thoughts'] = id;
+  }
+
+  // Create extra lists for old sections that have entries but aren't in defaults
+  let sortOrder = 3;
+  for (const [key, info] of Object.entries(sectionToList)) {
+    if (usedSections.has(key) && !listIdMap[key]) {
+      const id = await listsTable.add({
+        name: info.name,
+        color: info.color,
+        sortOrder: sortOrder++,
+        isDefault: false,
+        createdAt: new Date().toISOString(),
+      });
+      listIdMap[key] = id;
+    }
+  }
+
+  // Migrate existing entries: section → listId
+  for (const entry of allEntries) {
+    if (entry.section && listIdMap[entry.section]) {
+      await journalTable.update(entry.id, { listId: listIdMap[entry.section] });
+    }
+  }
+
+  console.log(`[Migration v10] Journal revamp: created ${Object.keys(listIdMap).length + defaultLists.length - Object.keys(listIdMap).length} lists, migrated ${allEntries.filter(e => e.section && listIdMap[e.section]).length} entries`);
+});
+
 // ── Meeting Task Statuses (per-meeting status) ──────────────────
 
 export async function getMeetingTaskStatus(taskId, meetingId) {
@@ -409,7 +473,7 @@ export async function getTasksForMeeting(meetingId) {
     (t.meetingIds || []).includes(meetingId) && t.status !== 'complete'
   ).sort((a, b) => {
     // Group by type: discussions first, then action items, then others
-    const typeOrder = { discussion: 0, action_item: 1, calling_plan: 2, ministering_plan: 3, ongoing: 4, event: 5 };
+    const typeOrder = { discussion: 0, action_item: 1, calling_plan: 2, ministering_plan: 3, ongoing: 4, event: 5, follow_up: 6, spiritual_thought: 7 };
     const aOrder = typeOrder[a.type] ?? 6;
     const bOrder = typeOrder[b.type] ?? 6;
     if (aOrder !== bOrder) return aOrder - bOrder;
@@ -1052,6 +1116,8 @@ export async function buildAutoAgendaBlocks(meetingId) {
     calling_plan: [],
     ministering_plan: [],
     ongoing: [],
+    follow_up: [],
+    spiritual_thought: [],
   };
   const resolvedTasks = []; // Tracked separately for "Completed" section
 
@@ -1105,6 +1171,8 @@ export async function buildAutoAgendaBlocks(meetingId) {
     { key: 'calling_plan', label: 'Callings' },
     { key: 'ministering_plan', label: 'Fellowshipping' },
     { key: 'ongoing', label: 'Ongoing Follow Up' },
+    { key: 'follow_up', label: 'Follow Up Contacts' },
+    { key: 'spiritual_thought', label: 'Spiritual Thoughts' },
   ];
 
   // Build set of section labels that have tasks (case-insensitive)
@@ -1166,6 +1234,17 @@ export async function buildAutoAgendaBlocks(meetingId) {
     }
     text += `\n\n\uD83D\uDCCC From ${sourceName}:\n${tag.text}`;
     await markTagConsumed(tag.id);
+  }
+
+  // 5b. Journal notes tagged for this meeting
+  const journalTags = await getJournalMeetingTagsForMeeting(meetingId);
+  for (const jTag of journalTags) {
+    const entry = jTag.journalEntryId ? await db.journal.get(jTag.journalEntryId) : null;
+    const entryText = jTag.text || entry?.text || '';
+    if (entryText.trim()) {
+      text += `\n\n\uD83D\uDCD3 From journal:\n${entryText}`;
+    }
+    await markJournalMeetingTagConsumed(jTag.id);
   }
 
   // 6. Closing items
@@ -1488,16 +1567,128 @@ export async function dismissBackupReminder() {
   }
 }
 
-// Journal
+// ── Journal Lists ──────────────────────────────────────────
+
+export async function getJournalLists() {
+  return await db.journalLists.orderBy('sortOrder').toArray();
+}
+
+export async function addJournalList(list) {
+  const maxSort = await db.journalLists.orderBy('sortOrder').reverse().first();
+  const data = {
+    ...list,
+    sortOrder: list.sortOrder ?? ((maxSort?.sortOrder ?? -1) + 1),
+    isDefault: list.isDefault || false,
+    createdAt: new Date().toISOString(),
+  };
+  const id = await db.journalLists.add(data);
+  syncAfterWrite('journalLists', id, { ...data, id });
+  return id;
+}
+
+export async function updateJournalList(id, changes) {
+  await db.journalLists.update(id, changes);
+  const updated = await db.journalLists.get(id);
+  if (updated) syncAfterWrite('journalLists', id, updated);
+}
+
+export async function deleteJournalList(id) {
+  await db.journalLists.delete(id);
+  syncAfterDelete('journalLists', id);
+}
+
+/**
+ * Ensure default journal lists exist (called on app startup after sync).
+ * Only creates lists if the journalLists table is completely empty.
+ */
+export async function ensureDefaultJournalLists() {
+  const count = await db.journalLists.count();
+  if (count > 0) return;
+  const defaults = [
+    { name: 'Scripture Study', color: 'blue', sortOrder: 0, isDefault: true },
+    { name: 'Spiritual Thoughts', color: 'violet', sortOrder: 1, isDefault: true },
+    { name: 'Talks', color: 'amber', sortOrder: 2, isDefault: true },
+  ];
+  for (const list of defaults) {
+    await addJournalList(list);
+  }
+}
+
+// ── Journal Entries ────────────────────────────────────────
+
 export async function getJournalEntries(limit = 20) {
   return await db.journal.orderBy('date').reverse().limit(limit).toArray();
 }
 
 export async function addJournalEntry(entry) {
-  const data = { ...entry, date: new Date().toISOString() };
+  const data = {
+    ...entry,
+    section: entry.section || null,
+    listId: entry.listId || null,
+    date: new Date().toISOString(),
+  };
   const id = await db.journal.add(data);
   syncAfterWrite('journal', id, { ...data, id });
   return id;
+}
+
+export async function updateJournalEntry(id, changes) {
+  await db.journal.update(id, { ...changes, updatedAt: new Date().toISOString() });
+  const updated = await db.journal.get(id);
+  if (updated) syncAfterWrite('journal', id, updated);
+}
+
+export async function deleteJournalEntry(id) {
+  // Also clean up any journal meeting tags referencing this entry
+  const tags = await db.journalMeetingTags.where('journalEntryId').equals(id).toArray();
+  for (const tag of tags) {
+    await db.journalMeetingTags.delete(tag.id);
+    syncAfterDelete('journalMeetingTags', tag.id);
+  }
+  await db.journal.delete(id);
+  syncAfterDelete('journal', id);
+}
+
+export async function getJournalEntry(id) {
+  return await db.journal.get(id);
+}
+
+export async function getJournalEntriesByList(listId, limit = 50) {
+  if (!listId) return getJournalEntries(limit);
+  const entries = await db.journal.where('listId').equals(listId).toArray();
+  return entries.sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, limit);
+}
+
+export async function getJournalEntriesBySection(section, limit = 50) {
+  if (!section) return getJournalEntries(limit);
+  return await db.journal.where('section').equals(section).reverse().sortBy('date');
+}
+
+// ── Journal-Meeting Tags ───────────────────────────────────
+
+export async function addJournalMeetingTag(tag) {
+  const data = { ...tag, consumed: 0, createdAt: new Date().toISOString() };
+  const id = await db.journalMeetingTags.add(data);
+  syncAfterWrite('journalMeetingTags', id, { ...data, id });
+  return id;
+}
+
+export async function getJournalMeetingTagsForMeeting(targetMeetingId) {
+  return await db.journalMeetingTags
+    .where('targetMeetingId').equals(targetMeetingId)
+    .filter(t => !t.consumed)
+    .toArray();
+}
+
+export async function markJournalMeetingTagConsumed(id) {
+  await db.journalMeetingTags.update(id, { consumed: 1 });
+  const updated = await db.journalMeetingTags.get(id);
+  if (updated) syncAfterWrite('journalMeetingTags', id, updated);
+}
+
+export async function deleteJournalMeetingTag(id) {
+  await db.journalMeetingTags.delete(id);
+  syncAfterDelete('journalMeetingTags', id);
 }
 
 // Lessons

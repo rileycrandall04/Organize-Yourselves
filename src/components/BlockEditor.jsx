@@ -1,13 +1,14 @@
 import { useState, useRef, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote, setMeetingTaskStatus } from '../db';
-import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../utils/constants';
-import { useMeetingTaskStatuses } from '../hooks/useDb';
+import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST, JOURNAL_SECTIONS } from '../utils/constants';
+import { useMeetingTaskStatuses, useJournalBySection } from '../hooks/useDb';
 import useRichTextEditor, { migrateTextToHtml, extractTaskIdsFromHtml, htmlToPlainText } from './shared/RichTextEditor';
 import {
   Star, Share2, X, Search, Import, Cloud, CloudOff, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
+  PhoneForwarded, Sparkles, BookOpen, Tag,
 } from 'lucide-react';
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -28,6 +29,8 @@ const CHIP_COLORS = {
   calling_plan:     { bg: '#faf5ff', fg: '#7e22ce', bd: '#e9d5ff' },
   ministering_plan: { bg: '#fff1f2', fg: '#be123c', bd: '#fecdd3' },
   ongoing:          { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' },
+  follow_up:        { bg: '#f0fdfa', fg: '#0f766e', bd: '#99f6e4' },
+  spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' },
 };
 
 const TYPE_ICONS = {
@@ -37,6 +40,8 @@ const TYPE_ICONS = {
   calling_plan: Briefcase,
   ministering_plan: Heart,
   ongoing: RotateCw,
+  follow_up: PhoneForwarded,
+  spiritual_thought: Sparkles,
 };
 
 const STATUS_ICONS = {
@@ -391,6 +396,8 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [eventDate, setEventDate] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [messageText, setMessageText] = useState('');
   const typeConfig = TASK_TYPES[type];
 
   async function handleCreate() {
@@ -406,6 +413,11 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
     };
     if (type === 'action_item') taskData.priority = 'medium';
     if (type === 'event' && eventDate) taskData.eventDate = eventDate;
+    if (type === 'follow_up') {
+      taskData.phoneNumber = phoneNumber.trim();
+      taskData.messageText = messageText.trim();
+      taskData.context = 'phone';
+    }
 
     const id = await addTask(taskData);
     onInsert(id);
@@ -445,6 +457,30 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
               />
             </div>
+          )}
+          {type === 'follow_up' && (
+            <>
+              <div>
+                <label className="text-[11px] font-medium text-gray-500 mb-1 block">Phone Number</label>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={e => setPhoneNumber(e.target.value)}
+                  placeholder="(555) 123-4567"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-gray-500 mb-1 block">Message Text</label>
+                <textarea
+                  value={messageText}
+                  onChange={e => setMessageText(e.target.value)}
+                  placeholder="Type the message to send..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 resize-none"
+                />
+              </div>
+            </>
           )}
           {(type === 'discussion' || type === 'event' || type === 'ministering_plan') && (
             <textarea
@@ -762,6 +798,133 @@ function ImportTaskPicker({ meetingId, htmlContent, meetings, onImport, onClose 
   );
 }
 
+/* ── JournalPickerModal (pick a spiritual thought → create task) */
+
+function JournalPickerModal({ meetingId, instanceId, onInsert, onClose }) {
+  const [sectionFilter, setSectionFilter] = useState('spiritual_thoughts');
+  const { entries, loading } = useJournalBySection(sectionFilter);
+  const [search, setSearch] = useState('');
+
+  const filtered = search.trim()
+    ? entries.filter(e => e.text.toLowerCase().includes(search.toLowerCase()))
+    : entries;
+
+  async function handlePick(entry) {
+    // Create a spiritual_thought task from the journal entry
+    const title = entry.text.length > 80
+      ? entry.text.substring(0, 80) + '...'
+      : entry.text;
+    const taskData = {
+      type: 'spiritual_thought',
+      types: ['spiritual_thought'],
+      title,
+      description: entry.text,
+      meetingIds: meetingId ? [meetingId] : [],
+      sourceMeetingInstanceId: instanceId || null,
+      journalEntryId: entry.id,
+    };
+    const id = await addTask(taskData);
+    onInsert(id);
+    onClose();
+  }
+
+  const SECTION_COLORS = {
+    spiritual_thoughts: 'bg-violet-600 text-white',
+    impressions: 'bg-blue-600 text-white',
+    promptings: 'bg-amber-600 text-white',
+    gratitude: 'bg-emerald-600 text-white',
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 animate-in fade-in max-h-[70vh] flex flex-col mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <Sparkles size={16} className="text-violet-600" />
+          Select Spiritual Thought
+        </h3>
+
+        {/* Section filter pills */}
+        <div className="flex gap-2 mb-3 flex-wrap">
+          <button
+            onClick={() => setSectionFilter(null)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              !sectionFilter
+                ? 'bg-gray-800 text-white border-gray-800'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            All
+          </button>
+          {JOURNAL_SECTIONS.map(sec => (
+            <button
+              key={sec.key}
+              onClick={() => setSectionFilter(sec.key)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                sectionFilter === sec.key
+                  ? SECTION_COLORS[sec.key] || 'bg-gray-800 text-white'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              {sec.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search entries..."
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+            autoFocus
+          />
+        </div>
+
+        {/* Entry list */}
+        <div className="flex-1 overflow-y-auto -mx-1 px-1">
+          {loading ? (
+            <div className="text-center py-8 text-gray-400">
+              <div className="animate-spin w-5 h-5 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-2" />
+              <p className="text-xs">Loading journal...</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <Sparkles size={24} className="mx-auto mb-2 text-gray-300" />
+              <p className="text-xs">{search ? 'No matching entries.' : 'No journal entries in this section yet.'}</p>
+              <p className="text-[10px] text-gray-300 mt-1">Add entries in the Journal first.</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {filtered.map(entry => (
+                <button
+                  key={entry.id}
+                  onClick={() => handlePick(entry)}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-violet-50 transition-colors border border-transparent hover:border-violet-200"
+                >
+                  <p className="text-xs text-gray-800 line-clamp-3">{entry.text}</p>
+                  <span className="text-[10px] text-gray-400 mt-1 block">
+                    {new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button onClick={onClose} className="btn-secondary w-full mt-3">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main BlockEditor Component ─────────────────────────────── */
 
 export default function BlockEditor({
@@ -775,12 +938,20 @@ export default function BlockEditor({
   onTagTask,
   meetings,
   onInsertRef,
+  // Journal mode props
+  mode = 'meeting',
+  journalEntryId,
+  journalListId,
+  onTagJournalList,
+  onTagMeeting,
+  journalLists,
 }) {
   const [insertModal, setInsertModal] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [importPickerOpen, setImportPickerOpen] = useState(false);
   const [makeTaskOpen, setMakeTaskOpen] = useState(false);
   const [makeTaskTitle, setMakeTaskTitle] = useState('');
+  const [journalPickerOpen, setJournalPickerOpen] = useState(false);
 
   // Derive HTML content from blocks
   const initialHtml = useMemo(() => {
@@ -874,6 +1045,8 @@ export default function BlockEditor({
     { type: 'calling_plan', icon: Briefcase, label: 'Calling', color: 'text-purple-600' },
     { type: 'ministering_plan', icon: Heart, label: 'Minister', color: 'text-rose-600' },
     { type: 'ongoing', icon: RotateCw, label: 'Ongoing', color: 'text-amber-600' },
+    { type: 'follow_up', icon: PhoneForwarded, label: 'Follow Up', color: 'text-teal-600' },
+    { type: 'spiritual_thought', icon: Sparkles, label: 'Thought', color: 'text-violet-600' },
   ];
 
   return (
@@ -909,19 +1082,63 @@ export default function BlockEditor({
         <div className="sticky bottom-16 z-20 mt-3">
           <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-2">
             <div className="flex items-center justify-between gap-1">
-              {toolbarItems.map(item => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.type}
-                    onClick={() => setInsertModal(item.type)}
-                    className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
-                  >
-                    <Icon size={16} className={item.color} />
-                    <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
-                  </button>
-                );
-              })}
+              {/* Journal mode: show subset of task types + tag buttons */}
+              {mode === 'journal' ? (
+                <>
+                  {toolbarItems.filter(i => ['action_item', 'discussion', 'ongoing', 'follow_up'].includes(i.type)).map(item => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.type}
+                        onClick={() => setInsertModal(item.type)}
+                        className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
+                      >
+                        <Icon size={16} className={item.color} />
+                        <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                  {onTagJournalList && (
+                    <button
+                      onClick={() => onTagJournalList(getSelectedText())}
+                      className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
+                    >
+                      <Tag size={16} className="text-violet-600" />
+                      <span className="text-[9px] text-gray-500 font-medium">To List</span>
+                    </button>
+                  )}
+                  {onTagMeeting && (
+                    <button
+                      onClick={() => onTagMeeting(getSelectedText())}
+                      className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
+                    >
+                      <CalendarDays size={16} className="text-indigo-600" />
+                      <span className="text-[9px] text-gray-500 font-medium">To Meeting</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                /* Meeting mode: show all task type buttons */
+                toolbarItems.map(item => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.type}
+                      onClick={() => {
+                        if (item.type === 'spiritual_thought') {
+                          setJournalPickerOpen(true);
+                        } else {
+                          setInsertModal(item.type);
+                        }
+                      }}
+                      className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
+                    >
+                      <Icon size={16} className={item.color} />
+                      <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
@@ -938,7 +1155,7 @@ export default function BlockEditor({
           currentMeetingId={meetingId}
           meetingStatus={selectedTaskMeetingStatus}
           onSetMeetingStatus={async (taskId, status) => {
-            await setMeetingTaskStatus(taskId, meetingId, status);
+            if (meetingId) await setMeetingTaskStatus(taskId, meetingId, status);
           }}
         />
       )}
@@ -954,8 +1171,8 @@ export default function BlockEditor({
         />
       )}
 
-      {/* Import task picker */}
-      {importPickerOpen && (
+      {/* Import task picker (meeting mode only) */}
+      {mode === 'meeting' && importPickerOpen && (
         <ImportTaskPicker
           meetingId={meetingId}
           htmlContent={currentHtml}
@@ -973,6 +1190,16 @@ export default function BlockEditor({
           instanceId={instanceId}
           onCreated={handleMakeTaskCreated}
           onClose={() => { setMakeTaskOpen(false); setMakeTaskTitle(''); }}
+        />
+      )}
+
+      {/* Journal picker modal (meeting mode only — for spiritual thoughts) */}
+      {mode === 'meeting' && journalPickerOpen && (
+        <JournalPickerModal
+          meetingId={meetingId}
+          instanceId={instanceId}
+          onInsert={handleTaskInsert}
+          onClose={() => setJournalPickerOpen(false)}
         />
       )}
     </div>

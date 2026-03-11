@@ -5,6 +5,7 @@ import {
   Star, Share2, X, RotateCw, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
+  PhoneForwarded, Sparkles,
 } from 'lucide-react';
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -16,6 +17,8 @@ const TYPE_ICONS = {
   calling_plan: Briefcase,
   ministering_plan: Heart,
   ongoing: RotateCw,
+  follow_up: PhoneForwarded,
+  spiritual_thought: Sparkles,
 };
 
 const STATUS_ICONS = {
@@ -53,6 +56,8 @@ const CHIP_COLORS = {
   calling_plan:     { bg: '#faf5ff', fg: '#7e22ce', bd: '#e9d5ff' },
   ministering_plan: { bg: '#fff1f2', fg: '#be123c', bd: '#fecdd3' },
   ongoing:          { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' },
+  follow_up:        { bg: '#f0fdfa', fg: '#0f766e', bd: '#99f6e4' },
+  spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' },
 };
 
 /* ── Compact Task Row (for lists) ───────────────────────────── */

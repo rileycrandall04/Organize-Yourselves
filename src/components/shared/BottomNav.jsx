@@ -1,11 +1,11 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, CheckSquare, Calendar, CalendarDays, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Calendar, BookOpen, MoreHorizontal } from 'lucide-react';
 
 const TABS = [
   { path: '/', label: 'Home', Icon: LayoutDashboard },
   { path: '/actions', label: 'Tasks', Icon: CheckSquare },
   { path: '/meetings', label: 'Meetings', Icon: Calendar },
-  { path: '/calendar', label: 'Calendar', Icon: CalendarDays },
+  { path: '/journal', label: 'Journal', Icon: BookOpen },
   { path: '/more', label: 'More', Icon: MoreHorizontal },
 ];
 

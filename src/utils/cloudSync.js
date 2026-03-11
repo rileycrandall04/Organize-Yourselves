@@ -41,6 +41,8 @@ const SYNC_TABLES = [
   'ministeringPlans',
   'tasks',
   'meetingTaskStatuses',
+  'journalLists',
+  'journalMeetingTags',
 ];
 
 
@@ -80,8 +82,9 @@ function markSyncReady() {
  */
 export async function initCloudSync(uid) {
   if (_uid === uid) {
-    // Already initialized — make sure sync is marked ready
-    if (!_syncReady) markSyncReady();
+    // Already initialized — wait for the first call to finish naturally.
+    // Don't prematurely mark sync ready; the original call's finally block
+    // will call markSyncReady() once the pull actually completes.
     return;
   }
   _uid = uid;
@@ -249,9 +252,11 @@ export async function pullFromCloud(uid) {
         return { ...data, id: isNaN(id) ? d.id : id };
       });
 
-      // Clear existing local data and replace with cloud data
-      await table.clear();
-      await table.bulkPut(rows);
+      // Clear and replace atomically so useLiveQuery never sees empty state
+      await db.transaction('rw', table, async () => {
+        await table.clear();
+        await table.bulkPut(rows);
+      });
 
       console.log(`[CloudSync] Pulled ${rows.length} ${tableName} records`);
     } catch (err) {

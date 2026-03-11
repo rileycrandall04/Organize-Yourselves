@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Star, CheckCircle2, Circle, Clock, Pause, Phone, MessageSquare, Trash2, AlarmClockOff } from 'lucide-react';
+import { Star, CheckCircle2, Circle, Clock, Pause, Phone, MessageSquare, Trash2, AlarmClockOff, PhoneForwarded, Copy } from 'lucide-react';
 import PriorityBadge from './PriorityBadge';
 import { formatFriendly, isOverdue } from '../../utils/dates';
 
@@ -15,6 +15,7 @@ const STATUS_ICONS = {
 
 export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPress, onDelete, onSnooze, phoneForPerson }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [copied, setCopied] = useState(false);
   const StatusIcon = STATUS_ICONS[item.status] || Circle;
   const overdue = item.status !== 'complete' && isOverdue(item.dueDate);
   const isComplete = item.status === 'complete';
@@ -106,7 +107,7 @@ export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPr
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className={`text-xs font-medium truncate ${isComplete ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+          <span className={`text-xs font-medium ${isComplete ? 'line-through text-gray-400' : 'text-gray-900'}`}>
             {item.title}
           </span>
           {item.starred && (
@@ -154,6 +155,35 @@ export default function ActionItemRow({ item, onToggleStatus, onToggleStar, onPr
               <MessageSquare size={14} />
             </a>
           )}
+        </div>
+      )}
+
+      {/* Follow Up: copy message + SMS link */}
+      {!isComplete && item.type === 'follow_up' && item.phoneNumber && (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {item.messageText && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(item.messageText).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                });
+              }}
+              className={`p-1 rounded-lg transition-colors ${copied ? 'text-green-500 bg-green-50' : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50'}`}
+              title={copied ? 'Copied!' : 'Copy message text'}
+            >
+              {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+            </button>
+          )}
+          <a
+            href={`sms:${item.phoneNumber}${item.messageText ? `?body=${encodeURIComponent(item.messageText)}` : ''}`}
+            onClick={e => e.stopPropagation()}
+            className="p-1 rounded-lg text-teal-600 hover:bg-teal-50"
+            title={`Text ${item.phoneNumber}`}
+          >
+            <PhoneForwarded size={14} />
+          </a>
         </div>
       )}
 

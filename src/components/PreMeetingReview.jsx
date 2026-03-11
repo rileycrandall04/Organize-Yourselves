@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useFollowUpsForMeeting, useTasksForMeeting, useMeetingNoteTags, useMeetingTaskStatuses, useMeetings } from '../hooks/useDb';
-import { setMeetingTaskStatus, getTasks, updateTask } from '../db';
+import { useFollowUpsForMeeting, useTasksForMeeting, useMeetingNoteTags, useMeetingTaskStatuses, useMeetings, useJournalMeetingTags } from '../hooks/useDb';
+import { setMeetingTaskStatus, getTasks, updateTask, addTask, markJournalMeetingTagConsumed } from '../db';
 import { TASK_TYPES, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../utils/constants';
 import {
   ArrowLeft, ChevronDown, ChevronRight, Play, SkipForward, Plus, Search, Import, X,
   CheckCircle2, RotateCw, Clock, ArrowRightLeft, FileText,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
-  ArrowUpRight,
+  ArrowUpRight, BookOpen,
 } from 'lucide-react';
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -189,6 +189,55 @@ function TaggedNoteRow({ tag }) {
   );
 }
 
+/* ── Journal Tag Row ───────────────────────────────────────── */
+
+function JournalTagReviewRow({ tag, meetingId, onAdd }) {
+  const text = tag.text || '';
+  const preview = text.length > 120 ? text.substring(0, 120) + '...' : text;
+  const [added, setAdded] = useState(false);
+
+  async function handleAdd() {
+    // Create a spiritual_thought task from the journal text and link to meeting
+    await addTask({
+      type: 'spiritual_thought',
+      title: text.length > 80 ? text.substring(0, 80) + '...' : text,
+      description: text,
+      status: 'not_started',
+      meetingIds: [meetingId],
+    });
+    // Mark the journal tag as consumed
+    await markJournalMeetingTagConsumed(tag.id);
+    setAdded(true);
+    if (onAdd) onAdd();
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-100 p-2.5">
+      <div className="flex items-start gap-2">
+        <BookOpen size={12} className="text-violet-400 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] text-gray-600 leading-relaxed">{preview}</p>
+          <p className="text-[9px] text-gray-400 mt-0.5">
+            {tag.createdAt ? new Date(tag.createdAt).toLocaleDateString() : 'Journal note'}
+          </p>
+        </div>
+        {!added ? (
+          <button
+            onClick={handleAdd}
+            className="flex items-center gap-0.5 text-[10px] font-medium text-violet-600 hover:text-violet-800 px-1.5 py-0.5 rounded border border-violet-200 hover:bg-violet-50 transition-colors flex-shrink-0"
+          >
+            <Plus size={10} /> Add
+          </button>
+        ) : (
+          <span className="flex items-center gap-0.5 text-[10px] text-green-600 flex-shrink-0">
+            <CheckCircle2 size={10} /> Added
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Import Task Picker ────────────────────────────────────── */
 
 function ImportTaskPicker({ meetingId, onClose }) {
@@ -335,6 +384,7 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
   const { followUps: followUpTasks } = useFollowUpsForMeeting(meetingId);
   const { tasks: meetingTasks } = useTasksForMeeting(meetingId);
   const { tags: pendingTags } = useMeetingNoteTags(meetingId);
+  const { tags: journalTags } = useJournalMeetingTags(meetingId);
   const { statuses: meetingStatusList } = useMeetingTaskStatuses(meetingId);
   const [importPickerOpen, setImportPickerOpen] = useState(false);
 
@@ -365,7 +415,7 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
     return all;
   }, [followUps, actionItems, discussions, ongoingItems, otherTasks]);
 
-  const totalItems = allTasks.length + tags.length;
+  const totalItems = allTasks.length + tags.length + (journalTags?.length || 0);
   const assignedCount = allTasks.filter(t => statusMap[t.id]?.meetingStatus).length;
 
   async function handleStatusChange(taskId, status, extra = {}) {
@@ -520,6 +570,19 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
       >
         {tags.map(tag => (
           <TaggedNoteRow key={tag.id} tag={tag} />
+        ))}
+      </ReviewSection>
+
+      {/* Journal Notes */}
+      <ReviewSection
+        title="Journal Notes"
+        icon={BookOpen}
+        count={journalTags?.length || 0}
+        color="text-violet-600"
+        defaultOpen={true}
+      >
+        {(journalTags || []).map(tag => (
+          <JournalTagReviewRow key={tag.id} tag={tag} meetingId={meetingId} />
         ))}
       </ReviewSection>
 
