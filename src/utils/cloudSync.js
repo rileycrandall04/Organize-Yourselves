@@ -4,9 +4,7 @@
  * Strategy:
  * - On first login: migrate existing local data to Firestore
  * - On each write: fire-and-forget push to Firestore
- * - On login from new device: pull cloud data into Dexie
- * - Real-time sync via onSnapshot listeners for cross-device updates
- * - On every login: verify local critical data exists, re-pull if needed
+ * - On every login: pull all cloud data into Dexie (cross-device sync)
  *
  * Firestore structure: /users/{uid}/{tableName}/{docId}
  */
@@ -16,9 +14,7 @@ import {
   deleteDoc,
   collection,
   getDocs,
-  onSnapshot,
   writeBatch,
-  serverTimestamp,
 } from 'firebase/firestore';
 import { getFirebaseFirestore } from './firebase';
 import db from '../db';
@@ -117,18 +113,18 @@ export async function initCloudSync(uid) {
 
         localStorage.setItem(`organize_synced_${uid}`, '1');
       } else {
-        // Device has synced before — verify critical local data still exists.
-        // IndexedDB can be evicted by the browser (especially mobile Safari)
-        // while localStorage persists, leaving the app in a broken state.
-        await ensureCriticalDataExists(uid);
+        // Device has synced before — always pull latest data from cloud
+        // to ensure cross-device changes (e.g. phone → PC) are reflected.
+        console.log('[CloudSync] Pulling latest data from cloud...');
+        await pullFromCloud(uid);
       }
     } catch (err) {
       console.warn('[CloudSync] Init error:', err.message);
     }
 
-    // No real-time listeners — push-only sync to save Firestore quota.
-    // Data is pushed to cloud on every save. Pull happens on first
-    // login, new device, or manual force sync from Settings.
+    // No real-time listeners — push-on-write + pull-on-login sync.
+    // Data is pushed to cloud on every save. Full pull happens on
+    // every login to ensure cross-device data is current.
   } catch (err) {
     console.warn('[CloudSync] Fatal init error:', err.message);
   } finally {
@@ -306,77 +302,7 @@ export async function deleteFromCloud(tableName, id) {
 }
 
 /**
- * Set up onSnapshot listeners for real-time cross-device sync.
- * Includes profile and userCallings — these are critical for the app
- * to recognize the user as onboarded and show the correct UI.
- */
-function startRealtimeSync(uid) {
-  // Clean up any existing listeners
-  stopRealtimeSync();
-
-  const firestore = getFirebaseFirestore();
-  if (!firestore) return;
-
-  // Only listen to critical tables in real-time to stay within Firestore
-  // free tier quota. Other tables are push-only (writes still go to cloud).
-  const realtimeTables = REALTIME_TABLES;
-
-  for (const tableName of realtimeTables) {
-    try {
-      const colRef = collection(firestore, `users/${uid}/${tableName}`);
-      const unsub = onSnapshot(colRef, (snapshot) => {
-        snapshot.docChanges().forEach(async (change) => {
-          const table = db[tableName];
-          if (!table) return;
-
-          const data = change.doc.data();
-          const id = parseInt(change.doc.id, 10);
-          const docId = isNaN(id) ? change.doc.id : id;
-
-          try {
-            if (change.type === 'added' || change.type === 'modified') {
-              const existing = await table.get(docId);
-              if (existing) {
-                // Local record exists — decide whether to overwrite
-                if (data.updatedAt && existing.updatedAt) {
-                  // Both have timestamps — keep the newer one
-                  if (existing.updatedAt > data.updatedAt) {
-                    pushToCloud(tableName, docId, existing);
-                    return;
-                  }
-                  // Cloud is newer or same — accept cloud data
-                } else if (existing.updatedAt && !data.updatedAt) {
-                  // Local has timestamp, cloud doesn't — local is newer, re-push
-                  pushToCloud(tableName, docId, existing);
-                  return;
-                } else if (!existing.updatedAt && !data.updatedAt) {
-                  // Neither has timestamps — prefer local (cloud may be stale)
-                  return;
-                }
-                // else: cloud has timestamp, local doesn't — cloud is from new code, accept it
-              }
-              // No local record, or cloud is definitively newer — accept cloud data
-              await table.put({ ...data, id: docId });
-            } else if (change.type === 'removed') {
-              await table.delete(docId);
-            }
-          } catch {
-            // Silently handle sync conflicts
-          }
-        });
-      }, (err) => {
-        console.warn(`[CloudSync] Listener error for ${tableName}:`, err.message);
-      });
-
-      _unsubscribers.push(unsub);
-    } catch (err) {
-      console.warn(`[CloudSync] Failed to start listener for ${tableName}:`, err.message);
-    }
-  }
-}
-
-/**
- * Stop all real-time listeners.
+ * Stop all real-time listeners (no-op — listeners removed for quota savings).
  */
 export function stopRealtimeSync() {
   for (const unsub of _unsubscribers) {
