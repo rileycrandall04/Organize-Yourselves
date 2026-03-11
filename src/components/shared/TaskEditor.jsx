@@ -275,6 +275,25 @@ export default function TaskEditor({
           </div>
         )}
 
+        {/* Phone numbers (follow-up tasks) */}
+        {(task.phoneNumbers?.length > 0 || task.phoneNumber) && (
+          <div className="mb-3">
+            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Phone Numbers</h4>
+            <div className="space-y-1">
+              {(task.phoneNumbers || [task.phoneNumber]).filter(Boolean).map((phone, i) => (
+                <a
+                  key={i}
+                  href={`tel:${phone.replace(/[^\d+]/g, '')}`}
+                  className="flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800"
+                >
+                  <PhoneForwarded size={12} />
+                  {phone}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Follow-up notes */}
         {task.followUpNotes?.length > 0 && (
           <div className="mb-3">

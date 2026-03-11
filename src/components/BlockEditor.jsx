@@ -1,11 +1,11 @@
 import { useState, useRef, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote, setMeetingTaskStatus } from '../db';
+import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings } from '../db';
 import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST, JOURNAL_SECTIONS } from '../utils/constants';
 import { useMeetingTaskStatuses, useJournalBySection } from '../hooks/useDb';
 import useRichTextEditor, { migrateTextToHtml, extractTaskIdsFromHtml, htmlToPlainText } from './shared/RichTextEditor';
 import {
-  Star, Share2, X, Search, Import, Cloud, CloudOff, ArrowRightLeft,
+  Plus, Star, Share2, X, Search, Import, Cloud, CloudOff, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
   PhoneForwarded, Sparkles, BookOpen, Tag,
@@ -392,13 +392,17 @@ function TaskPanel({ task, onClose, disabled, onTagTask, meetings, currentMeetin
 
 /* ── InsertTaskModal ────────────────────────────────────────── */
 
-function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
+function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose, allMeetings }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [eventDate, setEventDate] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneNumbers, setPhoneNumbers] = useState(['']);
   const [messageText, setMessageText] = useState('');
+  const [selectedMeetingId, setSelectedMeetingId] = useState(meetingId || '');
   const typeConfig = TASK_TYPES[type];
+
+  // Determine effective meeting ID: explicit prop or user-selected
+  const effectiveMeetingId = meetingId || (selectedMeetingId ? Number(selectedMeetingId) : null);
 
   async function handleCreate() {
     if (!title.trim()) return;
@@ -407,14 +411,16 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
       types: [type],
       title: title.trim(),
       description: description.trim(),
-      meetingIds: meetingId ? [meetingId] : [],
+      meetingIds: effectiveMeetingId ? [effectiveMeetingId] : [],
       sourceMeetingInstanceId: instanceId || null,
       followUp: type === 'discussion' || type === 'ongoing' ? 'next' : null,
     };
     if (type === 'action_item') taskData.priority = 'medium';
     if (type === 'event' && eventDate) taskData.eventDate = eventDate;
     if (type === 'follow_up') {
-      taskData.phoneNumber = phoneNumber.trim();
+      const cleanNumbers = phoneNumbers.map(p => p.trim()).filter(Boolean);
+      taskData.phoneNumbers = cleanNumbers;
+      taskData.phoneNumber = cleanNumbers[0] || ''; // backward compat
       taskData.messageText = messageText.trim();
       taskData.context = 'phone';
     }
@@ -424,10 +430,22 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
     onClose();
   }
 
+  function addPhoneField() {
+    setPhoneNumbers(prev => [...prev, '']);
+  }
+
+  function removePhoneField(index) {
+    setPhoneNumbers(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function updatePhoneField(index, value) {
+    setPhoneNumbers(prev => prev.map((p, i) => i === index ? value : p));
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 animate-in fade-in mx-4"
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 animate-in fade-in mx-4 max-h-[80vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -461,14 +479,38 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
           {type === 'follow_up' && (
             <>
               <div>
-                <label className="text-[11px] font-medium text-gray-500 mb-1 block">Phone Number</label>
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={e => setPhoneNumber(e.target.value)}
-                  placeholder="(555) 123-4567"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-medium text-gray-500">Phone Number{phoneNumbers.length > 1 ? 's' : ''}</label>
+                  <button
+                    type="button"
+                    onClick={addPhoneField}
+                    className="text-[11px] text-primary-600 hover:text-primary-800 font-medium flex items-center gap-0.5"
+                  >
+                    <Plus size={12} /> Add Number
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {phoneNumbers.map((phone, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={e => updatePhoneField(i, e.target.value)}
+                        placeholder="(555) 123-4567"
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+                      />
+                      {phoneNumbers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removePhoneField(i)}
+                          className="p-1.5 text-gray-400 hover:text-red-500"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="text-[11px] font-medium text-gray-500 mb-1 block">Message Text</label>
@@ -491,13 +533,29 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose }) {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 resize-none"
             />
           )}
+          {/* Meeting picker — shown when no meetingId (journal context) */}
+          {!meetingId && allMeetings && allMeetings.length > 0 && (
+            <div>
+              <label className="text-[11px] font-medium text-gray-500 mb-1 block">Link to Meeting (optional)</label>
+              <select
+                value={selectedMeetingId}
+                onChange={e => setSelectedMeetingId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 bg-white"
+              >
+                <option value="">None</option>
+                {allMeetings.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex gap-3">
             <button
               onClick={handleCreate}
               disabled={!title.trim()}
               className="btn-primary flex-1"
             >
-              Add to Agenda
+              {meetingId ? 'Add to Agenda' : 'Create Task'}
             </button>
             <button onClick={onClose} className="btn-secondary flex-1">
               Cancel
@@ -945,6 +1003,7 @@ export default function BlockEditor({
   onTagJournalList,
   onTagMeeting,
   journalLists,
+  autoSaveMs: autoSaveMsProp,
 }) {
   const [insertModal, setInsertModal] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
@@ -952,6 +1011,12 @@ export default function BlockEditor({
   const [makeTaskOpen, setMakeTaskOpen] = useState(false);
   const [makeTaskTitle, setMakeTaskTitle] = useState('');
   const [journalPickerOpen, setJournalPickerOpen] = useState(false);
+
+  // Load all meetings for journal mode task creation (meeting picker)
+  const allMeetings = useLiveQuery(
+    () => (mode === 'journal' ? getMeetings() : Promise.resolve(null)),
+    [mode]
+  );
 
   // Derive HTML content from blocks
   const initialHtml = useMemo(() => {
@@ -1010,7 +1075,7 @@ export default function BlockEditor({
     },
     disabled: disabled || finalized,
     taskIds,
-    autoSaveMs: 60000,
+    autoSaveMs: autoSaveMsProp ?? 60000,
     meetingTaskStatuses: meetingTaskStatusMap,
   });
 
@@ -1082,40 +1147,42 @@ export default function BlockEditor({
         <div className="sticky bottom-16 z-20 mt-3">
           <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-2">
             <div className="flex items-center justify-between gap-1">
-              {/* Journal mode: show subset of task types + tag buttons */}
+              {/* Journal mode: show all task types + tag buttons */}
               {mode === 'journal' ? (
                 <>
-                  {toolbarItems.filter(i => ['action_item', 'discussion', 'ongoing', 'follow_up'].includes(i.type)).map(item => {
-                    const Icon = item.icon;
-                    return (
+                  <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+                    {toolbarItems.map(item => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.type}
+                          onClick={() => setInsertModal(item.type)}
+                          className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
+                        >
+                          <Icon size={15} className={item.color} />
+                          <span className="text-[8px] text-gray-500 font-medium">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                    {onTagJournalList && (
                       <button
-                        key={item.type}
-                        onClick={() => setInsertModal(item.type)}
-                        className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
+                        onClick={() => onTagJournalList(getSelectedText())}
+                        className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
                       >
-                        <Icon size={16} className={item.color} />
-                        <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
+                        <Tag size={15} className="text-violet-600" />
+                        <span className="text-[8px] text-gray-500 font-medium">To List</span>
                       </button>
-                    );
-                  })}
-                  {onTagJournalList && (
-                    <button
-                      onClick={() => onTagJournalList(getSelectedText())}
-                      className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
-                    >
-                      <Tag size={16} className="text-violet-600" />
-                      <span className="text-[9px] text-gray-500 font-medium">To List</span>
-                    </button>
-                  )}
-                  {onTagMeeting && (
-                    <button
-                      onClick={() => onTagMeeting(getSelectedText())}
-                      className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
-                    >
-                      <CalendarDays size={16} className="text-indigo-600" />
-                      <span className="text-[9px] text-gray-500 font-medium">To Meeting</span>
-                    </button>
-                  )}
+                    )}
+                    {onTagMeeting && (
+                      <button
+                        onClick={() => onTagMeeting(getSelectedText())}
+                        className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
+                      >
+                        <CalendarDays size={15} className="text-indigo-600" />
+                        <span className="text-[8px] text-gray-500 font-medium">To Mtg</span>
+                      </button>
+                    )}
+                  </div>
                 </>
               ) : (
                 /* Meeting mode: show all task type buttons */
@@ -1168,6 +1235,7 @@ export default function BlockEditor({
           instanceId={instanceId}
           onInsert={handleTaskInsert}
           onClose={() => setInsertModal(null)}
+          allMeetings={mode === 'journal' ? (allMeetings || []) : null}
         />
       )}
 

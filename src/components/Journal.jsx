@@ -7,7 +7,7 @@ import Modal from './shared/Modal';
 import JournalEntryEditor from './JournalEntryEditor';
 import {
   ArrowLeft, BookOpen, Plus, Search, X, Sparkles, Check,
-  Pencil, Trash2,
+  Pencil, Trash2, Settings,
 } from 'lucide-react';
 
 // ── List Management Modal ──────────────────────────────────
@@ -75,120 +75,75 @@ function ListFormModal({ open, onClose, onSave, editList }) {
   );
 }
 
-// ── Entries List (Level 2) ─────────────────────────────────
+// ── Manage Lists Modal ────────────────────────────────────
 
-function JournalEntriesList({ list, onBack, onOpenEntry }) {
-  const { entries, loading } = useJournalByList(list.id, 200);
-  const [search, setSearch] = useState('');
-  const color = getJournalListColor(list.color);
-
-  let filtered = entries;
-  if (search.trim()) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter(e =>
-      (e.text || '').toLowerCase().includes(q) ||
-      (e.tags && e.tags.some(t => t.toLowerCase().includes(q)))
-    );
-  }
-
-  function getPreview(entry) {
-    const text = entry.text || '';
-    if (text.length <= 120) return text;
-    return text.substring(0, 120) + '...';
-  }
-
+function ManageListsModal({ open, onClose, lists, onEdit, onDelete, onAdd }) {
   return (
-    <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
-      <button onClick={onBack} className="flex items-center gap-1 text-sm text-primary-600 mb-4">
-        <ArrowLeft size={16} /> Back
-      </button>
-
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-2">
-          <div className={`w-4 h-4 rounded-full ${color.dot}`} />
-          <h1 className="text-2xl font-bold text-gray-900">{list.name}</h1>
-        </div>
-        <button
-          onClick={() => onOpenEntry(null)}
-          className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-800"
-        >
-          <Plus size={16} /> New Entry
-        </button>
-      </div>
-
-      {entries.length > 0 && (
-        <div className="relative mb-4">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search entries..."
-            className="input-field pl-9 pr-8"
-          />
-          {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-              <X size={16} className="text-gray-400" />
-            </button>
-          )}
-        </div>
-      )}
-
-      {loading ? (
-        <div className="text-center py-12 text-gray-400">
-          <div className="animate-spin w-6 h-6 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-3" />
-          <p className="text-sm">Loading...</p>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="card text-center text-gray-400 py-12">
-          <Sparkles size={40} className="mx-auto mb-3 text-gray-300" />
-          <p className="text-sm">
-            {search ? `No entries matching "${search}"` : 'No entries yet.'}
-          </p>
-          {!search && (
-            <button onClick={() => onOpenEntry(null)} className="btn-primary mt-3 text-sm">
-              <Plus size={14} className="inline mr-1" /> Write Your First Entry
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map(entry => (
-            <div
-              key={entry.id}
-              className="card cursor-pointer hover:border-primary-300"
-              onClick={() => onOpenEntry(entry)}
-            >
-              <p className="text-sm text-gray-900 whitespace-pre-wrap line-clamp-3">{getPreview(entry)}</p>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <span className="text-xs text-gray-400">{formatRelative(entry.date)}</span>
-                {entry.tags && entry.tags.map(tag => (
-                  <span key={tag} className="badge bg-purple-50 text-purple-600">{tag}</span>
-                ))}
-              </div>
+    <Modal open={open} onClose={onClose} title="Manage Lists" size="sm">
+      <div className="space-y-2 mb-4">
+        {lists.map(list => {
+          const color = getJournalListColor(list.color);
+          return (
+            <div key={list.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50">
+              <div className={`w-3 h-3 rounded-full flex-shrink-0 ${color.dot}`} />
+              <span className="flex-1 text-sm text-gray-900 font-medium">{list.name}</span>
+              <button
+                onClick={() => { onClose(); onEdit(list); }}
+                className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
+                title="Edit"
+              >
+                <Pencil size={14} />
+              </button>
+              {!list.isDefault && (
+                <button
+                  onClick={() => { onClose(); onDelete(list); }}
+                  className="p-1.5 text-gray-400 hover:text-red-500 rounded"
+                  title="Delete"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          );
+        })}
+      </div>
+      <button
+        onClick={() => { onClose(); onAdd(); }}
+        className="btn-primary w-full text-sm flex items-center justify-center gap-1"
+      >
+        <Plus size={14} /> Add List
+      </button>
+    </Modal>
   );
 }
 
-// ── Main Journal Component (Level 1) ───────────────────────
+// ── Main Journal Component (Tabbed View) ─────────────────
 
 export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
   const { lists, loading: listsLoading, add: addList, update: updateList, remove: removeList } = useJournalLists();
   const { entries: allEntries } = useJournal(500);
-  const [selectedList, setSelectedList] = useState(null);
-  const [editingEntry, setEditingEntry] = useState(undefined); // undefined = not editing, null = new entry, object = existing entry
+  const [activeListId, setActiveListId] = useState(null);
+  const [editingEntry, setEditingEntry] = useState(undefined); // undefined = not editing, null = new, object = existing
   const [listFormOpen, setListFormOpen] = useState(false);
   const [editingList, setEditingList] = useState(null);
   const [deleteConfirmList, setDeleteConfirmList] = useState(null);
+  const [manageListsOpen, setManageListsOpen] = useState(false);
+  const [search, setSearch] = useState('');
 
   // Ensure defaults exist on first load
   useEffect(() => {
     ensureDefaultJournalLists();
   }, []);
+
+  // Auto-select first list (Scripture Study) when lists load
+  useEffect(() => {
+    if (!activeListId && lists.length > 0) {
+      // Scripture Study is sortOrder 0, so it should be first
+      setActiveListId(lists[0].id);
+    }
+  }, [lists, activeListId]);
+
+  const activeList = lists.find(l => l.id === activeListId) || lists[0] || null;
 
   // If in picker mode, fall back to simple flat view
   if (pickerMode) {
@@ -202,39 +157,17 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
     );
   }
 
-  // Level 3: Entry editor
-  if (editingEntry !== undefined && selectedList) {
+  // Entry editor (full page)
+  if (editingEntry !== undefined && activeList) {
     return (
       <JournalEntryEditor
+        key={editingEntry?.id || 'new'}
         entry={editingEntry}
-        list={selectedList}
+        list={activeList}
         onBack={() => setEditingEntry(undefined)}
       />
     );
   }
-
-  // Level 2: Entries within a list
-  if (selectedList) {
-    return (
-      <JournalEntriesList
-        list={selectedList}
-        onBack={() => setSelectedList(null)}
-        onOpenEntry={(entry) => setEditingEntry(entry)}
-      />
-    );
-  }
-
-  // Count entries per list
-  const entryCounts = {};
-  const latestDates = {};
-  allEntries.forEach(e => {
-    if (e.listId) {
-      entryCounts[e.listId] = (entryCounts[e.listId] || 0) + 1;
-      if (!latestDates[e.listId] || e.date > latestDates[e.listId]) {
-        latestDates[e.listId] = e.date;
-      }
-    }
-  });
 
   async function handleSaveList(data) {
     if (editingList) {
@@ -245,17 +178,20 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
   }
 
   async function handleDeleteList(list) {
-    // Move entries to no-list before deleting
     const listEntries = allEntries.filter(e => e.listId === list.id);
     for (const entry of listEntries) {
       const { updateJournalEntry } = await import('../db');
       await updateJournalEntry(entry.id, { listId: null });
     }
     await removeList(list.id);
+    // If we deleted the active list, switch to first available
+    if (activeListId === list.id) {
+      const remaining = lists.filter(l => l.id !== list.id);
+      setActiveListId(remaining.length > 0 ? remaining[0].id : null);
+    }
     setDeleteConfirmList(null);
   }
 
-  // Level 1: List of lists
   return (
     <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
       {onBack && (
@@ -264,22 +200,22 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
         </button>
       )}
 
-      <div className="flex items-center justify-between mb-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <BookOpen size={24} className="text-primary-700" />
           <h1 className="text-2xl font-bold text-gray-900">Journal</h1>
         </div>
-        <button
-          onClick={() => { setEditingList(null); setListFormOpen(true); }}
-          className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-800"
-        >
-          <Plus size={16} /> Add List
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setManageListsOpen(true)}
+            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+            title="Manage lists"
+          >
+            <Settings size={18} />
+          </button>
+        </div>
       </div>
-
-      <p className="text-xs text-gray-400 mb-4">
-        Private notes and spiritual impressions. Never shared.
-      </p>
 
       {listsLoading ? (
         <div className="text-center py-12 text-gray-400">
@@ -298,48 +234,50 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
           </button>
         </div>
       ) : (
-        <div className="space-y-2">
-          {lists.map(list => {
-            const color = getJournalListColor(list.color);
-            const count = entryCounts[list.id] || 0;
-            const latest = latestDates[list.id];
-            return (
-              <div
-                key={list.id}
-                className="card cursor-pointer hover:border-primary-300 flex items-center gap-3"
-                onClick={() => setSelectedList(list)}
-              >
-                <div className={`w-4 h-4 rounded-full flex-shrink-0 ${color.dot}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm text-gray-900">{list.name}</div>
-                  <div className="text-xs text-gray-400">
-                    {count} {count === 1 ? 'entry' : 'entries'}
-                    {latest && ` \u00B7 ${formatRelative(latest)}`}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={e => { e.stopPropagation(); setEditingList(list); setListFormOpen(true); }}
-                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
-                    title="Edit"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  {!list.isDefault && (
-                    <button
-                      onClick={e => { e.stopPropagation(); setDeleteConfirmList(list); }}
-                      className="p-1.5 text-gray-400 hover:text-red-500 rounded"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <>
+          {/* Tab pills — horizontal scrollable */}
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-1 px-1 scrollbar-hide">
+            {lists.map(list => {
+              const color = getJournalListColor(list.color);
+              const isActive = list.id === activeListId;
+              return (
+                <button
+                  key={list.id}
+                  onClick={() => { setActiveListId(list.id); setSearch(''); }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+                    isActive
+                      ? `${color.active} shadow-sm`
+                      : `${color.bg} ${color.text} hover:shadow-sm`
+                  }`}
+                >
+                  <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/60' : color.dot}`} />
+                  {list.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Entries for active tab */}
+          {activeList && (
+            <ActiveListEntries
+              list={activeList}
+              search={search}
+              setSearch={setSearch}
+              onOpenEntry={(entry) => setEditingEntry(entry)}
+            />
+          )}
+        </>
       )}
+
+      {/* Manage Lists Modal */}
+      <ManageListsModal
+        open={manageListsOpen}
+        onClose={() => setManageListsOpen(false)}
+        lists={lists}
+        onEdit={(list) => { setEditingList(list); setListFormOpen(true); }}
+        onDelete={(list) => setDeleteConfirmList(list)}
+        onAdd={() => { setEditingList(null); setListFormOpen(true); }}
+      />
 
       {/* List form modal */}
       <ListFormModal
@@ -360,6 +298,100 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
         </div>
       </Modal>
     </div>
+  );
+}
+
+// ── Active List Entries (inline below tabs) ──────────────
+
+function ActiveListEntries({ list, search, setSearch, onOpenEntry }) {
+  const { entries, loading } = useJournalByList(list.id, 200);
+
+  let filtered = entries;
+  if (search.trim()) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter(e =>
+      (e.title || '').toLowerCase().includes(q) ||
+      (e.text || '').toLowerCase().includes(q) ||
+      (e.tags && e.tags.some(t => t.toLowerCase().includes(q)))
+    );
+  }
+
+  function getPreview(entry) {
+    const text = entry.text || '';
+    if (text.length <= 80) return text;
+    return text.substring(0, 80) + '...';
+  }
+
+  return (
+    <>
+      {/* New Entry + Search row */}
+      <div className="flex items-center gap-2 mb-4">
+        {entries.length > 0 && (
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search entries..."
+              className="input-field pl-9 pr-8 w-full"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+                <X size={16} className="text-gray-400" />
+              </button>
+            )}
+          </div>
+        )}
+        <button
+          onClick={() => onOpenEntry(null)}
+          className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg whitespace-nowrap flex-shrink-0"
+        >
+          <Plus size={16} /> New
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">
+          <div className="animate-spin w-6 h-6 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-3" />
+          <p className="text-sm">Loading...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="card text-center text-gray-400 py-12">
+          <Sparkles size={40} className="mx-auto mb-3 text-gray-300" />
+          <p className="text-sm">
+            {search ? `No entries matching "${search}"` : 'No entries yet.'}
+          </p>
+          {!search && (
+            <button onClick={() => onOpenEntry(null)} className="btn-primary mt-3 text-sm">
+              <Plus size={14} className="inline mr-1" /> Write Your First Entry
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(entry => (
+            <div
+              key={entry.id}
+              className="card cursor-pointer hover:border-primary-300 py-3"
+              onClick={() => onOpenEntry(entry)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-gray-900 truncate">
+                  {entry.title || 'Untitled'}
+                </span>
+                <span className="text-xs text-gray-400 flex-shrink-0">
+                  {formatRelative(entry.date)}
+                </span>
+              </div>
+              {entry.text && (
+                <p className="text-xs text-gray-500 mt-1 line-clamp-1">{getPreview(entry)}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
