@@ -1211,6 +1211,7 @@ export default function BlockEditor({
                     })}
                     {onTagJournalList && (
                       <button
+                        onMouseDown={e => e.preventDefault()}
                         onClick={() => onTagJournalList(getSelectedText(), currentHtml)}
                         className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
                       >
@@ -1220,6 +1221,7 @@ export default function BlockEditor({
                     )}
                     {onTagMeeting && (
                       <button
+                        onMouseDown={e => e.preventDefault()}
                         onClick={() => onTagMeeting(getSelectedText(), currentHtml)}
                         className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
                       >
