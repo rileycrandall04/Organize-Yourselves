@@ -441,10 +441,10 @@ function ActiveListEntries({ list, onOpenEntry }) {
   return (
     <>
       {/* New Entry button */}
-      <div className="flex items-center justify-end mb-4">
+      <div className="mb-4">
         <button
           onClick={() => onOpenEntry(null)}
-          className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg whitespace-nowrap"
+          className="flex items-center justify-center gap-1 w-full px-3 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg"
         >
           <Plus size={16} /> New Entry
         </button>
