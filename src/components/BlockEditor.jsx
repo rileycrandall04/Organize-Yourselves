@@ -1191,45 +1191,43 @@ export default function BlockEditor({
       {!disabled && !finalized && (
         <div className="sticky bottom-16 z-20 mt-3">
           <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-2">
-            <div className="flex items-center justify-between gap-1">
+            <div className="grid grid-cols-5 gap-1">
               {/* Journal mode: show all task types + tag buttons */}
               {mode === 'journal' ? (
                 <>
-                  <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
-                    {toolbarItems.map(item => {
-                      const Icon = item.icon;
-                      return (
-                        <button
-                          key={item.type}
-                          onClick={() => setInsertModal(item.type)}
-                          className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
-                        >
-                          <Icon size={15} className={item.color} />
-                          <span className="text-[8px] text-gray-500 font-medium">{item.label}</span>
-                        </button>
-                      );
-                    })}
-                    {onTagJournalList && (
+                  {toolbarItems.map(item => {
+                    const Icon = item.icon;
+                    return (
                       <button
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => onTagJournalList(getSelectedText(), currentHtml)}
-                        className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
+                        key={item.type}
+                        onClick={() => setInsertModal(item.type)}
+                        className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
                       >
-                        <Tag size={15} className="text-violet-600" />
-                        <span className="text-[8px] text-gray-500 font-medium">To List</span>
+                        <Icon size={15} className={item.color} />
+                        <span className="text-[8px] text-gray-500 font-medium">{item.label}</span>
                       </button>
-                    )}
-                    {onTagMeeting && (
-                      <button
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => onTagMeeting(getSelectedText(), currentHtml)}
-                        className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0"
-                      >
-                        <CalendarDays size={15} className="text-indigo-600" />
-                        <span className="text-[8px] text-gray-500 font-medium">To Mtg</span>
-                      </button>
-                    )}
-                  </div>
+                    );
+                  })}
+                  {onTagJournalList && (
+                    <button
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => onTagJournalList(getSelectedText(), currentHtml)}
+                      className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <Tag size={15} className="text-violet-600" />
+                      <span className="text-[8px] text-gray-500 font-medium">To List</span>
+                    </button>
+                  )}
+                  {onTagMeeting && (
+                    <button
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => onTagMeeting(getSelectedText(), currentHtml)}
+                      className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <CalendarDays size={15} className="text-indigo-600" />
+                      <span className="text-[8px] text-gray-500 font-medium">To Mtg</span>
+                    </button>
+                  )}
                 </>
               ) : (
                 /* Meeting mode: show all task type buttons */
@@ -1245,7 +1243,7 @@ export default function BlockEditor({
                           setInsertModal(item.type);
                         }
                       }}
-                      className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex-1"
+                      className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
                     >
                       <Icon size={16} className={item.color} />
                       <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
