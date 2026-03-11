@@ -170,6 +170,49 @@ function formatDate(date) {
 }
 
 /**
+ * Calculate the next due date for a recurring task.
+ * Adds the cadence interval to the current due date (or today if none).
+ * @param {string|null} currentDueDate — YYYY-MM-DD string or null
+ * @param {string} cadence — CADENCES key (daily, weekly, biweekly, monthly, quarterly, biannual, annual)
+ * @returns {string} — YYYY-MM-DD of the next due date
+ */
+export function getNextTaskDueDate(currentDueDate, cadence) {
+  const base = currentDueDate
+    ? startOfDay(parseISO(currentDueDate))
+    : startOfDay(new Date());
+
+  let next;
+  switch (cadence) {
+    case 'daily':
+      next = addDays(base, 1);
+      break;
+    case 'weekly':
+      next = addWeeks(base, 1);
+      break;
+    case 'biweekly':
+      next = addWeeks(base, 2);
+      break;
+    case 'monthly':
+      next = addMonths(base, 1);
+      break;
+    case 'quarterly':
+      next = addMonths(base, 3);
+      break;
+    case 'biannual':
+      next = addMonths(base, 6);
+      break;
+    case 'annual':
+      next = addMonths(base, 12);
+      break;
+    default:
+      next = addWeeks(base, 1);
+      break;
+  }
+
+  return formatDate(next);
+}
+
+/**
  * Check if a date string is today.
  */
 export function isDateToday(dateStr) {

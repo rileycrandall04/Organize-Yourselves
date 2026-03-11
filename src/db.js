@@ -1,7 +1,7 @@
 import Dexie from 'dexie';
 import { getCallingConfig, getPresidentForOrg, ORG_HIERARCHY, ORG_TEMPLATES, JURISDICTION_MAP } from './data/callings';
 import { CALLING_STAGES, CALL_STAGE_ORDER } from './utils/constants';
-import { getNextMeetingDate } from './utils/meetingSchedule';
+import { getNextMeetingDate, getNextTaskDueDate } from './utils/meetingSchedule';
 
 // Debounce Firestore sync to avoid rapid-fire writes.
 // Uses dynamic import to break circular dependency (firestoreSync imports db).
@@ -430,6 +430,41 @@ export async function addTask(task) {
   return id;
 }
 
+/**
+ * When a recurring task is completed, create the next occurrence.
+ * Copies relevant fields, resets status/dates, calculates next due date.
+ */
+async function regenerateRecurringTask(completedTask) {
+  if (!completedTask.isRecurring || !completedTask.recurringCadence) return;
+
+  const nextDueDate = getNextTaskDueDate(
+    completedTask.dueDate,
+    completedTask.recurringCadence
+  );
+
+  await addTask({
+    type: completedTask.type,
+    types: completedTask.types,
+    title: completedTask.title,
+    description: completedTask.description,
+    priority: completedTask.priority,
+    context: completedTask.context,
+    isRecurring: true,
+    recurringCadence: completedTask.recurringCadence,
+    meetingIds: completedTask.meetingIds || [],
+    assignedTo: completedTask.assignedTo || null,
+    starred: completedTask.starred || false,
+    phoneNumber: completedTask.phoneNumber,
+    phoneNumbers: completedTask.phoneNumbers,
+    messageText: completedTask.messageText,
+    personName: completedTask.personName,
+    familyName: completedTask.familyName,
+    callingSlotId: completedTask.callingSlotId,
+    followUp: completedTask.followUp,
+    dueDate: nextDueDate,
+  });
+}
+
 export async function updateTask(id, changes) {
   changes.updatedAt = new Date().toISOString();
   if (changes.status === 'complete' && !changes.completedAt) {
@@ -440,7 +475,14 @@ export async function updateTask(id, changes) {
   }
   await db.tasks.update(id, changes);
   const updated = await db.tasks.get(id);
-  if (updated) syncAfterWrite('tasks', id, updated);
+  if (updated) {
+    syncAfterWrite('tasks', id, updated);
+
+    // Regenerate recurring task when completed
+    if (changes.status === 'complete' && updated.isRecurring && updated.recurringCadence) {
+      await regenerateRecurringTask(updated);
+    }
+  }
 }
 
 export async function snoozeTask(id, days = 7) {
