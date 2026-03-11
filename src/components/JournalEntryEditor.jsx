@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { addJournalEntry, updateJournalEntry, deleteJournalEntry } from '../db';
+import { addJournalEntry, updateJournalEntry, deleteJournalEntry, addJournalMeetingTag } from '../db';
 import { getJournalListColor } from '../utils/constants';
 import { formatFull } from '../utils/dates';
 import { htmlToPlainText } from './shared/RichTextEditor';
 import BlockEditor from './BlockEditor';
+import JournalListPicker from './shared/JournalListPicker';
+import MeetingPicker from './shared/MeetingPicker';
 import Modal from './shared/Modal';
 import { ArrowLeft, Trash2, Save, CheckCircle2 } from 'lucide-react';
 
@@ -34,9 +36,14 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveFlash, setSaveFlash] = useState(false);
+  const [journalListPickerOpen, setJournalListPickerOpen] = useState(false);
+  const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
+  const [tagText, setTagText] = useState(''); // selected text to tag
   const latestBlocksRef = useRef(blocks);
   const entryIdRef = useRef(entryId); // Ref to prevent duplicate creation race condition
   const creatingRef = useRef(null); // Promise lock for entry creation
+  const getSelectedTextRef = useRef(null);
+  const handleGetSelectedTextRef = useCallback((fn) => { getSelectedTextRef.current = fn; }, []);
 
   const color = getJournalListColor(list?.color);
 
@@ -122,6 +129,50 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
     }
   }
 
+  // Tag selected text to another journal list
+  function handleTagToList(selectedText) {
+    setTagText(selectedText || '');
+    setJournalListPickerOpen(true);
+  }
+
+  async function handlePickJournalList(targetList) {
+    const text = tagText.trim() || htmlToPlainText(latestBlocksRef.current?.[0]?.html || '');
+    if (!text) return;
+    const html = text.split('\n').map(line => `<p>${line || '<br>'}</p>`).join('');
+    await addJournalEntry({
+      listId: targetList.id,
+      title: '',
+      text: text.trim(),
+      html,
+      tags: [],
+      sourceEntryId: entryId || null,
+    });
+    setJournalListPickerOpen(false);
+    setTagText('');
+  }
+
+  // Tag selected text to a meeting
+  function handleTagToMeeting(selectedText) {
+    setTagText(selectedText || '');
+    setMeetingPickerOpen(true);
+  }
+
+  async function handlePickMeeting(meeting) {
+    const text = tagText.trim() || htmlToPlainText(latestBlocksRef.current?.[0]?.html || '');
+    if (!text) return;
+    // Ensure the entry is saved first so we have an ID
+    const currentId = entryIdRef.current || await ensureEntry(latestBlocksRef.current?.[0]?.html || '');
+    if (currentId) {
+      await addJournalMeetingTag({
+        journalEntryId: currentId,
+        targetMeetingId: meeting.id,
+        text: text.trim(),
+      });
+    }
+    setMeetingPickerOpen(false);
+    setTagText('');
+  }
+
   return (
     <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
       {/* Header */}
@@ -200,6 +251,26 @@ export default function JournalEntryEditor({ entry, list, onBack, readOnly = fal
         journalEntryId={entryId}
         journalListId={list?.id}
         autoSaveMs={5000}
+        onGetSelectedTextRef={handleGetSelectedTextRef}
+        onTagJournalList={readOnly ? undefined : handleTagToList}
+        onTagMeeting={readOnly ? undefined : handleTagToMeeting}
+      />
+
+      {/* Journal list picker (tag text to another list) */}
+      <JournalListPicker
+        open={journalListPickerOpen}
+        onClose={() => { setJournalListPickerOpen(false); setTagText(''); }}
+        onSelect={handlePickJournalList}
+        excludeIds={list?.id ? [list.id] : []}
+        title="Tag to Journal List"
+      />
+
+      {/* Meeting picker (tag text to a meeting) */}
+      <MeetingPicker
+        open={meetingPickerOpen}
+        onClose={() => { setMeetingPickerOpen(false); setTagText(''); }}
+        onSelect={handlePickMeeting}
+        title="Tag to Meeting"
       />
 
       {/* Delete confirmation */}

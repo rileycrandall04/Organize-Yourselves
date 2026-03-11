@@ -312,9 +312,11 @@ export default function RichTextEditor({
 }) {
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved'
   const [hasSelection, setHasSelection] = useState(false);
-  const saveTimerRef = useRef(null);
+  const saveTimerRef = useRef(null);   // debounce timer
   const lastSavedRef = useRef(initialHtml);
   const isDirtyRef = useRef(false);
+  const autoSaveMsRef = useRef(autoSaveMs); // keep ref for onUpdate closure
+  autoSaveMsRef.current = autoSaveMs;
 
   // Live-query all referenced tasks for chip rendering
   const tasksData = useLiveQuery(
@@ -345,6 +347,21 @@ export default function RichTextEditor({
       const html = editor.getHTML();
       isDirtyRef.current = true;
       onContentChange?.(html);
+
+      // Debounced auto-save: reset timer on each content change.
+      // Save fires only after autoSaveMs of inactivity.
+      if (!disabled && autoSaveMsRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+          // Inline save logic using current editor (performSave may have stale ref)
+          if (!isDirtyRef.current) return;
+          const latestHtml = editor.getHTML();
+          if (latestHtml === lastSavedRef.current) return;
+          onSave?.(latestHtml);
+          lastSavedRef.current = latestHtml;
+          isDirtyRef.current = false;
+        }, autoSaveMsRef.current);
+      }
     },
     onSelectionUpdate({ editor }) {
       const { from, to } = editor.state.selection;
@@ -377,17 +394,11 @@ export default function RichTextEditor({
     }
   }, [editor, onSave]);
 
-  // Auto-save timer (every autoSaveMs)
+  // Clean up debounce timer on unmount or when disabled changes
   useEffect(() => {
-    if (disabled || !autoSaveMs) return;
-
-    const timer = setInterval(() => {
-      performSave();
-    }, autoSaveMs);
-
-    saveTimerRef.current = timer;
-    return () => clearInterval(timer);
-  }, [disabled, autoSaveMs, performSave]);
+    if (disabled) clearTimeout(saveTimerRef.current);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [disabled]);
 
   // Save on unmount (navigate away)
   useEffect(() => {

@@ -1,14 +1,96 @@
 import { useState, useEffect } from 'react';
 import { useJournalLists, useJournalByList, useJournal } from '../hooks/useDb';
-import { getJournalListColor, JOURNAL_LIST_COLORS } from '../utils/constants';
+import { getJournalListColor, JOURNAL_LIST_COLORS, TASK_TYPES } from '../utils/constants';
 import { formatRelative } from '../utils/dates';
 import { ensureDefaultJournalLists } from '../db';
+import { extractTaskIdsFromHtml } from './shared/RichTextEditor';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { getTasksByIds } from '../db';
 import Modal from './shared/Modal';
 import JournalEntryEditor from './JournalEntryEditor';
 import {
   ArrowLeft, BookOpen, Plus, Search, X, Sparkles, Check,
   Pencil, Trash2, Settings,
+  CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
+  PhoneForwarded,
 } from 'lucide-react';
+
+// Task type icon map for badges
+const TASK_TYPE_ICONS = {
+  action_item: CheckSquare,
+  discussion: MessageSquare,
+  event: CalendarDays,
+  calling_plan: Briefcase,
+  ministering_plan: Heart,
+  ongoing: RotateCw,
+  follow_up: PhoneForwarded,
+  spiritual_thought: Sparkles,
+};
+
+const TASK_CHIP_COLORS = {
+  action_item:      { bg: '#eff6ff', fg: '#1d4ed8' },
+  discussion:       { bg: '#eef2ff', fg: '#4338ca' },
+  event:            { bg: '#f0fdf4', fg: '#15803d' },
+  calling_plan:     { bg: '#faf5ff', fg: '#7e22ce' },
+  ministering_plan: { bg: '#fff1f2', fg: '#be123c' },
+  ongoing:          { bg: '#fffbeb', fg: '#b45309' },
+  follow_up:        { bg: '#f0fdfa', fg: '#0f766e' },
+  spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9' },
+};
+
+// Strip {{task:ID}} markers from text for display
+function stripTaskMarkers(text) {
+  return (text || '').replace(/\{\{task:\d+\}\}/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+// Extract task IDs from entry (html or text)
+function getEntryTaskIds(entry) {
+  if (entry?.html) return extractTaskIdsFromHtml(entry.html);
+  // Fallback: parse {{task:ID}} from text
+  const ids = [];
+  const re = /\{\{task:(\d+)\}\}/g;
+  let m;
+  while ((m = re.exec(entry?.text || '')) !== null) ids.push(Number(m[1]));
+  return ids;
+}
+
+// Task badges component — shows small colored icons for each task in an entry
+function TaskBadges({ taskIds }) {
+  const tasks = useLiveQuery(
+    () => taskIds.length > 0 ? getTasksByIds(taskIds) : [],
+    [taskIds.join(',')]
+  ) ?? [];
+
+  if (tasks.length === 0) return null;
+
+  // Group by type and count
+  const typeCounts = {};
+  for (const t of tasks) {
+    const type = t.type || 'action_item';
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+  }
+
+  return (
+    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+      {Object.entries(typeCounts).map(([type, count]) => {
+        const Icon = TASK_TYPE_ICONS[type] || CheckSquare;
+        const c = TASK_CHIP_COLORS[type] || TASK_CHIP_COLORS.action_item;
+        const label = TASK_TYPES[type]?.label || type;
+        return (
+          <span
+            key={type}
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium"
+            style={{ background: c.bg, color: c.fg }}
+            title={`${count} ${label}${count > 1 ? 's' : ''}`}
+          >
+            <Icon size={9} />
+            {count > 1 && count}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 // ── List Management Modal ──────────────────────────────────
 
@@ -349,7 +431,7 @@ function ActiveListEntries({ list, search, setSearch, onOpenEntry }) {
   }
 
   function getPreview(entry) {
-    const text = entry.text || '';
+    const text = stripTaskMarkers(entry.text);
     if (text.length <= 80) return text;
     return text.substring(0, 80) + '...';
   }
@@ -402,25 +484,29 @@ function ActiveListEntries({ list, search, setSearch, onOpenEntry }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map(entry => (
-            <div
-              key={entry.id}
-              className="card cursor-pointer hover:border-primary-300 py-3"
-              onClick={() => onOpenEntry(entry)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-gray-900 truncate">
-                  {entry.title || 'Untitled'}
-                </span>
-                <span className="text-xs text-gray-400 flex-shrink-0">
-                  {formatRelative(entry.date)}
-                </span>
+          {filtered.map(entry => {
+            const taskIds = getEntryTaskIds(entry);
+            return (
+              <div
+                key={entry.id}
+                className="card cursor-pointer hover:border-primary-300 py-3"
+                onClick={() => onOpenEntry(entry)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-gray-900 truncate">
+                    {entry.title || 'Untitled'}
+                  </span>
+                  <span className="text-xs text-gray-400 flex-shrink-0">
+                    {formatRelative(entry.date)}
+                  </span>
+                </div>
+                {entry.text && (
+                  <p className="text-xs text-gray-500 mt-1 line-clamp-1">{getPreview(entry)}</p>
+                )}
+                {taskIds.length > 0 && <TaskBadges taskIds={taskIds} />}
               </div>
-              {entry.text && (
-                <p className="text-xs text-gray-500 mt-1 line-clamp-1">{getPreview(entry)}</p>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </>
@@ -434,7 +520,7 @@ function GlobalSearchResults({ entries, query, lists, onOpenEntry }) {
   const filtered = entries
     .filter(e =>
       (e.title || '').toLowerCase().includes(q) ||
-      (e.text || '').toLowerCase().includes(q) ||
+      stripTaskMarkers(e.text).toLowerCase().includes(q) ||
       (e.tags && e.tags.some(t => t.toLowerCase().includes(q)))
     )
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -443,7 +529,7 @@ function GlobalSearchResults({ entries, query, lists, onOpenEntry }) {
   for (const l of lists) listMap[l.id] = l;
 
   function getPreview(entry) {
-    const text = entry.text || '';
+    const text = stripTaskMarkers(entry.text);
     if (text.length <= 80) return text;
     return text.substring(0, 80) + '...';
   }
@@ -462,6 +548,7 @@ function GlobalSearchResults({ entries, query, lists, onOpenEntry }) {
       {filtered.map(entry => {
         const list = listMap[entry.listId];
         const color = list ? getJournalListColor(list.color) : null;
+        const taskIds = getEntryTaskIds(entry);
         return (
           <div
             key={entry.id}
@@ -479,12 +566,15 @@ function GlobalSearchResults({ entries, query, lists, onOpenEntry }) {
             {entry.text && (
               <p className="text-xs text-gray-500 mt-1 line-clamp-1">{getPreview(entry)}</p>
             )}
-            {list && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <div className={`w-2 h-2 rounded-full ${color?.dot || 'bg-gray-300'}`} />
-                <span className="text-[10px] text-gray-400">{list.name}</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              {list && (
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-2 h-2 rounded-full ${color?.dot || 'bg-gray-300'}`} />
+                  <span className="text-[10px] text-gray-400">{list.name}</span>
+                </div>
+              )}
+              {taskIds.length > 0 && <TaskBadges taskIds={taskIds} />}
+            </div>
           </div>
         );
       })}
