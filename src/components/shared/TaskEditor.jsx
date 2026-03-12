@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { updateTask, addTaskFollowUpNote, setMeetingTaskStatus, getTask } from '../../db';
+import { updateTask, addTaskFollowUpNote, setMeetingTaskStatus, getTask, deleteTask } from '../../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMeetings } from '../../hooks/useDb';
 import { TASK_TYPES, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../../utils/constants';
 import MeetingPicker from './MeetingPicker';
 import {
-  Star, Share2, X, RotateCw, ArrowRightLeft,
+  Star, Share2, X, RotateCw, ArrowRightLeft, Trash2,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
   PhoneForwarded, Sparkles, BookOpen, ChevronDown, ChevronUp, UserRound,
@@ -122,6 +122,8 @@ export default function TaskEditor({
   const [noteText, setNoteText] = useState('');
   const [journalTextExpanded, setJournalTextExpanded] = useState(false);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
+  const [reassignPickerOpen, setReassignPickerOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   // Live-query the task so updates (e.g. meeting assignment) reflect immediately
   const liveTask = useLiveQuery(() => taskProp?.id ? getTask(taskProp.id) : null, [taskProp?.id]);
@@ -170,7 +172,29 @@ export default function TaskEditor({
 
   async function handleMeetingStatus(status) {
     if (!meetingId) return;
+    // "Reassigned" opens a meeting picker instead of just toggling the status
+    if (status === 'reassigned') {
+      setReassignPickerOpen(true);
+      return;
+    }
     await setMeetingTaskStatus(task.id, meetingId, status);
+  }
+
+  async function handleReassignToMeeting(targetMeeting) {
+    if (!meetingId) return;
+    // Add task to the target meeting
+    const ids = task.meetingIds || [];
+    if (!ids.includes(targetMeeting.id)) {
+      await updateTask(task.id, { meetingIds: [...ids, targetMeeting.id] });
+    }
+    // Mark as reassigned in the current meeting
+    await setMeetingTaskStatus(task.id, meetingId, 'reassigned');
+    setReassignPickerOpen(false);
+  }
+
+  async function handleDeleteTask() {
+    await deleteTask(task.id);
+    onClose();
   }
 
   return (
@@ -439,14 +463,44 @@ export default function TaskEditor({
         {!disabled && onConvertToText && task.type === 'journal_entry' && task.journalText && (
           <button
             onClick={() => { onConvertToText(task.id); onClose(); }}
-            className="flex items-center gap-1.5 text-xs text-sky-500 hover:text-sky-700 font-medium"
+            className="flex items-center gap-1.5 text-xs text-sky-500 hover:text-sky-700 font-medium mb-2"
           >
             <BookOpen size={12} /> Convert to inline text
           </button>
         )}
+
+        {/* Delete task */}
+        {!disabled && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            {!deleteConfirm ? (
+              <button
+                onClick={() => setDeleteConfirm(true)}
+                className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 font-medium"
+              >
+                <Trash2 size={12} /> Delete task
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-red-600">Delete this task?</span>
+                <button
+                  onClick={handleDeleteTask}
+                  className="text-xs font-medium text-white bg-red-500 hover:bg-red-600 px-2.5 py-1 rounded-lg"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setDeleteConfirm(false)}
+                  className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Built-in MeetingPicker for contexts without parent-managed picker */}
+      {/* Built-in MeetingPicker for adding to a meeting */}
       <MeetingPicker
         open={meetingPickerOpen}
         onClose={() => setMeetingPickerOpen(false)}
@@ -458,6 +512,15 @@ export default function TaskEditor({
         }}
         excludeIds={task.meetingIds || []}
         title="Add to Meeting"
+      />
+
+      {/* MeetingPicker for reassigning to another meeting */}
+      <MeetingPicker
+        open={reassignPickerOpen}
+        onClose={() => setReassignPickerOpen(false)}
+        onSelect={handleReassignToMeeting}
+        excludeIds={meetingId ? [meetingId] : []}
+        title="Reassign to Meeting"
       />
     </div>
   );
