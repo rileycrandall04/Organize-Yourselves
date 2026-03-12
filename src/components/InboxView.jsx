@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useInbox } from '../hooks/useDb';
-import { addTask, addJournalEntry, getTask, addTaskFollowUpNote, getTasks } from '../db';
+import { addTask, addJournalEntry, getTask, getJournalEntry, getJournalEntries, getJournalLists, updateJournalEntry, addTaskFollowUpNote, getTasks } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { formatRelative } from '../utils/dates';
 import Modal from './shared/Modal';
 import TaskEditor from './shared/TaskEditor';
+import JournalEntryEditor from './JournalEntryEditor';
 import {
   Inbox, Plus, Send, CheckSquare, BookOpen, Trash2, X, ArrowRight,
-  Search, Link2, ArrowLeft,
+  Search, Link2, ArrowLeft, FilePlus, FileText,
 } from 'lucide-react';
 
 export default function InboxView() {
@@ -15,9 +16,15 @@ export default function InboxView() {
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
   const [processItem, setProcessItem] = useState(null);
-  const [processStep, setProcessStep] = useState('choose'); // 'choose' | 'pick-task'
+  const [processStep, setProcessStep] = useState('choose'); // 'choose' | 'pick-task' | 'journal-choose' | 'pick-note'
   const [taskSearch, setTaskSearch] = useState('');
   const [editingTask, setEditingTask] = useState(null);
+
+  // Journal editor overlay state
+  const [editingJournal, setEditingJournal] = useState(null); // { entry, list, lists }
+  const [noteSearch, setNoteSearch] = useState('');
+  const [journalNotes, setJournalNotes] = useState([]);
+  const [journalLists, setJournalLists] = useState([]);
 
   // Active tasks for "Add to Existing Task" picker
   const activeTasks = useLiveQuery(() => getTasks({ excludeComplete: true }), []);
@@ -25,6 +32,13 @@ export default function InboxView() {
     t.type !== 'individual' &&
     t.title.toLowerCase().includes(taskSearch.toLowerCase())
   );
+
+  // Filtered journal notes for "Add to Existing Note" picker
+  const filteredNotes = journalNotes.filter(n => {
+    const q = noteSearch.toLowerCase();
+    return (n.title || '').toLowerCase().includes(q) ||
+           (n.text || '').toLowerCase().includes(q);
+  });
 
   async function handleCapture(e) {
     e.preventDefault();
@@ -67,11 +81,54 @@ export default function InboxView() {
     if (refreshed) setEditingTask(refreshed);
   }
 
-  async function handleConvertToJournal(item) {
-    await addJournalEntry({ text: item.text });
+  async function handleJournalStep() {
+    // Load journal notes and lists for the picker
+    const [notes, jLists] = await Promise.all([getJournalEntries(100), getJournalLists()]);
+    setJournalNotes(notes);
+    setJournalLists(jLists);
+    setNoteSearch('');
+    setProcessStep('journal-choose');
+  }
+
+  async function handleCreateNewNote(item) {
+    const lists = journalLists;
+    const defaultList = lists[0] || null;
+    const newId = await addJournalEntry({
+      listId: defaultList?.id || null,
+      title: '',
+      text: item.text,
+      html: `<p>${item.text.replace(/\n/g, '</p><p>')}</p>`,
+      tags: [],
+    });
     await markProcessed(item.id);
     setProcessItem(null);
     setProcessStep('choose');
+    // Open the entry in the journal editor
+    const created = await getJournalEntry(newId);
+    if (created) {
+      const entryList = lists.find(l => l.id === created.listId) || defaultList;
+      setEditingJournal({ entry: created, list: entryList, lists });
+    }
+  }
+
+  async function handleAddToExistingNote(item, note) {
+    // Append the inbox text to the existing note's content
+    const separator = note.html ? '<hr><p></p>' : '\n---\n';
+    const inboxHtml = `<p>${item.text.replace(/\n/g, '</p><p>')}</p>`;
+    const updatedHtml = (note.html || '') + separator + inboxHtml;
+    const updatedText = (note.text || '') + '\n---\n' + item.text;
+    await updateJournalEntry(note.id, { html: updatedHtml, text: updatedText });
+    await markProcessed(item.id);
+    setProcessItem(null);
+    setProcessStep('choose');
+    setNoteSearch('');
+    // Open the updated entry in the journal editor
+    const refreshed = await getJournalEntry(note.id);
+    if (refreshed) {
+      const lists = journalLists;
+      const noteList = lists.find(l => l.id === refreshed.listId) || lists[0] || null;
+      setEditingJournal({ entry: refreshed, list: noteList, lists });
+    }
   }
 
   async function handleDiscard(item) {
@@ -83,6 +140,7 @@ export default function InboxView() {
   function openProcessModal(item) {
     setProcessStep('choose');
     setTaskSearch('');
+    setNoteSearch('');
     setProcessItem(item);
   }
 
@@ -90,6 +148,7 @@ export default function InboxView() {
     setProcessItem(null);
     setProcessStep('choose');
     setTaskSearch('');
+    setNoteSearch('');
   }
 
   return (
@@ -193,13 +252,13 @@ export default function InboxView() {
               </button>
 
               <button
-                onClick={() => handleConvertToJournal(processItem)}
+                onClick={() => handleJournalStep()}
                 className="w-full flex items-center gap-3 px-3 py-3 rounded-lg border border-gray-200 hover:bg-purple-50 hover:border-purple-200 transition-colors text-left"
               >
                 <BookOpen size={18} className="text-purple-600 flex-shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-gray-900">Save to Journal</p>
-                  <p className="text-xs text-gray-500">Move to your spiritual impressions journal</p>
+                  <p className="text-xs text-gray-500">Create a new note or add to an existing one</p>
                 </div>
               </button>
 
@@ -217,7 +276,102 @@ export default function InboxView() {
           </div>
         )}
 
-        {/* Step 2: Pick existing task */}
+        {/* Step 2a: Journal — choose new or existing */}
+        {processItem && processStep === 'journal-choose' && (
+          <div>
+            <button
+              onClick={() => setProcessStep('choose')}
+              className="text-xs text-primary-600 hover:text-primary-800 mb-3 flex items-center gap-1"
+            >
+              <ArrowLeft size={12} /> Back
+            </button>
+
+            <div className="card bg-gray-50 mb-4">
+              <p className="text-xs text-gray-600 line-clamp-2">{processItem.text}</p>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={() => handleCreateNewNote(processItem)}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg border border-gray-200 hover:bg-purple-50 hover:border-purple-200 transition-colors text-left"
+              >
+                <FilePlus size={18} className="text-purple-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Create New Note</p>
+                  <p className="text-xs text-gray-500">Start a new journal entry with this text</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setProcessStep('pick-note')}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg border border-gray-200 hover:bg-purple-50 hover:border-purple-200 transition-colors text-left"
+              >
+                <FileText size={18} className="text-purple-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Add to Existing Note</p>
+                  <p className="text-xs text-gray-500">Append this text to a journal entry</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2b: Pick existing journal note */}
+        {processItem && processStep === 'pick-note' && (
+          <div>
+            <button
+              onClick={() => setProcessStep('journal-choose')}
+              className="text-xs text-primary-600 hover:text-primary-800 mb-3 flex items-center gap-1"
+            >
+              <ArrowLeft size={12} /> Back
+            </button>
+
+            <div className="card bg-gray-50 mb-3">
+              <p className="text-xs text-gray-600 line-clamp-2">{processItem.text}</p>
+            </div>
+
+            {/* Search input */}
+            <div className="relative mb-3">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" />
+              <input
+                type="text"
+                value={noteSearch}
+                onChange={e => setNoteSearch(e.target.value)}
+                placeholder="Search journal notes..."
+                className="input-field pl-9"
+                autoFocus
+              />
+            </div>
+
+            {/* Notes list */}
+            <div className="space-y-1 max-h-[40vh] overflow-y-auto">
+              {filteredNotes.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-6">
+                  {noteSearch ? 'No matching notes found.' : 'No journal notes yet.'}
+                </p>
+              ) : (
+                filteredNotes.slice(0, 20).map(note => {
+                  const noteList = journalLists.find(l => l.id === note.listId);
+                  return (
+                    <button
+                      key={note.id}
+                      onClick={() => handleAddToExistingNote(processItem, note)}
+                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm border border-gray-200 bg-white text-gray-700 hover:border-purple-200 hover:bg-purple-50 transition-colors"
+                    >
+                      <span className="font-medium truncate block">{note.title || 'Untitled'}</span>
+                      <span className="text-xs text-gray-400 flex items-center gap-1.5 mt-0.5">
+                        {noteList && <span className="text-purple-500">{noteList.name}</span>}
+                        {note.text && <span className="truncate max-w-[200px]">{note.text.slice(0, 60)}</span>}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Step 2c: Pick existing task */}
         {processItem && processStep === 'pick-task' && (
           <div>
             <button
@@ -278,6 +432,20 @@ export default function InboxView() {
           task={editingTask}
           onClose={() => setEditingTask(null)}
         />
+      )}
+
+      {/* JournalEntryEditor overlay for post-processing editing */}
+      {editingJournal && (
+        <div className="fixed inset-0 z-50 bg-white overflow-auto">
+          <JournalEntryEditor
+            key={editingJournal.entry?.id || 'new'}
+            entry={editingJournal.entry}
+            list={editingJournal.list}
+            lists={editingJournal.lists}
+            onBack={() => setEditingJournal(null)}
+            onSwitchList={() => setEditingJournal(null)}
+          />
+        </div>
       )}
     </div>
   );
