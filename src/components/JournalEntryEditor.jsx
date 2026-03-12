@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { addJournalEntry, updateJournalEntry, deleteJournalEntry, addTask, getAllJournalTags } from '../db';
+import { addJournalEntry, updateJournalEntry, deleteJournalEntry, addTask, getAllJournalTags, addJournalEntryToList, removeJournalEntryFromList } from '../db';
 // Color constants no longer needed — notebook theme uses stone palette
 import { formatFull } from '../utils/dates';
 import { htmlToPlainText } from './shared/RichTextEditor';
@@ -40,6 +40,14 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   const [saveFlash, setSaveFlash] = useState(false);
   const [movePickerOpen, setMovePickerOpen] = useState(false);
   const [overrideListId, setOverrideListId] = useState(null);
+  // Multi-list state
+  const [addListPickerOpen, setAddListPickerOpen] = useState(false);
+  const [assignedListIds, setAssignedListIds] = useState(() => {
+    if (entry?.listIds?.length) return [...entry.listIds];
+    if (entry?.listId) return [entry.listId];
+    if (list?.id) return [list.id];
+    return [];
+  });
 
   // Tag-to-list state
   const [journalListPickerOpen, setJournalListPickerOpen] = useState(false);
@@ -114,7 +122,8 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     // Lock: store the creation promise
     creatingRef.current = (async () => {
       const id = await addJournalEntry({
-        listId: list.id,
+        listId: assignedListIds[0] || list?.id || null,
+        listIds: assignedListIds.length ? assignedListIds : (list?.id ? [list.id] : []),
         title: title.trim() || '',
         html,
         text,
@@ -213,6 +222,29 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     if (!currentId || targetList.id === (overrideListId || list?.id)) return;
     await updateJournalEntry(currentId, { listId: targetList.id });
     setOverrideListId(targetList.id);
+  }
+
+  // ── Multi-list: add entry to another list ─────────────────
+  async function handleAddToList(targetList) {
+    setAddListPickerOpen(false);
+    if (assignedListIds.includes(targetList.id)) return;
+    const newIds = [...assignedListIds, targetList.id];
+    setAssignedListIds(newIds);
+    const currentId = entryIdRef.current;
+    if (currentId) {
+      await addJournalEntryToList(currentId, targetList.id);
+    }
+  }
+
+  // ── Multi-list: remove entry from a list ──────────────────
+  async function handleRemoveFromList(listId) {
+    if (assignedListIds.length <= 1) return; // keep at least one
+    const newIds = assignedListIds.filter(id => id !== listId);
+    setAssignedListIds(newIds);
+    const currentId = entryIdRef.current;
+    if (currentId) {
+      await removeJournalEntryFromList(currentId, listId);
+    }
   }
 
   // ── Tag to another journal list ──────────────────────────
@@ -357,22 +389,35 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         </div>
       </div>
 
-      {/* List indicator + move to folder */}
-      <div className="flex items-center gap-2 mb-2">
-        {!readOnly && entryId ? (
-          <button
-            onClick={() => setMovePickerOpen(true)}
-            className="flex items-center gap-1.5 text-xs text-stone-500 hover:text-stone-700 transition-colors"
-            title="Move to another list"
-          >
-            <FolderOpen size={13} />
-            <span>{displayList?.name || 'Uncategorized'}</span>
-          </button>
+      {/* List indicator — multi-list badges */}
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <FolderOpen size={13} className="text-stone-400 flex-shrink-0" />
+        {assignedListIds.length > 0 ? (
+          assignedListIds.map(lid => {
+            const l = lists.find(x => x.id === lid);
+            if (!l) return null;
+            return (
+              <span key={lid} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-xs font-medium">
+                {l.name}
+                {!readOnly && assignedListIds.length > 1 && (
+                  <button onClick={() => handleRemoveFromList(lid)} className="text-stone-400 hover:text-stone-600">
+                    <X size={11} />
+                  </button>
+                )}
+              </span>
+            );
+          })
         ) : (
-          <span className="flex items-center gap-1.5 text-xs text-stone-400">
-            <FolderOpen size={13} />
-            {displayList?.name || 'All'}
-          </span>
+          <span className="text-xs text-stone-400">Uncategorized</span>
+        )}
+        {!readOnly && (
+          <button
+            onClick={() => setAddListPickerOpen(true)}
+            className="text-[10px] text-stone-400 hover:text-stone-600 font-medium"
+            title="Add to another list"
+          >
+            + List
+          </button>
         )}
         {entry?.date && (
           <span className="text-xs text-stone-400 ml-auto">{formatFull(entry.date)}</span>
@@ -469,13 +514,22 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         </div>
       )}
 
-      {/* Move entry to another list */}
+      {/* Move entry to another list (legacy — kept for backward compat) */}
       <JournalListPicker
         open={movePickerOpen}
         onClose={() => setMovePickerOpen(false)}
         onSelect={handleMoveToList}
         excludeIds={displayList?.id ? [displayList.id] : []}
         title="Move to List"
+      />
+
+      {/* Add entry to another list (multi-list) */}
+      <JournalListPicker
+        open={addListPickerOpen}
+        onClose={() => setAddListPickerOpen(false)}
+        onSelect={handleAddToList}
+        excludeIds={assignedListIds}
+        title="Add to List"
       />
 
       {/* Journal list picker (tag text to another list) */}

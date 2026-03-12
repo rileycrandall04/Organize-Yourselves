@@ -301,6 +301,23 @@ db.version(11).stores({
   individualNotes: '++id, individualId, createdAt',
 });
 
+// Phase 12: Multi-list journal entries — a note can belong to multiple lists
+db.version(12).stores({
+  journal: '++id, text, date, *tags, section, listId, *listIds',
+}).upgrade(async tx => {
+  const journalTable = tx.table('journal');
+  const allEntries = await journalTable.toArray();
+  let migrated = 0;
+  for (const entry of allEntries) {
+    if (!entry.listIds) {
+      const listIds = entry.listId ? [entry.listId] : [];
+      await journalTable.update(entry.id, { listIds });
+      migrated++;
+    }
+  }
+  console.log(`[Migration v12] Multi-list journal: migrated ${migrated} entries to listIds[]`);
+});
+
 // ── Meeting Task Statuses (per-meeting status) ──────────────────
 
 export async function getMeetingTaskStatus(taskId, meetingId) {
@@ -1676,10 +1693,13 @@ export async function getJournalEntries(limit = 20) {
 }
 
 export async function addJournalEntry(entry) {
+  const listId = entry.listId || null;
+  const listIds = entry.listIds || (listId ? [listId] : []);
   const data = {
     ...entry,
     section: entry.section || null,
-    listId: entry.listId || null,
+    listId,
+    listIds,
     date: new Date().toISOString(),
   };
   const id = await db.journal.add(data);
@@ -1710,13 +1730,44 @@ export async function getJournalEntry(id) {
 
 export async function getJournalEntriesByList(listId, limit = 50) {
   if (!listId) return getJournalEntries(limit);
-  const entries = await db.journal.where('listId').equals(listId).toArray();
-  return entries.sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, limit);
+  // Query both the listIds multi-entry index and legacy listId
+  const byListIds = await db.journal.where('listIds').equals(listId).toArray();
+  const byListId = await db.journal.where('listId').equals(listId).toArray();
+  // Merge and deduplicate
+  const seen = new Set();
+  const merged = [];
+  for (const e of [...byListIds, ...byListId]) {
+    if (!seen.has(e.id)) { seen.add(e.id); merged.push(e); }
+  }
+  return merged.sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, limit);
 }
 
 export async function getJournalEntriesBySection(section, limit = 50) {
   if (!section) return getJournalEntries(limit);
   return await db.journal.where('section').equals(section).reverse().sortBy('date');
+}
+
+// ── Journal Entry List Management ──────────────────────────
+
+export async function addJournalEntryToList(entryId, listId) {
+  const entry = await db.journal.get(entryId);
+  if (!entry) return;
+  const listIds = entry.listIds || (entry.listId ? [entry.listId] : []);
+  if (!listIds.includes(listId)) {
+    listIds.push(listId);
+  }
+  await db.journal.update(entryId, { listIds, listId: listIds[0] || null });
+  const updated = await db.journal.get(entryId);
+  if (updated) syncAfterWrite('journal', entryId, updated);
+}
+
+export async function removeJournalEntryFromList(entryId, listId) {
+  const entry = await db.journal.get(entryId);
+  if (!entry) return;
+  const listIds = (entry.listIds || []).filter(id => id !== listId);
+  await db.journal.update(entryId, { listIds, listId: listIds[0] || null });
+  const updated = await db.journal.get(entryId);
+  if (updated) syncAfterWrite('journal', entryId, updated);
 }
 
 // ── Journal-Meeting Tags ───────────────────────────────────

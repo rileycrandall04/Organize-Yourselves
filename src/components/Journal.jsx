@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useJournalLists, useJournalByList, useJournal } from '../hooks/useDb';
 import { getJournalListColor, TASK_TYPES } from '../utils/constants';
 import { formatRelative } from '../utils/dates';
-import { ensureDefaultJournalLists } from '../db';
+import { ensureDefaultJournalLists, getAllJournalTags } from '../db';
 import { extractTaskIdsFromHtml } from './shared/RichTextEditor';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getTasksByIds } from '../db';
@@ -10,7 +10,7 @@ import Modal from './shared/Modal';
 import JournalEntryEditor from './JournalEntryEditor';
 import {
   ArrowLeft, BookOpen, Plus, Search, X, Sparkles, Check,
-  Pencil, Trash2, Settings,
+  Pencil, Trash2, Settings, Tag,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
   PhoneForwarded,
 } from 'lucide-react';
@@ -192,11 +192,21 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
   const [deleteConfirmList, setDeleteConfirmList] = useState(null);
   const [manageListsOpen, setManageListsOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [tagBrowserOpen, setTagBrowserOpen] = useState(false);
+  const [selectedTag, setSelectedTag] = useState(null); // when set, filters entries by tag
+  const [allTags, setAllTags] = useState([]);
 
   // Ensure defaults exist on first load
   useEffect(() => {
     ensureDefaultJournalLists();
   }, []);
+
+  // Load tags when tag browser is opened or a tag filter is active
+  useEffect(() => {
+    if (tagBrowserOpen || selectedTag) {
+      getAllJournalTags().then(setAllTags);
+    }
+  }, [tagBrowserOpen, selectedTag]);
 
   const isAllTab = activeListId === 'all';
   const activeList = isAllTab
@@ -274,6 +284,13 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
         </div>
         <div className="flex items-center gap-1">
           <button
+            onClick={() => setTagBrowserOpen(true)}
+            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+            title="Browse tags"
+          >
+            <Tag size={18} />
+          </button>
+          <button
             onClick={() => setManageListsOpen(true)}
             className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
             title="Manage lists"
@@ -329,6 +346,15 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
             if (entry.listId) setActiveListId(entry.listId);
             setEditingEntry(entry);
           }}
+        />
+      ) : selectedTag ? (
+        /* Tag-filtered results */
+        <TagFilteredView
+          entries={allEntries}
+          tag={selectedTag}
+          lists={lists}
+          onOpenEntry={(entry) => setEditingEntry(entry)}
+          onClear={() => setSelectedTag(null)}
         />
       ) : (
         <>
@@ -415,6 +441,27 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
           <button onClick={() => setDeleteConfirmList(null)} className="btn-secondary flex-1">Cancel</button>
         </div>
       </Modal>
+
+      {/* Tag Browser Modal */}
+      <Modal open={tagBrowserOpen} onClose={() => setTagBrowserOpen(false)} title="Browse by Tag" size="md">
+        <div className="max-h-[50vh] overflow-y-auto">
+          {allTags.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">No tags yet. Add tags to journal entries to see them here.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2 py-2">
+              {allTags.map(tag => (
+                <button
+                  key={tag}
+                  onClick={() => { setSelectedTag(tag); setTagBrowserOpen(false); }}
+                  className="px-3 py-1.5 rounded-full bg-stone-100 text-stone-700 text-sm font-medium hover:bg-stone-200 transition-colors border border-stone-200"
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
     </div>
   );
@@ -496,6 +543,12 @@ function AllEntriesView({ entries, lists, onOpenEntry }) {
     return text.substring(0, 80) + '...';
   }
 
+  // Resolve all list names for an entry
+  function getEntryListNames(entry) {
+    const ids = entry.listIds?.length ? entry.listIds : (entry.listId ? [entry.listId] : []);
+    return ids.map(id => listMap[id]).filter(Boolean);
+  }
+
   return (
     <>
       <div className="mb-4">
@@ -515,7 +568,7 @@ function AllEntriesView({ entries, lists, onOpenEntry }) {
         <div className="space-y-2">
           {sorted.map(entry => {
             const taskIds = getEntryTaskIds(entry);
-            const listName = entry.listId ? listMap[entry.listId] : null;
+            const listNames = getEntryListNames(entry);
             return (
               <div
                 key={entry.id}
@@ -527,8 +580,10 @@ function AllEntriesView({ entries, lists, onOpenEntry }) {
                     {entry.title || 'Untitled'}
                   </span>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {listName && (
-                      <span className="text-[10px] text-stone-400 font-medium">{listName}</span>
+                    {listNames.length > 0 && (
+                      <span className="text-[10px] text-stone-400 font-medium">
+                        {listNames.join(', ')}
+                      </span>
                     )}
                     <span className="text-xs text-gray-400">
                       {formatRelative(entry.date)}
@@ -614,6 +669,96 @@ function GlobalSearchResults({ entries, query, lists, onOpenEntry }) {
         );
       })}
     </div>
+  );
+}
+
+// ── Tag-Filtered View ──────────────────────────────────────
+
+function TagFilteredView({ entries, tag, lists, onOpenEntry, onClear }) {
+  const filtered = entries
+    .filter(e => e.tags && e.tags.includes(tag))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const listMap = {};
+  for (const l of lists) listMap[l.id] = l.name;
+
+  function getPreview(entry) {
+    const text = stripTaskMarkers(entry.text);
+    if (text.length <= 80) return text;
+    return text.substring(0, 80) + '...';
+  }
+
+  // Resolve all list names for an entry
+  function getEntryListNames(entry) {
+    const ids = entry.listIds?.length ? entry.listIds : (entry.listId ? [entry.listId] : []);
+    return ids.map(id => listMap[id]).filter(Boolean);
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-4 px-1">
+        <Tag size={14} className="text-stone-500" />
+        <span className="text-sm text-stone-600">
+          Showing entries tagged:
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-stone-700 text-amber-50 text-xs font-medium">
+          {tag}
+          <button onClick={onClear} className="text-stone-300 hover:text-white ml-0.5">
+            <X size={12} />
+          </button>
+        </span>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="card text-center text-gray-400 py-12">
+          <Tag size={40} className="mx-auto mb-3 text-gray-300" />
+          <p className="text-sm">No entries with this tag.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(entry => {
+            const taskIds = getEntryTaskIds(entry);
+            const listNames = getEntryListNames(entry);
+            return (
+              <div
+                key={entry.id}
+                className="card cursor-pointer hover:border-primary-300 py-3"
+                onClick={() => onOpenEntry(entry)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-gray-900 truncate">
+                    {entry.title || 'Untitled'}
+                  </span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {listNames.length > 0 && (
+                      <span className="text-[10px] text-stone-400 font-medium">
+                        {listNames.join(', ')}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">
+                      {formatRelative(entry.date)}
+                    </span>
+                  </div>
+                </div>
+                {entry.text && (
+                  <p className="text-xs text-gray-500 mt-1 line-clamp-1">{getPreview(entry)}</p>
+                )}
+                {/* Show other tags besides the filtered one */}
+                {entry.tags && entry.tags.length > 1 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {entry.tags.filter(t => t !== tag).map(t => (
+                      <span key={t} className="px-1.5 py-0.5 rounded-full bg-stone-100 text-stone-500 text-[10px] font-medium">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {taskIds.length > 0 && <TaskBadges taskIds={taskIds} />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 }
 
