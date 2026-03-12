@@ -1741,6 +1741,16 @@ export async function deleteJournalMeetingTag(id) {
   syncAfterDelete('journalMeetingTags', id);
 }
 
+// ── Journal Topic Tags (autocomplete helper) ─────────────────
+export async function getAllJournalTags() {
+  const entries = await db.journal.toArray();
+  const tagSet = new Set();
+  for (const e of entries) {
+    if (e.tags) for (const t of e.tags) tagSet.add(t);
+  }
+  return [...tagSet].sort();
+}
+
 // Lessons
 export async function getLessons(filters = {}) {
   let items = await db.lessons.toArray();

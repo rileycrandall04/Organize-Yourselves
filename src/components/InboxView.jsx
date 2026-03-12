@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { useInbox } from '../hooks/useDb';
-import { addTask, addJournalEntry } from '../db';
+import { addTask, addJournalEntry, getTask, addTaskFollowUpNote, getTasks } from '../db';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { formatRelative } from '../utils/dates';
 import Modal from './shared/Modal';
+import TaskEditor from './shared/TaskEditor';
 import {
   Inbox, Plus, Send, CheckSquare, BookOpen, Trash2, X, ArrowRight,
+  Search, Link2, ArrowLeft,
 } from 'lucide-react';
 
 export default function InboxView() {
@@ -12,6 +15,16 @@ export default function InboxView() {
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
   const [processItem, setProcessItem] = useState(null);
+  const [processStep, setProcessStep] = useState('choose'); // 'choose' | 'pick-task'
+  const [taskSearch, setTaskSearch] = useState('');
+  const [editingTask, setEditingTask] = useState(null);
+
+  // Active tasks for "Add to Existing Task" picker
+  const activeTasks = useLiveQuery(() => getTasks({ excludeComplete: true }), []);
+  const filteredTasks = (activeTasks ?? []).filter(t =>
+    t.type !== 'individual' &&
+    t.title.toLowerCase().includes(taskSearch.toLowerCase())
+  );
 
   async function handleCapture(e) {
     e.preventDefault();
@@ -26,20 +39,57 @@ export default function InboxView() {
   }
 
   async function handleConvertToAction(item) {
-    await addTask({ type: 'action_item', title: item.text });
+    const newId = await addTask({
+      type: 'action_item',
+      title: item.text,
+      types: ['action_item'],
+      status: 'not_started',
+      priority: 'medium',
+    });
     await markProcessed(item.id);
     setProcessItem(null);
+    setProcessStep('choose');
+    // Open TaskEditor for the new task
+    const created = await getTask(newId);
+    if (created) setEditingTask(created);
+  }
+
+  async function handleAddToExistingTask(item, targetTask) {
+    await addTaskFollowUpNote(targetTask.id, {
+      text: `[From inbox] ${item.text}`,
+    });
+    await markProcessed(item.id);
+    setProcessItem(null);
+    setProcessStep('choose');
+    setTaskSearch('');
+    // Open TaskEditor for the target task
+    const refreshed = await getTask(targetTask.id);
+    if (refreshed) setEditingTask(refreshed);
   }
 
   async function handleConvertToJournal(item) {
     await addJournalEntry({ text: item.text });
     await markProcessed(item.id);
     setProcessItem(null);
+    setProcessStep('choose');
   }
 
   async function handleDiscard(item) {
     await remove(item.id);
     setProcessItem(null);
+    setProcessStep('choose');
+  }
+
+  function openProcessModal(item) {
+    setProcessStep('choose');
+    setTaskSearch('');
+    setProcessItem(item);
+  }
+
+  function closeProcessModal() {
+    setProcessItem(null);
+    setProcessStep('choose');
+    setTaskSearch('');
   }
 
   return (
@@ -98,7 +148,7 @@ export default function InboxView() {
             <InboxItem
               key={item.id}
               item={item}
-              onProcess={() => setProcessItem(item)}
+              onProcess={() => openProcessModal(item)}
             />
           ))}
         </div>
@@ -107,11 +157,12 @@ export default function InboxView() {
       {/* Process modal */}
       <Modal
         open={!!processItem}
-        onClose={() => setProcessItem(null)}
+        onClose={closeProcessModal}
         title="Process Item"
         size="sm"
       >
-        {processItem && (
+        {/* Step 1: Choose action */}
+        {processItem && processStep === 'choose' && (
           <div>
             <div className="card bg-gray-50 mb-4">
               <p className="text-sm text-gray-800">{processItem.text}</p>
@@ -125,8 +176,19 @@ export default function InboxView() {
               >
                 <CheckSquare size={18} className="text-primary-600 flex-shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-gray-900">Convert to Action Item</p>
-                  <p className="text-xs text-gray-500">Add to your action items list</p>
+                  <p className="text-sm font-medium text-gray-900">Convert to New Task</p>
+                  <p className="text-xs text-gray-500">Create a new action item from this</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setProcessStep('pick-task')}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors text-left"
+              >
+                <Link2 size={18} className="text-blue-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Add to Existing Task</p>
+                  <p className="text-xs text-gray-500">Attach as a follow-up note on an active task</p>
                 </div>
               </button>
 
@@ -154,7 +216,69 @@ export default function InboxView() {
             </div>
           </div>
         )}
+
+        {/* Step 2: Pick existing task */}
+        {processItem && processStep === 'pick-task' && (
+          <div>
+            <button
+              onClick={() => setProcessStep('choose')}
+              className="text-xs text-primary-600 hover:text-primary-800 mb-3 flex items-center gap-1"
+            >
+              <ArrowLeft size={12} /> Back
+            </button>
+
+            <div className="card bg-gray-50 mb-3">
+              <p className="text-xs text-gray-600 line-clamp-2">{processItem.text}</p>
+            </div>
+
+            {/* Search input */}
+            <div className="relative mb-3">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" />
+              <input
+                type="text"
+                value={taskSearch}
+                onChange={e => setTaskSearch(e.target.value)}
+                placeholder="Search active tasks..."
+                className="input-field pl-9"
+                autoFocus
+              />
+            </div>
+
+            {/* Task list */}
+            <div className="space-y-1 max-h-[40vh] overflow-y-auto">
+              {filteredTasks.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-6">
+                  {taskSearch ? 'No matching tasks found.' : 'No active tasks.'}
+                </p>
+              ) : (
+                filteredTasks.slice(0, 20).map(task => (
+                  <button
+                    key={task.id}
+                    onClick={() => handleAddToExistingTask(processItem, task)}
+                    className="w-full text-left px-3 py-2.5 rounded-lg text-sm border border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  >
+                    <CheckSquare size={14} className="text-gray-400 flex-shrink-0" />
+                    <span className="flex-1 truncate">{task.title}</span>
+                    {task.priority === 'high' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 font-medium flex-shrink-0">
+                        High
+                      </span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
+
+      {/* TaskEditor overlay for post-processing editing */}
+      {editingTask && (
+        <TaskEditor
+          task={editingTask}
+          onClose={() => setEditingTask(null)}
+        />
+      )}
     </div>
   );
 }

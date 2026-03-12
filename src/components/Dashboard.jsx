@@ -45,6 +45,8 @@ export default function Dashboard() {
 
   const showBackupBanner = shouldShowReminder && !reminderDismissed && !isCloudSynced;
 
+  const [inboxBannerDismissed, setInboxBannerDismissed] = useState(false);
+
   // To-do section state
   const [todoCollapsed, setTodoCollapsed] = useState(false);
   const [todoShowAll, setTodoShowAll] = useState(false);
@@ -197,6 +199,25 @@ export default function Dashboard() {
             Backup
           </button>
           <button onClick={handleDismissReminder} className="text-amber-300 hover:text-amber-500 flex-shrink-0">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Inbox Alert Banner */}
+      {stats.inboxCount > 0 && !inboxBannerDismissed && (
+        <div className="mb-3 px-3 py-2 bg-purple-50 border border-purple-100 rounded-xl flex items-center gap-2">
+          <Inbox size={14} className="text-purple-500 flex-shrink-0" />
+          <p className="text-xs text-purple-700 flex-1 truncate">
+            {stats.inboxCount} item{stats.inboxCount !== 1 ? 's' : ''} to process
+          </p>
+          <button
+            onClick={() => navigate('/inbox')}
+            className="text-[10px] font-semibold text-purple-700 bg-purple-100 px-2.5 py-1 rounded-lg hover:bg-purple-200 transition-colors flex-shrink-0"
+          >
+            Sort
+          </button>
+          <button onClick={() => setInboxBannerDismissed(true)} className="text-purple-300 hover:text-purple-500 flex-shrink-0">
             <X size={14} />
           </button>
         </div>

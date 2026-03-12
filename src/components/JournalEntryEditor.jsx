@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { addJournalEntry, updateJournalEntry, deleteJournalEntry, addTask } from '../db';
+import { addJournalEntry, updateJournalEntry, deleteJournalEntry, addTask, getAllJournalTags } from '../db';
 // Color constants no longer needed — notebook theme uses stone palette
 import { formatFull } from '../utils/dates';
 import { htmlToPlainText } from './shared/RichTextEditor';
@@ -7,7 +7,7 @@ import BlockEditor from './BlockEditor';
 import JournalListPicker from './shared/JournalListPicker';
 import MeetingPicker from './shared/MeetingPicker';
 import Modal from './shared/Modal';
-import { ArrowLeft, Trash2, Save, CheckCircle2, ChevronLeft, ChevronRight, FolderOpen } from 'lucide-react';
+import { ArrowLeft, Trash2, Save, CheckCircle2, ChevronLeft, ChevronRight, FolderOpen, Tag, X } from 'lucide-react';
 
 /**
  * JournalEntryEditor — Full-page rich text editor for a journal entry.
@@ -54,6 +54,12 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   const [tagText, setTagText] = useState(''); // selected text to tag
   const [tagHtml, setTagHtml] = useState(''); // full editor HTML captured at click time
 
+  // Topic tags state
+  const [topicTags, setTopicTags] = useState(entry?.tags || []);
+  const [topicTagInput, setTopicTagInput] = useState('');
+  const [allKnownTags, setAllKnownTags] = useState([]);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
+
   const latestBlocksRef = useRef(blocks);
   const entryIdRef = useRef(entryId); // Ref to prevent duplicate creation race condition
   const creatingRef = useRef(null); // Promise lock for entry creation
@@ -77,6 +83,19 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     entryIdRef.current = entryId;
   }, [entryId]);
 
+  // Load all previously used tags for autocomplete
+  useEffect(() => {
+    getAllJournalTags().then(setAllKnownTags);
+  }, []);
+
+  // Computed tag suggestions
+  const tagSuggestions = topicTagInput.trim()
+    ? allKnownTags.filter(t =>
+        t.toLowerCase().includes(topicTagInput.toLowerCase()) &&
+        !topicTags.includes(t)
+      ).slice(0, 5)
+    : [];
+
   // NOTE: latestBlocksRef is updated synchronously in handleChange (below)
   // so that handleSaveAndBack always reads the latest editor content,
   // even if React hasn't re-rendered yet (fixes save-erases-changes bug).
@@ -99,6 +118,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         title: title.trim() || '',
         html,
         text,
+        tags: topicTags,
       });
       entryIdRef.current = id;
       setEntryId(id);
@@ -162,6 +182,28 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     } finally {
       setDeleting(false);
     }
+  }
+
+  // ── Topic tag handlers ─────────────────────────────────────
+  function handleAddTopicTag(tagText) {
+    const trimmed = tagText.trim();
+    if (!trimmed || topicTags.includes(trimmed)) return;
+    const newTags = [...topicTags, trimmed];
+    setTopicTags(newTags);
+    setTopicTagInput('');
+    setShowTagSuggestions(false);
+    // Persist immediately if entry exists
+    const currentId = entryIdRef.current;
+    if (currentId) updateJournalEntry(currentId, { tags: newTags });
+    // Add to known tags if new
+    if (!allKnownTags.includes(trimmed)) setAllKnownTags(prev => [...prev, trimmed].sort());
+  }
+
+  function handleRemoveTopicTag(tag) {
+    const newTags = topicTags.filter(t => t !== tag);
+    setTopicTags(newTags);
+    const currentId = entryIdRef.current;
+    if (currentId) updateJournalEntry(currentId, { tags: newTags });
   }
 
   // ── Move entry to a different list ─────────────────────────
@@ -367,6 +409,65 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         onTagJournalList={readOnly ? undefined : handleTagToList}
         onTagMeeting={readOnly ? undefined : handleTagToMeeting}
       />
+
+      {/* Topic Tags */}
+      {!readOnly && (
+        <div className="mt-4 pt-3 border-t border-stone-200">
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {topicTags.map(tag => (
+              <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-xs font-medium">
+                {tag}
+                <button onClick={() => handleRemoveTopicTag(tag)} className="text-stone-400 hover:text-stone-600">
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="relative">
+            <div className="flex items-center gap-2">
+              <Tag size={13} className="text-stone-400 flex-shrink-0" />
+              <input
+                type="text"
+                value={topicTagInput}
+                onChange={e => { setTopicTagInput(e.target.value); setShowTagSuggestions(true); }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && topicTagInput.trim()) { e.preventDefault(); handleAddTopicTag(topicTagInput); }
+                }}
+                onFocus={() => setShowTagSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowTagSuggestions(false), 200)}
+                placeholder="Add a tag..."
+                className="flex-1 text-xs bg-transparent border-none outline-none text-stone-600 placeholder-stone-300"
+              />
+            </div>
+            {/* Autocomplete dropdown */}
+            {showTagSuggestions && tagSuggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-stone-200 rounded-lg shadow-sm z-10 py-1">
+                {tagSuggestions.map(suggestion => (
+                  <button
+                    key={suggestion}
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => handleAddTopicTag(suggestion)}
+                    className="w-full text-left px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Read-only tag display */}
+      {readOnly && topicTags.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-stone-200 flex flex-wrap gap-1.5">
+          {topicTags.map(tag => (
+            <span key={tag} className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 text-xs font-medium">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Move entry to another list */}
       <JournalListPicker
