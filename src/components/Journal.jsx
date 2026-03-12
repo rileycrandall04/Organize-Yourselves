@@ -282,6 +282,7 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
   }
 
   return (
+    <div className="min-h-screen lined-paper">
     <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
       {onBack && (
         <button onClick={onBack} className="flex items-center gap-1 text-sm text-primary-600 mb-4">
@@ -355,8 +356,8 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
         />
       ) : (
         <>
-          {/* Tab pills — horizontal scrollable */}
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-1 px-1 scrollbar-hide">
+          {/* File folder tabs */}
+          <div className="flex flex-wrap gap-1 items-end -mx-1 px-1 mb-4">
             {lists.map(list => {
               const color = getJournalListColor(list.color);
               const isActive = list.id === activeListId;
@@ -364,10 +365,10 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
                 <button
                   key={list.id}
                   onClick={() => setActiveListId(list.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+                  className={`flex items-center gap-1.5 rounded-t-lg text-sm font-medium whitespace-nowrap transition-all ${
                     isActive
-                      ? `${color.active} shadow-sm`
-                      : `${color.bg} ${color.text} hover:shadow-sm`
+                      ? `${color.active} px-4 py-2.5 shadow-sm`
+                      : `${color.bg} ${color.text} px-3 py-1.5 border border-b-0 ${color.border} hover:shadow-sm`
                   }`}
                 >
                   <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white/60' : color.dot}`} />
@@ -378,7 +379,7 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
             {/* Quick-add list button */}
             <button
               onClick={() => { setEditingList(null); setListFormOpen(true); }}
-              className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-full text-sm text-gray-400 hover:text-gray-600 hover:bg-gray-100 whitespace-nowrap flex-shrink-0 transition-colors"
+              className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-t-lg text-sm text-gray-400 hover:text-gray-600 hover:bg-gray-100 whitespace-nowrap transition-colors"
               title="Add list"
             >
               <Plus size={14} />
@@ -423,6 +424,7 @@ export default function Journal({ onBack, pickerMode, onPick, pickerSection }) {
           <button onClick={() => setDeleteConfirmList(null)} className="btn-secondary flex-1">Cancel</button>
         </div>
       </Modal>
+    </div>
     </div>
   );
 }

@@ -127,6 +127,18 @@
   font-size: 0.875rem;
 }
 
+/* ── Lined paper background for Journal page ─────────────── */
+
+.lined-paper {
+  background-color: #faf8f2;
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 27px,
+    #d4dce8 27px,
+    #d4dce8 28px
+  );
+}
+
 /* ── Mobile responsiveness ─────────────────────────────────── */
 
 /* Safe area bottom padding for iOS */
