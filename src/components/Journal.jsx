@@ -437,7 +437,7 @@ function ActiveListEntries({ list, onOpenEntry }) {
       <div className="mb-4">
         <button
           onClick={() => onOpenEntry(null)}
-          className="flex items-center justify-center gap-1 w-full px-3 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg"
+          className="flex items-center justify-center gap-1 w-full px-3 py-2 text-sm font-medium text-white bg-stone-500 hover:bg-stone-600 rounded-lg"
         >
           <Plus size={16} /> New Entry
         </button>
@@ -445,16 +445,13 @@ function ActiveListEntries({ list, onOpenEntry }) {
 
       {loading ? (
         <div className="text-center py-12 text-gray-400">
-          <div className="animate-spin w-6 h-6 border-2 border-primary-300 border-t-primary-700 rounded-full mx-auto mb-3" />
+          <div className="animate-spin w-6 h-6 border-2 border-stone-300 border-t-stone-600 rounded-full mx-auto mb-3" />
           <p className="text-sm">Loading...</p>
         </div>
       ) : entries.length === 0 ? (
         <div className="card text-center text-gray-400 py-12">
           <Sparkles size={40} className="mx-auto mb-3 text-gray-300" />
           <p className="text-sm">No entries yet.</p>
-          <button onClick={() => onOpenEntry(null)} className="btn-primary mt-3 text-sm">
-            <Plus size={14} className="inline mr-1" /> Write Your First Entry
-          </button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -504,7 +501,7 @@ function AllEntriesView({ entries, lists, onOpenEntry }) {
       <div className="mb-4">
         <button
           onClick={() => onOpenEntry(null)}
-          className="flex items-center justify-center gap-1 w-full px-3 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg"
+          className="flex items-center justify-center gap-1 w-full px-3 py-2 text-sm font-medium text-white bg-stone-500 hover:bg-stone-600 rounded-lg"
         >
           <Plus size={16} /> New Entry
         </button>
@@ -513,9 +510,6 @@ function AllEntriesView({ entries, lists, onOpenEntry }) {
         <div className="card text-center text-gray-400 py-12">
           <BookOpen size={40} className="mx-auto mb-3 text-gray-300" />
           <p className="text-sm">No entries yet.</p>
-          <button onClick={() => onOpenEntry(null)} className="btn-primary mt-3 text-sm">
-            <Plus size={14} className="inline mr-1" /> Write Your First Entry
-          </button>
         </div>
       ) : (
         <div className="space-y-2">
