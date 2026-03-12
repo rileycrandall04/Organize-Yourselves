@@ -100,6 +100,15 @@ import db, {
   getTaskMeetingStatuses,
   setMeetingTaskStatus,
   deleteMeetingTaskStatus,
+  // Phase 7b: Individuals
+  getIndividuals,
+  archiveIndividual,
+  unarchiveIndividual,
+  getTasksForIndividual,
+  getIndividualNotes,
+  addIndividualNote,
+  updateIndividualNote,
+  deleteIndividualNote,
 } from '../db';
 
 // ── Profile ─────────────────────────────────────────────────
@@ -547,5 +556,50 @@ export function useTaskMeetingStatuses(taskId) {
     loading: statuses === undefined,
     set: setMeetingTaskStatus,
     remove: deleteMeetingTaskStatus,
+  };
+}
+
+// ── Individuals (Focus Feature) ────────────────────────────
+
+export function useIndividuals(includeArchived = false) {
+  const items = useLiveQuery(
+    () => getIndividuals(includeArchived),
+    [includeArchived]
+  );
+  return {
+    individuals: items ?? [],
+    loading: items === undefined,
+    add: addTask,
+    update: updateTask,
+    archive: archiveIndividual,
+    unarchive: unarchiveIndividual,
+  };
+}
+
+export function useIndividualNotes(individualId) {
+  const notes = useLiveQuery(
+    () => (individualId ? getIndividualNotes(individualId) : Promise.resolve([])),
+    [individualId]
+  );
+  return {
+    notes: notes ?? [],
+    loading: notes === undefined,
+    add: addIndividualNote,
+    update: updateIndividualNote,
+    remove: deleteIndividualNote,
+  };
+}
+
+export function useTasksForIndividual(individualId) {
+  const items = useLiveQuery(
+    () => (individualId ? getTasksForIndividual(individualId) : Promise.resolve([])),
+    [individualId]
+  );
+  return {
+    tasks: items ?? [],
+    loading: items === undefined,
+    add: addTask,
+    update: updateTask,
+    remove: deleteTask,
   };
 }

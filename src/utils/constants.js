@@ -131,9 +131,51 @@ export const TASK_TYPES = {
   follow_up: { key: 'follow_up', label: 'Follow Up', icon: 'PhoneForwarded', color: 'teal' },
   spiritual_thought: { key: 'spiritual_thought', label: 'Spiritual Thought', icon: 'Sparkles', color: 'violet' },
   journal_entry: { key: 'journal_entry', label: 'Journal Entry', icon: 'BookOpen', color: 'sky' },
+  individual: { key: 'individual', label: 'Individual', icon: 'UserRound', color: 'cyan' },
 };
 
 export const TASK_TYPE_LIST = Object.values(TASK_TYPES);
+
+// ── Check-in helpers for Individual Focus ────────────────────
+
+/**
+ * Compute the next expected check-in date based on last check-in and cadence.
+ * Returns YYYY-MM-DD string or null.
+ */
+export function getNextCheckInDate(lastCheckIn, cadence) {
+  if (!lastCheckIn || !cadence) return null;
+  const cadenceDays = {
+    daily: 1, weekly: 7, biweekly: 14, monthly: 30,
+    quarterly: 90, biannual: 182, annual: 365,
+  };
+  const days = cadenceDays[cadence];
+  if (!days) return null;
+  const last = new Date(lastCheckIn);
+  last.setDate(last.getDate() + days);
+  return last.toISOString().split('T')[0];
+}
+
+/**
+ * Returns true if the check-in is overdue.
+ */
+export function isCheckInOverdue(lastCheckIn, cadence) {
+  const nextDate = getNextCheckInDate(lastCheckIn, cadence);
+  if (!nextDate) return false;
+  const today = new Date().toISOString().split('T')[0];
+  return nextDate < today;
+}
+
+/**
+ * Returns the number of days until the next check-in (negative = overdue).
+ */
+export function getDaysUntilCheckIn(lastCheckIn, cadence) {
+  const nextDate = getNextCheckInDate(lastCheckIn, cadence);
+  if (!nextDate) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const next = new Date(nextDate + 'T00:00:00');
+  return Math.ceil((next - today) / (1000 * 60 * 60 * 24));
+}
 
 // ── Journal Sections (legacy — kept for backward compat) ────
 export const JOURNAL_SECTIONS = [

@@ -43,6 +43,7 @@ const SYNC_TABLES = [
   'meetingTaskStatuses',
   'journalLists',
   'journalMeetingTags',
+  'individualNotes',
 ];
 
 

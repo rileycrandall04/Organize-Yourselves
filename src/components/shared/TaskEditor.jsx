@@ -5,7 +5,7 @@ import {
   Star, Share2, X, RotateCw, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
-  PhoneForwarded, Sparkles, BookOpen, ChevronDown, ChevronUp,
+  PhoneForwarded, Sparkles, BookOpen, ChevronDown, ChevronUp, UserRound,
 } from 'lucide-react';
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -20,6 +20,7 @@ const TYPE_ICONS = {
   follow_up: PhoneForwarded,
   spiritual_thought: Sparkles,
   journal_entry: BookOpen,
+  individual: UserRound,
 };
 
 const STATUS_ICONS = {
@@ -60,6 +61,7 @@ const CHIP_COLORS = {
   follow_up:        { bg: '#f0fdfa', fg: '#0f766e', bd: '#99f6e4' },
   spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' },
   journal_entry:    { bg: '#f0f9ff', fg: '#0369a1', bd: '#bae6fd' },
+  individual:       { bg: '#ecfeff', fg: '#0e7490', bd: '#a5f3fc' },
 };
 
 /* ── Compact Task Row (for lists) ───────────────────────────── */
@@ -194,6 +196,14 @@ export default function TaskEditor({
             <X size={16} />
           </button>
         </div>
+
+        {/* Next Ordinance (individual type) */}
+        {task.type === 'individual' && task.nextOrdinance && (
+          <div className="mb-3 px-3 py-2 bg-cyan-50/50 border border-cyan-200 rounded-lg flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-cyan-500 uppercase">Next Ordinance</span>
+            <span className="text-xs font-medium text-cyan-800">{task.nextOrdinance}</span>
+          </div>
+        )}
 
         {/* Status / Star / Follow-up */}
         <div className="flex items-center gap-4 mb-3 pb-3 border-b border-gray-100">

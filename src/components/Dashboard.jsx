@@ -1,17 +1,21 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProfile, useDashboardStats, useInbox, useTasks, useUpcomingMeetings, useUserCallings, useMinisteringSummary } from '../hooks/useDb';
-import { getTagsForMeeting, getUnresolvedActionItems, dismissBackupReminder, snoozeTask } from '../db';
+import { useProfile, useDashboardStats, useInbox, useTasks, useUpcomingMeetings, useUserCallings, useMinisteringSummary, useIndividuals } from '../hooks/useDb';
+import { getTagsForMeeting, getUnresolvedActionItems, dismissBackupReminder, snoozeTask, addTask as addTaskDb, updateTask as updateTaskDb, archiveIndividual } from '../db';
+import { isCheckInOverdue } from '../utils/constants';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star,
   Calendar, ChevronRight, ChevronDown, ShieldCheck, X, Heart, Play,
   Circle, CheckCircle2, Pause, AlarmClockOff, Filter,
+  UserRound, Target,
 } from 'lucide-react';
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { useAuth } from '../hooks/useAuth';
 import DashboardChat from './DashboardChat';
 import ActionItemForm from './ActionItemForm';
+import IndividualForm from './IndividualForm';
+import IndividualDetail from './IndividualDetail';
 import { formatFriendly } from '../utils/dates';
 import { isDateToday } from '../utils/meetingSchedule';
 import { formatCadenceLabel } from '../data/callings';
@@ -22,7 +26,9 @@ export default function Dashboard() {
   const { profile } = useProfile();
   const { stats } = useDashboardStats();
   const { add: addInboxItem } = useInbox();
-  const { tasks: allTasks, update: updateTask, add: addTask, remove: removeTask } = useTasks({ excludeComplete: true });
+  const { tasks: allTasksRaw, update: updateTask, add: addTask, remove: removeTask } = useTasks({ excludeComplete: true });
+  const allTasks = useMemo(() => allTasksRaw.filter(t => t.type !== 'individual'), [allTasksRaw]);
+  const { individuals } = useIndividuals(false);
   const { callings } = useUserCallings();
   const { meetings: upcomingMeetings } = useUpcomingMeetings();
 
@@ -44,6 +50,11 @@ export default function Dashboard() {
   const [todoShowAll, setTodoShowAll] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
+
+  // Individual Focus state
+  const [focusDetailItem, setFocusDetailItem] = useState(null);
+  const [individualFormOpen, setIndividualFormOpen] = useState(false);
+  const [editingIndividual, setEditingIndividual] = useState(null);
 
   async function handleDismissReminder() {
     setReminderDismissed(true);
@@ -103,7 +114,24 @@ export default function Dashboard() {
     await removeTask(id);
   }
 
-  const hasContent = allTasks.length > 0 || upcomingMeetings.length > 0;
+  // Individual handlers
+  async function handleSaveIndividual(data, id) {
+    if (id) {
+      await updateTaskDb(id, data);
+    } else {
+      await addTaskDb(data);
+    }
+    setIndividualFormOpen(false);
+    setEditingIndividual(null);
+  }
+
+  async function handleArchiveIndividual(id) {
+    await archiveIndividual(id);
+    setIndividualFormOpen(false);
+    setEditingIndividual(null);
+  }
+
+  const hasContent = allTasks.length > 0 || upcomingMeetings.length > 0 || individuals.length > 0;
 
   return (
     <div className="px-4 pt-5 pb-4 max-w-lg mx-auto">
@@ -242,6 +270,62 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Focus — Individuals */}
+      {individuals.length > 0 && (
+        <div className="mb-4">
+          <SectionHeader
+            icon={UserRound}
+            color="text-cyan-500"
+            label="Focus"
+            onAdd={() => { setEditingIndividual(null); setIndividualFormOpen(true); }}
+          />
+          <div className="space-y-1.5">
+            {individuals.map(ind => {
+              const overdue = isCheckInOverdue(ind.lastCheckIn, ind.checkInCadence);
+              return (
+                <div
+                  key={ind.id}
+                  onClick={() => setFocusDetailItem(ind)}
+                  className="flex items-center gap-2.5 p-2 rounded-xl border border-gray-100 bg-white cursor-pointer hover:border-cyan-200 transition-colors"
+                >
+                  <div className="p-1.5 rounded-lg bg-cyan-50">
+                    <UserRound size={14} className="text-cyan-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{ind.title}</p>
+                    {ind.nextOrdinance && (
+                      <p className="text-[10px] text-cyan-600 flex items-center gap-1">
+                        <Target size={8} />
+                        {ind.nextOrdinance}
+                      </p>
+                    )}
+                  </div>
+                  {overdue && (
+                    <span className="text-[9px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full border border-red-100">
+                      Overdue
+                    </span>
+                  )}
+                  <ChevronRight size={12} className="text-gray-300 flex-shrink-0" />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Add Individual (empty state, always visible when no individuals) */}
+      {individuals.length === 0 && (
+        <div className="mb-4">
+          <button
+            onClick={() => { setEditingIndividual(null); setIndividualFormOpen(true); }}
+            className="w-full text-xs text-gray-400 border border-dashed border-gray-200 rounded-xl py-3 hover:border-cyan-300 hover:text-cyan-600 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <UserRound size={12} />
+            Add someone to focus on
+          </button>
+        </div>
+      )}
+
       {/* Today's Meetings */}
       {todaysMeetings.length > 0 && (
         <div className="mb-4">
@@ -321,24 +405,54 @@ export default function Dashboard() {
         onDelete={handleDeleteTask}
         item={editItem}
       />
+
+      {/* Individual Form modal */}
+      <IndividualForm
+        open={individualFormOpen}
+        onClose={() => { setIndividualFormOpen(false); setEditingIndividual(null); }}
+        onSave={handleSaveIndividual}
+        onArchive={handleArchiveIndividual}
+        item={editingIndividual}
+      />
+
+      {/* Individual Detail overlay */}
+      {focusDetailItem && (
+        <div className="fixed inset-0 z-40 bg-gray-50 overflow-y-auto">
+          <IndividualDetail
+            individual={focusDetailItem}
+            onBack={() => setFocusDetailItem(null)}
+            onUpdated={() => {
+              // Refresh the detail item with latest data
+              setFocusDetailItem(prev => prev);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Section Header ──────────────────────────────────────────
 
-function SectionHeader({ icon: Icon, color, label, onViewAll }) {
+function SectionHeader({ icon: Icon, color, label, onViewAll, onAdd }) {
   return (
     <div className="flex items-center justify-between mb-2">
       <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
         <Icon size={12} className={color} />
         {label}
       </h2>
-      {onViewAll && (
-        <button onClick={onViewAll} className="text-[11px] text-primary-600 flex items-center gap-0.5 hover:text-primary-700">
-          All <ChevronRight size={10} />
-        </button>
-      )}
+      <div className="flex items-center gap-2">
+        {onAdd && (
+          <button onClick={onAdd} className="text-[11px] text-cyan-600 flex items-center gap-0.5 hover:text-cyan-700">
+            <Plus size={12} /> Add
+          </button>
+        )}
+        {onViewAll && (
+          <button onClick={onViewAll} className="text-[11px] text-primary-600 flex items-center gap-0.5 hover:text-primary-700">
+            All <ChevronRight size={10} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

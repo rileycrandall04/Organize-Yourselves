@@ -295,6 +295,12 @@ db.version(10).stores({
   console.log(`[Migration v10] Journal revamp: created ${Object.keys(listIdMap).length + defaultLists.length - Object.keys(listIdMap).length} lists, migrated ${allEntries.filter(e => e.section && listIdMap[e.section]).length} entries`);
 });
 
+// Phase 7: Individual Focus — track individuals with notes, goals, and check-in cadence
+db.version(11).stores({
+  tasks: '++id, type, status, priority, dueDate, starred, createdAt, completedAt, *meetingIds, callingSlotId, individualId, isArchived',
+  individualNotes: '++id, individualId, createdAt',
+});
+
 // ── Meeting Task Statuses (per-meeting status) ──────────────────
 
 export async function getMeetingTaskStatus(taskId, meetingId) {
@@ -373,6 +379,7 @@ export async function getTasks(filters = {}) {
   const today = new Date().toISOString().split('T')[0];
 
   return items.filter(item => {
+    if (filters.excludeIndividuals && item.type === 'individual') return false;
     if (filters.type && item.type !== filters.type && !(item.types || []).includes(filters.type)) return false;
     if (filters.status && item.status !== filters.status) return false;
     if (filters.priority && item.priority !== filters.priority) return false;
@@ -515,7 +522,7 @@ export async function getTasksForMeeting(meetingId) {
     (t.meetingIds || []).includes(meetingId) && t.status !== 'complete'
   ).sort((a, b) => {
     // Group by type: discussions first, then action items, then others
-    const typeOrder = { discussion: 0, action_item: 1, calling_plan: 2, ministering_plan: 3, ongoing: 4, event: 5, follow_up: 6, spiritual_thought: 7 };
+    const typeOrder = { individual: 0, discussion: 1, action_item: 2, calling_plan: 3, ministering_plan: 4, ongoing: 5, event: 6, follow_up: 7, spiritual_thought: 8 };
     const aOrder = typeOrder[a.type] ?? 6;
     const bOrder = typeOrder[b.type] ?? 6;
     if (aOrder !== bOrder) return aOrder - bOrder;
@@ -2348,6 +2355,76 @@ export async function completeMinisteringPlan(id) {
 export async function deleteMinisteringPlan(id) {
   await db.ministeringPlans.delete(id);
   syncAfterDelete('ministeringPlans', id);
+}
+
+// ── Individuals (Focus Feature) ───────────────────────────────
+
+export async function getIndividuals(includeArchived = false) {
+  const all = await db.tasks.where('type').equals('individual').toArray();
+  const filtered = includeArchived ? all : all.filter(t => !t.isArchived);
+  return filtered.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+}
+
+export async function archiveIndividual(id) {
+  const now = new Date().toISOString();
+  await db.tasks.update(id, { isArchived: true, updatedAt: now });
+  const updated = await db.tasks.get(id);
+  if (updated) syncAfterWrite('tasks', id, updated);
+}
+
+export async function unarchiveIndividual(id) {
+  const now = new Date().toISOString();
+  await db.tasks.update(id, { isArchived: false, updatedAt: now });
+  const updated = await db.tasks.get(id);
+  if (updated) syncAfterWrite('tasks', id, updated);
+}
+
+export async function getTasksForIndividual(individualId) {
+  if (!individualId) return [];
+  const all = await db.tasks.toArray();
+  return all.filter(t => t.individualId === individualId && t.type !== 'individual' && t.status !== 'complete');
+}
+
+// ── Individual Notes ──────────────────────────────────────────
+
+export async function getIndividualNotes(individualId) {
+  if (!individualId) return [];
+  const notes = await db.individualNotes
+    .where('individualId')
+    .equals(individualId)
+    .toArray();
+  return notes.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+}
+
+export async function addIndividualNote(note) {
+  const now = new Date().toISOString();
+  const data = { ...note, createdAt: now, updatedAt: now };
+  const id = await db.individualNotes.add(data);
+  syncAfterWrite('individualNotes', id, { ...data, id });
+
+  // Auto-update lastCheckIn on the parent individual task
+  if (note.individualId) {
+    await db.tasks.update(note.individualId, { lastCheckIn: now, updatedAt: now });
+    const updated = await db.tasks.get(note.individualId);
+    if (updated) syncAfterWrite('tasks', note.individualId, updated);
+  }
+  return id;
+}
+
+export async function updateIndividualNote(id, changes) {
+  changes.updatedAt = new Date().toISOString();
+  await db.individualNotes.update(id, changes);
+  const updated = await db.individualNotes.get(id);
+  if (updated) syncAfterWrite('individualNotes', id, updated);
+}
+
+export async function deleteIndividualNote(id) {
+  await db.individualNotes.delete(id);
+  syncAfterDelete('individualNotes', id);
+}
+
+export async function getIndividualNote(id) {
+  return await db.individualNotes.get(id);
 }
 
 export default db;

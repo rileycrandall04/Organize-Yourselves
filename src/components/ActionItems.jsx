@@ -22,7 +22,7 @@ export default function ActionItems() {
   const filters = useMemo(() => {
     const today = todayStr();
     const week = thisWeekRange();
-    const base = {};
+    const base = { excludeIndividuals: true };
 
     // Add type filter if set
     if (typeFilter) base.type = typeFilter;
@@ -177,7 +177,7 @@ export default function ActionItems() {
         >
           All Types
         </button>
-        {TASK_TYPE_LIST.map(t => (
+        {TASK_TYPE_LIST.filter(t => t.key !== 'individual').map(t => (
           <button
             key={t.key}
             onClick={() => setTypeFilter(typeFilter === t.key ? '' : t.key)}

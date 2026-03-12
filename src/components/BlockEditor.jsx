@@ -1,6 +1,6 @@
-import { useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings } from '../db';
+import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings, getIndividuals } from '../db';
 import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST, JOURNAL_SECTIONS } from '../utils/constants';
 import { useMeetingTaskStatuses, useJournalBySection } from '../hooks/useDb';
 import useRichTextEditor, { migrateTextToHtml, extractTaskIdsFromHtml, htmlToPlainText } from './shared/RichTextEditor';
@@ -8,7 +8,7 @@ import {
   Plus, Star, Share2, X, Search, Import, Cloud, CloudOff, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
-  PhoneForwarded, Sparkles, BookOpen, Tag,
+  PhoneForwarded, Sparkles, BookOpen, Tag, UserRound,
 } from 'lucide-react';
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -32,6 +32,7 @@ const CHIP_COLORS = {
   follow_up:        { bg: '#f0fdfa', fg: '#0f766e', bd: '#99f6e4' },
   spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' },
   journal_entry:    { bg: '#f0f9ff', fg: '#0369a1', bd: '#bae6fd' },
+  individual:       { bg: '#ecfeff', fg: '#0e7490', bd: '#a5f3fc' },
 };
 
 const TYPE_ICONS = {
@@ -44,6 +45,7 @@ const TYPE_ICONS = {
   follow_up: PhoneForwarded,
   spiritual_thought: Sparkles,
   journal_entry: BookOpen,
+  individual: UserRound,
 };
 
 const STATUS_ICONS = {
@@ -404,7 +406,7 @@ function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, meetin
 
 /* ── InsertTaskModal ────────────────────────────────────────── */
 
-function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose, allMeetings }) {
+function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose, allMeetings, individualId }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [eventDate, setEventDate] = useState('');
@@ -436,6 +438,7 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose, allMe
       taskData.messageText = messageText.trim();
       taskData.context = 'phone';
     }
+    if (individualId) taskData.individualId = individualId;
 
     const id = await addTask(taskData);
     onInsert(id);
@@ -581,7 +584,7 @@ function InsertTaskModal({ type, meetingId, instanceId, onInsert, onClose, allMe
 
 /* ── MakeTaskModal (from highlighted text) ────────────────── */
 
-function MakeTaskModal({ initialTitle, meetingId, instanceId, onCreated, onClose }) {
+function MakeTaskModal({ initialTitle, meetingId, instanceId, onCreated, onClose, individualId }) {
   const [title, setTitle] = useState(initialTitle || '');
   const [description, setDescription] = useState('');
   const [eventDate, setEventDate] = useState('');
@@ -612,6 +615,7 @@ function MakeTaskModal({ initialTitle, meetingId, instanceId, onCreated, onClose
     };
     if (selectedTypes.includes('action_item')) taskData.priority = 'medium';
     if (selectedTypes.includes('event') && eventDate) taskData.eventDate = eventDate;
+    if (individualId) taskData.individualId = individualId;
 
     const id = await addTask(taskData);
     onCreated(id);
@@ -995,6 +999,182 @@ function JournalPickerModal({ meetingId, instanceId, onInsert, onClose }) {
   );
 }
 
+/* ── IndividualPickerModal ─────────────────────────────────── */
+
+function IndividualPickerModal({ meetingId, onInsert, onClose }) {
+  const [individuals, setIndividuals] = useState([]);
+  const [search, setSearch] = useState('');
+  const [createFormOpen, setCreateFormOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getIndividuals(false).then(list => {
+      setIndividuals(list);
+      setLoading(false);
+    });
+  }, []);
+
+  const filtered = individuals.filter(ind =>
+    !search || (ind.title || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  async function handlePickExisting(individual) {
+    // If in a meeting context and the individual isn't already linked, auto-link
+    if (meetingId && !(individual.meetingIds || []).includes(meetingId)) {
+      await updateTask(individual.id, {
+        meetingIds: [...(individual.meetingIds || []), meetingId],
+      });
+    }
+    onInsert(individual.id);
+    onClose();
+  }
+
+  async function handleCreateNew(data) {
+    // Inject meetingId if available
+    if (meetingId && !(data.meetingIds || []).includes(meetingId)) {
+      data.meetingIds = [...(data.meetingIds || []), meetingId];
+    }
+    const id = await addTask(data);
+    onInsert(id);
+    setCreateFormOpen(false);
+    onClose();
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+        <div
+          className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-4 mx-4 max-h-[70vh] flex flex-col"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <UserRound size={16} className="text-cyan-600" />
+            Insert Individual
+          </h3>
+
+          {/* Search */}
+          <div className="relative mb-3">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="input-field pl-8 text-sm"
+              placeholder="Search individuals..."
+              autoFocus
+            />
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto space-y-1 mb-3 min-h-0">
+            {loading && <p className="text-xs text-gray-400 text-center py-4">Loading...</p>}
+            {!loading && filtered.length === 0 && (
+              <p className="text-xs text-gray-400 text-center py-4">
+                {search ? 'No matches' : 'No individuals on focus list yet'}
+              </p>
+            )}
+            {filtered.map(ind => (
+              <button
+                key={ind.id}
+                onClick={() => handlePickExisting(ind)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border border-gray-100 hover:border-cyan-200 hover:bg-cyan-50/50 transition-colors text-left"
+              >
+                <UserRound size={14} className="text-cyan-600 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{ind.title}</p>
+                  {ind.nextOrdinance && (
+                    <p className="text-[10px] text-cyan-600">Next: {ind.nextOrdinance}</p>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCreateFormOpen(true)}
+              className="btn-primary flex-1 flex items-center justify-center gap-1.5"
+            >
+              <Plus size={14} />
+              Create New
+            </button>
+            <button onClick={onClose} className="btn-secondary">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Inline IndividualForm for create */}
+      {createFormOpen && (
+        <IndividualFormInline
+          onSave={handleCreateNew}
+          onClose={() => setCreateFormOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * A lightweight inline form for creating an individual from within BlockEditor.
+ * Simpler than the full IndividualForm — just name and optional next ordinance.
+ */
+function IndividualFormInline({ onSave, onClose }) {
+  const [name, setName] = useState('');
+  const [nextOrdinance, setNextOrdinance] = useState('');
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onSave({
+      type: 'individual',
+      types: ['individual'],
+      title: name.trim(),
+      nextOrdinance: nextOrdinance.trim() || undefined,
+      status: 'in_progress',
+      priority: 'medium',
+      isArchived: false,
+      checkInCadence: 'monthly',
+      meetingIds: [],
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-5 mx-4" onClick={e => e.stopPropagation()}>
+        <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <UserRound size={16} className="text-cyan-600" />
+          New Individual
+        </h3>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            className="input-field"
+            placeholder="Person's name"
+            autoFocus
+            required
+          />
+          <input
+            type="text"
+            value={nextOrdinance}
+            onChange={e => setNextOrdinance(e.target.value)}
+            className="input-field"
+            placeholder="Next Ordinance (optional)"
+          />
+          <div className="flex gap-2">
+            <button type="submit" disabled={!name.trim()} className="btn-primary flex-1">
+              Add to Focus
+            </button>
+            <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main BlockEditor Component ─────────────────────────────── */
 
 export default function BlockEditor({
@@ -1017,6 +1197,8 @@ export default function BlockEditor({
   onTagMeeting,
   journalLists,
   autoSaveMs: autoSaveMsProp,
+  // Individual context
+  individualId,
 }) {
   const [insertModal, setInsertModal] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
@@ -1024,6 +1206,7 @@ export default function BlockEditor({
   const [makeTaskOpen, setMakeTaskOpen] = useState(false);
   const [makeTaskTitle, setMakeTaskTitle] = useState('');
   const [journalPickerOpen, setJournalPickerOpen] = useState(false);
+  const [individualPickerOpen, setIndividualPickerOpen] = useState(false);
 
   // Load all meetings for journal mode task creation (meeting picker)
   const allMeetings = useLiveQuery(
@@ -1228,28 +1411,44 @@ export default function BlockEditor({
                       <span className="text-[8px] text-gray-500 font-medium">To Mtg</span>
                     </button>
                   )}
+                  <button
+                    onClick={() => setIndividualPickerOpen(true)}
+                    className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <UserRound size={15} className="text-cyan-600" />
+                    <span className="text-[8px] text-gray-500 font-medium">Person</span>
+                  </button>
                 </>
               ) : (
-                /* Meeting mode: show all task type buttons */
-                toolbarItems.map(item => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.type}
-                      onClick={() => {
-                        if (item.type === 'spiritual_thought') {
-                          setJournalPickerOpen(true);
-                        } else {
-                          setInsertModal(item.type);
-                        }
-                      }}
-                      className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      <Icon size={16} className={item.color} />
-                      <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
-                    </button>
-                  );
-                })
+                /* Meeting mode: show all task type buttons + individual */
+                <>
+                  {toolbarItems.map(item => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.type}
+                        onClick={() => {
+                          if (item.type === 'spiritual_thought') {
+                            setJournalPickerOpen(true);
+                          } else {
+                            setInsertModal(item.type);
+                          }
+                        }}
+                        className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <Icon size={16} className={item.color} />
+                        <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => setIndividualPickerOpen(true)}
+                    className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <UserRound size={16} className="text-cyan-600" />
+                    <span className="text-[9px] text-gray-500 font-medium">Person</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1279,6 +1478,7 @@ export default function BlockEditor({
           type={insertModal}
           meetingId={meetingId}
           instanceId={instanceId}
+          individualId={individualId}
           onInsert={handleTaskInsert}
           onClose={() => setInsertModal(null)}
           allMeetings={mode === 'journal' ? (allMeetings || []) : null}
@@ -1302,6 +1502,7 @@ export default function BlockEditor({
           initialTitle={makeTaskTitle}
           meetingId={meetingId}
           instanceId={instanceId}
+          individualId={individualId}
           onCreated={handleMakeTaskCreated}
           onClose={() => { setMakeTaskOpen(false); setMakeTaskTitle(''); }}
         />
@@ -1314,6 +1515,15 @@ export default function BlockEditor({
           instanceId={instanceId}
           onInsert={handleTaskInsert}
           onClose={() => setJournalPickerOpen(false)}
+        />
+      )}
+
+      {/* Individual picker modal */}
+      {individualPickerOpen && (
+        <IndividualPickerModal
+          meetingId={meetingId}
+          onInsert={handleTaskInsert}
+          onClose={() => setIndividualPickerOpen(false)}
         />
       )}
     </div>

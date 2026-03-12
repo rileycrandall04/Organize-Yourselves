@@ -9,7 +9,7 @@ import { TASK_TYPES } from '../../utils/constants';
 import {
   Bold, Italic, Underline as UnderlineIcon, List, Undo2, Redo2,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
-  PhoneForwarded, Sparkles, BookOpen,
+  PhoneForwarded, Sparkles, BookOpen, UserRound,
 } from 'lucide-react';
 
 /* ── Constants ─────────────────────────────────────────────── */
@@ -24,6 +24,7 @@ const CHIP_COLORS = {
   follow_up:        { bg: '#f0fdfa', fg: '#0f766e', bd: '#99f6e4' },
   spiritual_thought:{ bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' },
   journal_entry:    { bg: '#f0f9ff', fg: '#0369a1', bd: '#bae6fd' },
+  individual:       { bg: '#ecfeff', fg: '#0e7490', bd: '#a5f3fc' },
 };
 
 /**
@@ -71,6 +72,7 @@ const TYPE_ICONS = {
   follow_up: PhoneForwarded,
   spiritual_thought: Sparkles,
   journal_entry: BookOpen,
+  individual: UserRound,
 };
 
 // Meeting-level status indicators (overlaid on chips)
