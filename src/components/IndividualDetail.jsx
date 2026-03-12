@@ -8,7 +8,7 @@ import ActionItemForm from './ActionItemForm';
 import {
   ArrowLeft, Edit3, UserRound, Target, Clock, AlertTriangle,
   Plus, CheckCircle2, Circle, Archive, ArchiveRestore,
-  Calendar, ChevronRight, Star, Trash2,
+  Calendar, ChevronRight, Star, Trash2, Users,
 } from 'lucide-react';
 
 const STATUS_ICONS = {
@@ -163,6 +163,17 @@ export default function IndividualDetail({ individual, onBack, onUpdated }) {
                 <p className="text-[10px] font-semibold text-cyan-500 uppercase tracking-wider">Next Ordinance</p>
                 <p className="text-sm font-semibold text-cyan-800">{individual.nextOrdinance}</p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Fellowshippers */}
+        {individual.fellowshippers && (
+          <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-100 bg-white">
+            <Users size={14} className="text-gray-400 flex-shrink-0" />
+            <div>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Fellowshippers</p>
+              <p className="text-xs text-gray-700">{individual.fellowshippers}</p>
             </div>
           </div>
         )}

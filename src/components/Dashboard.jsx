@@ -299,6 +299,9 @@ export default function Dashboard() {
                         {ind.nextOrdinance}
                       </p>
                     )}
+                    {ind.fellowshippers && (
+                      <p className="text-[10px] text-gray-400 truncate">{ind.fellowshippers}</p>
+                    )}
                   </div>
                   {overdue && (
                     <span className="text-[9px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full border border-red-100">

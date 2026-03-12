@@ -10,6 +10,7 @@ const EMPTY_FORM = {
   nextOrdinance: '',
   description: '',
   phoneNumber: '',
+  fellowshippers: '',
   checkInCadence: 'monthly',
 };
 
@@ -28,6 +29,7 @@ export default function IndividualForm({ open, onClose, onSave, onArchive, item 
         nextOrdinance: item.nextOrdinance || '',
         description: item.description || '',
         phoneNumber: item.phoneNumber || '',
+        fellowshippers: item.fellowshippers || '',
         checkInCadence: item.checkInCadence || 'monthly',
       } : EMPTY_FORM);
       setMeetingIds(item?.meetingIds || []);
@@ -50,6 +52,7 @@ export default function IndividualForm({ open, onClose, onSave, onArchive, item 
         description: form.description.trim(),
         nextOrdinance: form.nextOrdinance.trim() || undefined,
         phoneNumber: form.phoneNumber.trim() || undefined,
+        fellowshippers: form.fellowshippers.trim() || undefined,
         checkInCadence: form.checkInCadence || undefined,
         status: 'in_progress',
         priority: 'medium',
@@ -140,6 +143,18 @@ export default function IndividualForm({ open, onClose, onSave, onArchive, item 
               onChange={e => set('phoneNumber', e.target.value)}
               className="input-field"
               placeholder="Optional"
+            />
+          </div>
+
+          {/* Fellowshippers */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Fellowshippers</label>
+            <input
+              type="text"
+              value={form.fellowshippers}
+              onChange={e => set('fellowshippers', e.target.value)}
+              className="input-field"
+              placeholder="Key contacts, e.g., John Smith, Jane Doe"
             />
           </div>
 
