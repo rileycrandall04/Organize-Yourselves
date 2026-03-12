@@ -26,6 +26,34 @@ const CHIP_COLORS = {
   journal_entry:    { bg: '#f0f9ff', fg: '#0369a1', bd: '#bae6fd' },
 };
 
+/**
+ * Resolve chip colors for a task, supporting multi-type gradient borders.
+ * Returns { bg, fg, bd, gradient } — gradient is a CSS border-image string or null.
+ */
+function getChipStyle(task) {
+  const types = task.types && task.types.length > 1 ? task.types : [task.type];
+  const primary = CHIP_COLORS[types[0]] || CHIP_COLORS.action_item;
+
+  if (types.length <= 1) {
+    return { ...primary, gradient: null };
+  }
+
+  // Multi-type: use primary's bg/fg, build a gradient border from all type colors
+  const colors = types.map(t => (CHIP_COLORS[t] || CHIP_COLORS.action_item).bd);
+  const stops = colors.map((c, i) => {
+    const start = (i / colors.length) * 100;
+    const end = ((i + 1) / colors.length) * 100;
+    return `${c} ${start}%, ${c} ${end}%`;
+  }).join(', ');
+
+  return {
+    bg: primary.bg,
+    fg: primary.fg,
+    bd: primary.bd,
+    gradient: `linear-gradient(90deg, ${stops})`,
+  };
+}
+
 const STATUS_CHAR = {
   not_started: '\u25CB',   // ○
   in_progress: '\u25D0',   // ◐
@@ -103,7 +131,7 @@ function TaskChipView({ taskId, taskMap, onClick }) {
     );
   }
 
-  const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
+  const c = getChipStyle(task);
   const sc = STATUS_CHAR[task.status] || '\u25CB';
   const done = task.status === 'complete';
 
@@ -113,7 +141,8 @@ function TaskChipView({ taskId, taskMap, onClick }) {
       style={{
         background: c.bg,
         color: c.fg,
-        border: `1px solid ${c.bd}`,
+        border: c.gradient ? '2px solid transparent' : `1px solid ${c.bd}`,
+        borderImage: c.gradient ? `${c.gradient} 1` : undefined,
         opacity: done ? 0.5 : 1,
         textDecoration: done ? 'line-through' : 'none',
         verticalAlign: 'baseline',
@@ -492,7 +521,7 @@ export default function RichTextEditor({
         chip.style.cssText = 'display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:#f3f4f6;color:#9ca3af;font-size:12px;cursor:grab;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;';
         return;
       }
-      const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
+      const c = getChipStyle(task);
       const sc = STATUS_CHAR[task.status] || '\u25CB';
       const done = task.status === 'complete';
 
@@ -518,7 +547,10 @@ export default function RichTextEditor({
         chip.appendChild(badge);
       }
 
-      chip.style.cssText = `display:inline-flex;align-items:center;gap:3px;padding:2px 8px 2px 6px;border-radius:6px;background:${c.bg};color:${c.fg};border:1px solid ${c.bd};font-size:12px;font-weight:500;cursor:grab;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;${dimmed ? 'opacity:0.5;text-decoration:line-through;' : ''}`;
+      const borderStyle = c.gradient
+        ? `border:2px solid transparent;border-image:${c.gradient} 1;`
+        : `border:1px solid ${c.bd};`;
+      chip.style.cssText = `display:inline-flex;align-items:center;gap:3px;padding:2px 8px 2px 6px;border-radius:6px;background:${c.bg};color:${c.fg};${borderStyle}font-size:12px;font-weight:500;cursor:grab;user-select:none;vertical-align:baseline;line-height:1.4;margin:0 2px;${dimmed ? 'opacity:0.5;text-decoration:line-through;' : ''}`;
     });
   }, [editor]);
 
