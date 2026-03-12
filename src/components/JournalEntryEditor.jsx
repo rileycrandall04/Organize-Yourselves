@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { addJournalEntry, updateJournalEntry, deleteJournalEntry, addTask } from '../db';
-import { getJournalListColor } from '../utils/constants';
+// Color constants no longer needed — notebook theme uses stone palette
 import { formatFull } from '../utils/dates';
 import { htmlToPlainText } from './shared/RichTextEditor';
 import BlockEditor from './BlockEditor';
 import JournalListPicker from './shared/JournalListPicker';
 import MeetingPicker from './shared/MeetingPicker';
 import Modal from './shared/Modal';
-import { ArrowLeft, Trash2, Save, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Trash2, Save, CheckCircle2, ChevronLeft, ChevronRight, FolderOpen } from 'lucide-react';
 
 /**
  * JournalEntryEditor — Full-page rich text editor for a journal entry.
@@ -38,6 +38,8 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveFlash, setSaveFlash] = useState(false);
+  const [movePickerOpen, setMovePickerOpen] = useState(false);
+  const [overrideListId, setOverrideListId] = useState(null);
 
   // Tag-to-list state
   const [journalListPickerOpen, setJournalListPickerOpen] = useState(false);
@@ -60,7 +62,10 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   const insertChipRef = useRef(null);
   const handleInsertRef = useCallback((fn) => { insertChipRef.current = fn; }, []);
 
-  const color = getJournalListColor(list?.color);
+  // Display list — tracks moves within this session
+  const displayList = overrideListId !== null
+    ? lists.find(l => l.id === overrideListId) || { id: null, name: 'All' }
+    : list;
 
   // List navigation helpers
   const currentListIdx = lists.findIndex(l => l.id === list?.id);
@@ -157,6 +162,15 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
     } finally {
       setDeleting(false);
     }
+  }
+
+  // ── Move entry to a different list ─────────────────────────
+  async function handleMoveToList(targetList) {
+    setMovePickerOpen(false);
+    const currentId = entryIdRef.current;
+    if (!currentId || targetList.id === (overrideListId || list?.id)) return;
+    await updateJournalEntry(currentId, { listId: targetList.id });
+    setOverrideListId(targetList.id);
   }
 
   // ── Tag to another journal list ──────────────────────────
@@ -257,10 +271,11 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   }
 
   return (
+    <div className="min-h-screen lined-paper">
     <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <button onClick={readOnly ? onBack : handleSaveAndBack} className="flex items-center gap-1 text-sm text-primary-600">
+        <button onClick={readOnly ? onBack : handleSaveAndBack} className="flex items-center gap-1 text-sm text-stone-600">
           <ArrowLeft size={16} />
           {readOnly ? 'Back' : 'Back to List'}
         </button>
@@ -272,7 +287,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
               className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 saveFlash
                   ? 'bg-green-50 text-green-600 border border-green-200'
-                  : 'bg-primary-50 text-primary-600 hover:bg-primary-100 border border-primary-200'
+                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200 border border-stone-300'
               }`}
             >
               {saveFlash ? (
@@ -300,36 +315,25 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         </div>
       </div>
 
-      {/* List navigation pills (switch between lists) */}
-      {!readOnly && lists.length > 1 && onSwitchList && (
-        <div className="flex items-center gap-1.5 mb-3 overflow-x-auto scrollbar-hide -mx-1 px-1">
-          {lists.map(l => {
-            const c = getJournalListColor(l.color);
-            const isActive = l.id === list?.id;
-            return (
-              <button
-                key={l.id}
-                onClick={() => { if (!isActive) handleSwitchList(l); }}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 ${
-                  isActive
-                    ? `${c.active} shadow-sm`
-                    : `${c.bg} ${c.text} hover:shadow-sm`
-                }`}
-              >
-                <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-white/60' : c.dot}`} />
-                {l.name}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Title field */}
+      {/* List indicator + move to folder */}
       <div className="flex items-center gap-2 mb-2">
-        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${color.dot}`} />
-        <span className="text-xs text-gray-400">{list?.name}</span>
+        {!readOnly && entryId ? (
+          <button
+            onClick={() => setMovePickerOpen(true)}
+            className="flex items-center gap-1.5 text-xs text-stone-500 hover:text-stone-700 transition-colors"
+            title="Move to another list"
+          >
+            <FolderOpen size={13} />
+            <span>{displayList?.name || 'Uncategorized'}</span>
+          </button>
+        ) : (
+          <span className="flex items-center gap-1.5 text-xs text-stone-400">
+            <FolderOpen size={13} />
+            {displayList?.name || 'All'}
+          </span>
+        )}
         {entry?.date && (
-          <span className="text-xs text-gray-400 ml-auto">{formatFull(entry.date)}</span>
+          <span className="text-xs text-stone-400 ml-auto">{formatFull(entry.date)}</span>
         )}
       </div>
       {!readOnly ? (
@@ -362,6 +366,15 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         onInsertRef={handleInsertRef}
         onTagJournalList={readOnly ? undefined : handleTagToList}
         onTagMeeting={readOnly ? undefined : handleTagToMeeting}
+      />
+
+      {/* Move entry to another list */}
+      <JournalListPicker
+        open={movePickerOpen}
+        onClose={() => setMovePickerOpen(false)}
+        onSelect={handleMoveToList}
+        excludeIds={displayList?.id ? [displayList.id] : []}
+        title="Move to List"
       />
 
       {/* Journal list picker (tag text to another list) */}
@@ -423,6 +436,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
           <button onClick={() => setDeleteConfirm(false)} className="btn-secondary flex-1">Cancel</button>
         </div>
       </Modal>
+    </div>
     </div>
   );
 }
