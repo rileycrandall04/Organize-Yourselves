@@ -26,7 +26,7 @@ export default function Dashboard() {
   const { profile } = useProfile();
   const { stats } = useDashboardStats();
   const { add: addInboxItem } = useInbox();
-  const { tasks: allTasksRaw, update: updateTask, add: addTask, remove: removeTask } = useTasks({ excludeComplete: true });
+  const { tasks: allTasksRaw, update: updateTask, add: addTask, remove: removeTask } = useTasks({ excludeComplete: true, actionableOnly: true });
   const allTasks = useMemo(() => allTasksRaw.filter(t => t.type !== 'individual'), [allTasksRaw]);
   const { individuals } = useIndividuals(false);
   const { callings } = useUserCallings();

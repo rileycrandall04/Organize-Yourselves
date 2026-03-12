@@ -327,11 +327,14 @@ export async function setMeetingTaskStatus(taskId, meetingId, meetingStatus, ext
   if (existing) {
     await db.meetingTaskStatuses.update(existing.id, data);
     syncAfterWrite('meetingTaskStatuses', existing.id, { ...existing, ...data });
-    return existing.id;
   } else {
     const id = await db.meetingTaskStatuses.add(data);
     syncAfterWrite('meetingTaskStatuses', id, { ...data, id });
-    return id;
+  }
+
+  // Sync task completion status with meeting resolved status
+  if (meetingStatus === 'resolved') {
+    await updateTask(taskId, { status: 'complete', completedAt: new Date().toISOString() });
   }
 }
 
@@ -378,8 +381,10 @@ export async function getTasks(filters = {}) {
 
   const today = new Date().toISOString().split('T')[0];
 
+  const ACTIONABLE_TYPES = ['action_item', 'follow_up'];
   return items.filter(item => {
     if (filters.excludeIndividuals && item.type === 'individual') return false;
+    if (filters.actionableOnly && !ACTIONABLE_TYPES.includes(item.type)) return false;
     if (filters.type && item.type !== filters.type && !(item.types || []).includes(filters.type)) return false;
     if (filters.status && item.status !== filters.status) return false;
     if (filters.priority && item.priority !== filters.priority) return false;

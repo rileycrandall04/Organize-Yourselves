@@ -25,7 +25,7 @@ export default function ActionItems() {
   const filters = useMemo(() => {
     const today = todayStr();
     const week = thisWeekRange();
-    const base = { excludeIndividuals: true };
+    const base = { excludeIndividuals: true, actionableOnly: true };
 
     // Add type filter if set
     if (typeFilter) base.type = typeFilter;
