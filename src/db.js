@@ -1654,9 +1654,10 @@ export async function ensureDefaultJournalLists() {
   const count = await db.journalLists.count();
   if (count > 0) return;
   const defaults = [
-    { name: 'Scripture Study', color: 'blue', sortOrder: 0, isDefault: true },
-    { name: 'Spiritual Thoughts', color: 'violet', sortOrder: 1, isDefault: true },
-    { name: 'Talks', color: 'amber', sortOrder: 2, isDefault: true },
+    { name: 'Spiritual Thoughts', color: 'violet', sortOrder: 0, isDefault: false },
+    { name: 'Scripture Study', color: 'blue', sortOrder: 1, isDefault: false },
+    { name: 'Talks', color: 'amber', sortOrder: 2, isDefault: false },
+    { name: 'Parables', color: 'emerald', sortOrder: 3, isDefault: false },
   ];
   for (const list of defaults) {
     await addJournalList(list);
