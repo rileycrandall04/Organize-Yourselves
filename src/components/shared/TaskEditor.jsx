@@ -1,6 +1,9 @@
 import { useState } from 'react';
-import { updateTask, addTaskFollowUpNote, setMeetingTaskStatus } from '../../db';
+import { updateTask, addTaskFollowUpNote, setMeetingTaskStatus, getTask } from '../../db';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useMeetings } from '../../hooks/useDb';
 import { TASK_TYPES, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../../utils/constants';
+import MeetingPicker from './MeetingPicker';
 import {
   Star, Share2, X, RotateCw, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause,
@@ -107,7 +110,7 @@ export function TaskRow({ task, onClick, meetingStatus }) {
 /* ── Full Task Editor (bottom sheet) ────────────────────────── */
 
 export default function TaskEditor({
-  task,
+  task: taskProp,
   onClose,
   disabled = false,
   meetingId,
@@ -118,6 +121,15 @@ export default function TaskEditor({
 }) {
   const [noteText, setNoteText] = useState('');
   const [journalTextExpanded, setJournalTextExpanded] = useState(false);
+  const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
+
+  // Live-query the task so updates (e.g. meeting assignment) reflect immediately
+  const liveTask = useLiveQuery(() => taskProp?.id ? getTask(taskProp.id) : null, [taskProp?.id]);
+  const task = liveTask ?? taskProp;
+
+  // Load meetings internally so meeting assignment works everywhere
+  const { meetings: hookMeetings } = useMeetings();
+  const resolvedMeetings = meetings || hookMeetings || [];
 
   if (!task) return null;
 
@@ -368,12 +380,12 @@ export default function TaskEditor({
         )}
 
         {/* Shared meetings */}
-        {meetings && (task.meetingIds || []).length > 0 && (
+        {resolvedMeetings.length > 0 && (task.meetingIds || []).length > 0 && (
           <div className="mb-3">
             <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Shared with</h4>
             <div className="flex items-center gap-1.5 flex-wrap">
               {(task.meetingIds || []).map(mid => {
-                const mtg = meetings.find(m => m.id === mid);
+                const mtg = resolvedMeetings.find(m => m.id === mid);
                 if (!mtg) return null;
                 const isCurrent = mid === meetingId;
                 return (
@@ -413,6 +425,16 @@ export default function TaskEditor({
           </button>
         )}
 
+        {/* Built-in meeting assignment (when parent doesn't provide onTagTask) */}
+        {!disabled && !onTagTask && (
+          <button
+            onClick={() => setMeetingPickerOpen(true)}
+            className="flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 font-medium mb-2"
+          >
+            <Share2 size={12} /> Add to a meeting
+          </button>
+        )}
+
         {/* Convert journal entry chip to inline text */}
         {!disabled && onConvertToText && task.type === 'journal_entry' && task.journalText && (
           <button
@@ -423,6 +445,20 @@ export default function TaskEditor({
           </button>
         )}
       </div>
+
+      {/* Built-in MeetingPicker for contexts without parent-managed picker */}
+      <MeetingPicker
+        open={meetingPickerOpen}
+        onClose={() => setMeetingPickerOpen(false)}
+        onSelect={async (mtg) => {
+          const ids = task.meetingIds || [];
+          if (!ids.includes(mtg.id)) {
+            await updateTask(task.id, { meetingIds: [...ids, mtg.id] });
+          }
+        }}
+        excludeIds={task.meetingIds || []}
+        title="Add to Meeting"
+      />
     </div>
   );
 }
