@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useMeetingInstances, useTagsFromInstance, useMeetings } from '../hooks/useDb';
-import { addMeetingNoteTag, addJournalEntry, syncCallingNotesFromMeeting, deleteMeetingInstance, updateTask, getTasksByIds, getTasks } from '../db';
-import { formatFull } from '../utils/dates';
+import { addMeetingNoteTag, addJournalEntry, syncCallingNotesFromMeeting, deleteMeetingInstance, updateTask, getTasksByIds, getTasks, setMeetingTaskStatus } from '../db';
+import { formatFull, formatMeetingDate } from '../utils/dates';
 import { TASK_TYPES } from '../utils/constants';
 import { isAiConfigured, summarizeMeetingNotes, suggestActionItems } from '../utils/ai';
 import MeetingPicker from './shared/MeetingPicker';
@@ -10,17 +10,17 @@ import Modal from './shared/Modal';
 import SacramentProgram from './SacramentProgram';
 import AiButton, { AiResultCard } from './shared/AiButton';
 import BlockEditor, { migrateAgendaToBlocks, consolidateBlocks } from './BlockEditor';
-import { htmlToPlainText } from './shared/RichTextEditor';
+import { htmlToPlainText, extractTaskIdsFromHtml } from './shared/RichTextEditor';
 import {
   ArrowLeft, Save, CheckCircle2, Users2, Trash2,
   ArrowUpRight, X, Pencil, RotateCcw, Plus, Search, Import, BookOpen,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
-  PhoneForwarded, Sparkles,
+  PhoneForwarded, Sparkles, ChevronDown, Copy, FileText,
 } from 'lucide-react';
 
 export default function MeetingNotes({ instance, meetingName, meetingId, participants, onBack }) {
   const isSacrament = meetingName === 'Sacrament Meeting';
-  const { update } = useMeetingInstances(instance.meetingId);
+  const { instances: allInstances, update } = useMeetingInstances(instance.meetingId);
   const { tags: instanceTags, remove: removeTag } = useTagsFromInstance(instance.id);
   const { meetings: allMeetings } = useMeetings();
 
@@ -71,6 +71,22 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+
+  // Prior meeting notes
+  const [showPriorNotes, setShowPriorNotes] = useState(false);
+  const [addedFromPriorIds, setAddedFromPriorIds] = useState(new Set());
+  const previousInstance = useMemo(() => {
+    if (!allInstances || allInstances.length < 2) return null;
+    const currentIdx = allInstances.findIndex(i => i.id === instance.id);
+    if (currentIdx === -1 || currentIdx >= allInstances.length - 1) return null;
+    const prev = allInstances[currentIdx + 1];
+    const html = prev.blocks?.[0]?.html || prev.blocks?.[0]?.text || '';
+    if (!html.replace(/<[^>]*>/g, '').trim()) return null;
+    return prev;
+  }, [allInstances, instance.id]);
+
+  // Copy minutes
+  const [copied, setCopied] = useState(false);
 
   // Derive text content for AI
   const hasContent = blocks.some(b => (b.text || b.html || '').replace(/<[^>]*>/g, '').trim());
@@ -253,6 +269,64 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     }
   }
 
+  // Add a task from prior meeting notes to the current meeting
+  async function handleAddFromPrior(taskId) {
+    const tasks = await getTasksByIds([taskId]);
+    const task = tasks[0];
+    if (!task) return;
+    const currentMeetingId = meetingId || instance.meetingId;
+    const updatedMeetingIds = [...new Set([...(task.meetingIds || []), currentMeetingId])];
+    await updateTask(task.id, { meetingIds: updatedMeetingIds });
+    if (task.status === 'complete') {
+      await setMeetingTaskStatus(task.id, currentMeetingId, 'resolved');
+    }
+    if (insertChipRef.current) insertChipRef.current(task.id);
+    setAddedFromPriorIds(prev => new Set([...prev, taskId]));
+  }
+
+  // Generate formatted minutes text for clipboard
+  async function generateMinutesText() {
+    const block = blocks[0];
+    if (!block) return '';
+    let html = block.html || block.text || '';
+
+    const taskIds = extractTaskIdsFromHtml(html);
+    if (taskIds.length > 0) {
+      const tasks = await getTasksByIds(taskIds);
+      const taskMap = {};
+      for (const t of tasks) taskMap[t.id] = t;
+
+      html = html.replace(
+        /<task-chip[^>]*data-task-id="(\d+)"[^>]*>(?:<\/task-chip>)?/g,
+        (_, idStr) => {
+          const task = taskMap[Number(idStr)];
+          if (!task) return '';
+          const sc = STATUS_CHAR[task.status] || '\u25CB';
+          return `${sc} ${task.title}`;
+        }
+      );
+    }
+
+    const bodyText = htmlToPlainText(html);
+    const dateStr = formatFull(instance.date);
+    const attendeeStr = participants?.length > 0
+      ? participants.map(p => p.name).join(', ')
+      : '';
+
+    let minutes = `${meetingName}\nDate: ${dateStr}`;
+    if (attendeeStr) minutes += `\n\nAttendees: ${attendeeStr}`;
+    minutes += `\n\n${bodyText.trim()}`;
+    return minutes;
+  }
+
+  async function handleCopyMinutes() {
+    const text = await generateMinutesText();
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
   function getMeetingNameById(id) {
     const mtg = allMeetings.find(m => m.id === id);
     return mtg?.name || 'Meeting';
@@ -377,6 +451,35 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
         </div>
       )}
 
+      {/* Prior Meeting Notes (collapsible, interactive) */}
+      {!isSacrament && previousInstance && (
+        <div className="mb-4 border border-gray-100 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowPriorNotes(prev => !prev)}
+            className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-gray-50 transition-colors"
+          >
+            <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+              <FileText size={12} className="text-gray-400" />
+              Previous Meeting — {formatMeetingDate(previousInstance.date)}
+            </span>
+            <ChevronDown
+              size={14}
+              className={`text-gray-400 transition-transform ${showPriorNotes ? '' : '-rotate-90'}`}
+            />
+          </button>
+          {showPriorNotes && (
+            <div className="px-3 py-2 border-t border-gray-100 bg-gray-50/30 max-h-72 overflow-y-auto">
+              <PriorMeetingNotes
+                instance={previousInstance}
+                currentMeetingId={meetingId || instance.meetingId}
+                onAddTask={handleAddFromPrior}
+                addedIds={addedFromPriorIds}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Sacrament Meeting Program */}
       {isSacrament && (
         <div className="mb-6">
@@ -474,6 +577,19 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
       {/* Bottom actions */}
       {!isCompleted ? (
         <div className="flex gap-3 mb-6">
+          <button
+            onClick={handleCopyMinutes}
+            disabled={!hasContent}
+            className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+              copied
+                ? 'border-green-200 bg-green-50 text-green-600'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+            title={copied ? 'Copied!' : 'Copy formatted minutes to clipboard'}
+          >
+            {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+            <span className="hidden sm:inline">{copied ? 'Copied!' : 'Copy'}</span>
+          </button>
           <button onClick={handleSave} disabled={saving} className="btn-secondary flex-1 flex items-center justify-center gap-1.5">
             <Save size={16} /> {saving ? 'Saving...' : 'Save Draft'}
           </button>
@@ -481,10 +597,39 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             <CheckCircle2 size={16} /> Finalize
           </button>
         </div>
-      ) : dirty && (
-        <div className="mb-6">
-          <button onClick={handleSave} disabled={saving} className="btn-primary w-full flex items-center justify-center gap-1.5">
+      ) : dirty ? (
+        <div className="flex gap-3 mb-6">
+          <button
+            onClick={handleCopyMinutes}
+            disabled={!hasContent}
+            className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+              copied
+                ? 'border-green-200 bg-green-50 text-green-600'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+            title={copied ? 'Copied!' : 'Copy formatted minutes to clipboard'}
+          >
+            {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+            <span className="hidden sm:inline">{copied ? 'Copied!' : 'Copy'}</span>
+          </button>
+          <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-1.5">
             <Save size={16} /> {saving ? 'Saving...' : 'Save Notes'}
+          </button>
+        </div>
+      ) : (
+        <div className="flex justify-center mb-6">
+          <button
+            onClick={handleCopyMinutes}
+            disabled={!hasContent}
+            className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+              copied
+                ? 'border-green-200 bg-green-50 text-green-600'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+            title={copied ? 'Copied!' : 'Copy formatted minutes to clipboard'}
+          >
+            {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+            {copied ? 'Copied!' : 'Copy Minutes'}
           </button>
         </div>
       )}
@@ -712,5 +857,81 @@ function MeetingImportPicker({ meetingId, meetings, onImport, onClose }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/* ── Prior Meeting Notes Viewer ────────────────────────────────── */
+
+function PriorMeetingNotes({ instance: prevInstance, currentMeetingId, onAddTask, addedIds }) {
+  const [resolvedHtml, setResolvedHtml] = useState(null);
+  const [taskMap, setTaskMap] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const block = prevInstance.blocks?.[0];
+      let html = block?.html || block?.text || '';
+      if (!html.trim()) { setResolvedHtml(null); return; }
+
+      const taskIds = extractTaskIdsFromHtml(html);
+      let tMap = {};
+
+      if (taskIds.length > 0) {
+        const tasks = await getTasksByIds(taskIds);
+        for (const t of tasks) tMap[t.id] = t;
+      }
+
+      if (!cancelled) {
+        setTaskMap(tMap);
+        setResolvedHtml(html);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [prevInstance]);
+
+  // Build display HTML with interactive task badges
+  const displayHtml = useMemo(() => {
+    if (!resolvedHtml) return null;
+
+    return resolvedHtml.replace(
+      /<task-chip[^>]*data-task-id="(\d+)"[^>]*>(?:<\/task-chip>)?/g,
+      (_, idStr) => {
+        const id = Number(idStr);
+        const task = taskMap[id];
+        if (!task) return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:#f3f4f6;color:#9ca3af;font-size:12px;vertical-align:baseline;line-height:1.4;margin:0 2px;">Task #${id}</span>`;
+
+        const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
+        const sc = STATUS_CHAR[task.status] || '\u25CB';
+        const done = task.status === 'complete';
+        const alreadyLinked = (task.meetingIds || []).includes(currentMeetingId);
+        const justAdded = addedIds.has(id);
+        const isAdded = alreadyLinked || justAdded;
+
+        if (isAdded) {
+          return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:12px;font-weight:500;vertical-align:baseline;line-height:1.4;margin:0 2px;opacity:0.7;">\u2713\u00a0${task.title.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
+        }
+
+        return `<span data-task-id="${id}" style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:${c.bg};color:${c.fg};border:1px solid ${c.bg};font-size:12px;font-weight:500;vertical-align:baseline;line-height:1.4;margin:0 2px;cursor:pointer;${done ? 'opacity:0.5;text-decoration:line-through;' : ''}" title="Click to add to this meeting">${sc}\u00a0${task.title.replace(/</g, '&lt;').replace(/>/g, '&gt;')}<span style="margin-left:4px;font-size:10px;opacity:0.6;">+</span></span>`;
+      }
+    );
+  }, [resolvedHtml, taskMap, currentMeetingId, addedIds]);
+
+  function handleClick(e) {
+    const target = e.target.closest('[data-task-id]');
+    if (!target) return;
+    const taskId = Number(target.getAttribute('data-task-id'));
+    if (taskId && !addedIds.has(taskId)) {
+      onAddTask(taskId);
+    }
+  }
+
+  if (!displayHtml) return <p className="text-xs text-gray-400 italic">No notes from previous meeting.</p>;
+
+  return (
+    <div
+      onClick={handleClick}
+      className="prose prose-sm max-w-none text-gray-600 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 text-sm leading-relaxed"
+      dangerouslySetInnerHTML={{ __html: displayHtml }}
+    />
   );
 }
