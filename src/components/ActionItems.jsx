@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useTasks, usePeople } from '../hooks/useDb';
 import { snoozeTask } from '../db';
 import { ACTION_VIEWS, CONTEXT_LIST, STATUSES, TASK_TYPE_LIST } from '../utils/constants';
@@ -11,7 +12,9 @@ import {
 } from 'lucide-react';
 
 export default function ActionItems() {
-  const [view, setView] = useState('all');
+  const location = useLocation();
+  const initialView = location.state?.view || 'all';
+  const [view, setView] = useState(initialView);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');

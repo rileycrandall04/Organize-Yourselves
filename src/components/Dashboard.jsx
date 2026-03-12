@@ -149,7 +149,7 @@ export default function Dashboard() {
       <div className="flex items-center gap-1.5 mb-4 flex-wrap">
         {stats.overdue > 0 && (
           <button
-            onClick={() => navigate('/actions')}
+            onClick={() => navigate('/actions', { state: { view: 'overdue' } })}
             className="inline-flex items-center gap-1 text-[11px] font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-100 hover:bg-red-100 transition-colors"
           >
             <AlertTriangle size={10} />
@@ -158,7 +158,7 @@ export default function Dashboard() {
         )}
         {stats.dueToday > 0 && (
           <button
-            onClick={() => navigate('/actions')}
+            onClick={() => navigate('/actions', { state: { view: 'today' } })}
             className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 hover:bg-amber-100 transition-colors"
           >
             <Clock size={10} />
@@ -166,7 +166,7 @@ export default function Dashboard() {
           </button>
         )}
         <button
-          onClick={() => navigate('/actions')}
+          onClick={() => navigate('/actions', { state: { view: 'all' } })}
           className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100 hover:bg-gray-100 transition-colors"
         >
           <CheckSquare size={10} />
