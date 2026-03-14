@@ -345,9 +345,10 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   }
 
   return (
-    <div className="min-h-screen lined-paper flex flex-col">
+    <div className="min-h-screen lined-paper">
       {/* Sticky header */}
-      <div className="sticky top-0 z-30 bg-[#faf8f5] border-b border-stone-200 px-4 pt-4 pb-2 max-w-lg mx-auto w-full">
+      <div className="sticky top-0 z-30 px-4 pt-4 pb-2">
+        <div className="max-w-lg mx-auto">
         {/* Nav row */}
         <div className="flex items-center justify-between mb-2">
           <button onClick={readOnly ? onBack : handleSaveAndBack} className="flex items-center gap-1 text-sm text-stone-600">
@@ -438,9 +439,10 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         ) : (
           <h1 className="text-lg font-bold text-gray-900">{title || 'Untitled'}</h1>
         )}
+        </div>
       </div>
 
-    <div className="px-4 pb-24 max-w-lg mx-auto flex-1">
+    <div className="px-4 pb-24 max-w-lg mx-auto">
       {/* Block Editor */}
       <div className="mt-3">
       <BlockEditor
@@ -462,11 +464,11 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
       />
       </div>
 
-      {/* Topic Tags — anchored above the bottom toolbar */}
+      {/* Topic Tags — attached to top of toolbar */}
       {!readOnly && (
-        <div className="sticky bottom-[7.5rem] z-20 bg-[#faf8f5] border border-stone-200 rounded-xl shadow-sm px-3 py-2 mt-3">
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <Tag size={13} className="text-stone-400 flex-shrink-0" />
+        <div className="sticky bottom-[6.25rem] z-20 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-t-lg px-2.5 py-1 mt-3 -mb-[3px]">
+          <div className="flex flex-wrap gap-1 items-center">
+            <Tag size={11} className="text-stone-400 flex-shrink-0" />
             {topicTags.map(tag => (
               <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-xs font-medium">
                 {tag}
