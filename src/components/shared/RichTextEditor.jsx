@@ -116,6 +116,23 @@ const TaskChipNode = Node.create({
       contenteditable: 'false',
     })];
   },
+
+  // Allow single backspace to delete chip (default atom behavior requires two)
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => {
+        const { state, dispatch } = this.editor.view;
+        const { selection } = state;
+        // If cursor is right after a taskChip node, delete it in one press
+        if (selection.empty && selection.$from.nodeBefore?.type.name === 'taskChip') {
+          const pos = selection.from - selection.$from.nodeBefore.nodeSize;
+          dispatch(state.tr.delete(pos, selection.from));
+          return true;
+        }
+        return false;
+      },
+    };
+  },
 });
 
 /* ── TaskChip React Component (rendered inside editor) ───── */
