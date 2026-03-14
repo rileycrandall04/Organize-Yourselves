@@ -6,7 +6,7 @@ import { useMeetingTaskStatuses, useJournalBySection } from '../hooks/useDb';
 import useRichTextEditor, { migrateTextToHtml, extractTaskIdsFromHtml, htmlToPlainText } from './shared/RichTextEditor';
 import {
   Plus, Star, Share2, X, Search, Import, Cloud, CloudOff, ArrowRightLeft,
-  CheckCircle2, Circle, Clock, Pause,
+  CheckCircle2, Circle, Clock, Pause, ChevronUp, ChevronDown,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
   PhoneForwarded, Sparkles, BookOpen, Tag, UserRound,
 } from 'lucide-react';
@@ -1207,6 +1207,7 @@ export default function BlockEditor({
   const [makeTaskTitle, setMakeTaskTitle] = useState('');
   const [journalPickerOpen, setJournalPickerOpen] = useState(false);
   const [individualPickerOpen, setIndividualPickerOpen] = useState(false);
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(true);
 
   // Load all meetings for journal mode task creation (meeting picker)
   const allMeetings = useLiveQuery(
@@ -1370,87 +1371,107 @@ export default function BlockEditor({
         )}
       </div>
 
-      {/* Bottom toolbar — task insertion */}
+      {/* Bottom toolbar — task insertion (collapsible) */}
       {!disabled && !finalized && (
         <div className="sticky bottom-16 z-20 mt-3">
-          <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-2">
-            <div className="grid grid-cols-5 gap-1">
-              {/* Journal mode: show all task types + tag buttons */}
-              {mode === 'journal' ? (
+          <div className="bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+            {/* Toggle handle */}
+            <button
+              onClick={() => setToolbarCollapsed(prev => !prev)}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 hover:bg-gray-50 transition-colors border-b border-gray-100"
+            >
+              {toolbarCollapsed ? (
                 <>
-                  {toolbarItems.map(item => {
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.type}
-                        onClick={() => setInsertModal(item.type)}
-                        className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
-                        <Icon size={15} className={item.color} />
-                        <span className="text-[8px] text-gray-500 font-medium">{item.label}</span>
-                      </button>
-                    );
-                  })}
-                  {onTagJournalList && (
-                    <button
-                      onMouseDown={e => e.preventDefault()}
-                      onClick={() => onTagJournalList(getSelectedText(), currentHtml)}
-                      className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      <Tag size={15} className="text-violet-600" />
-                      <span className="text-[8px] text-gray-500 font-medium">To List</span>
-                    </button>
-                  )}
-                  {onTagMeeting && (
-                    <button
-                      onMouseDown={e => e.preventDefault()}
-                      onClick={() => onTagMeeting(getSelectedText(), currentHtml)}
-                      className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      <CalendarDays size={15} className="text-indigo-600" />
-                      <span className="text-[8px] text-gray-500 font-medium">To Mtg</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setIndividualPickerOpen(true)}
-                    className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <UserRound size={15} className="text-cyan-600" />
-                    <span className="text-[8px] text-gray-500 font-medium">Person</span>
-                  </button>
+                  <ChevronUp size={14} className="text-gray-400" />
+                  <span className="text-[10px] text-gray-400 font-medium">Insert</span>
                 </>
               ) : (
-                /* Meeting mode: show all task type buttons + individual */
-                <>
-                  {toolbarItems.map(item => {
-                    const Icon = item.icon;
-                    return (
+                <ChevronDown size={14} className="text-gray-400" />
+              )}
+            </button>
+
+            {/* Expandable toolbar grid */}
+            {!toolbarCollapsed && (
+              <div className="p-2">
+                <div className="grid grid-cols-5 gap-1">
+                  {/* Journal mode: show all task types + tag buttons */}
+                  {mode === 'journal' ? (
+                    <>
+                      {toolbarItems.map(item => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.type}
+                            onClick={() => setInsertModal(item.type)}
+                            className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <Icon size={15} className={item.color} />
+                            <span className="text-[8px] text-gray-500 font-medium">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                      {onTagJournalList && (
+                        <button
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => onTagJournalList(getSelectedText(), currentHtml)}
+                          className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                          <Tag size={15} className="text-violet-600" />
+                          <span className="text-[8px] text-gray-500 font-medium">To List</span>
+                        </button>
+                      )}
+                      {onTagMeeting && (
+                        <button
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => onTagMeeting(getSelectedText(), currentHtml)}
+                          className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                          <CalendarDays size={15} className="text-indigo-600" />
+                          <span className="text-[8px] text-gray-500 font-medium">To Mtg</span>
+                        </button>
+                      )}
                       <button
-                        key={item.type}
-                        onClick={() => {
-                          if (item.type === 'spiritual_thought') {
-                            setJournalPickerOpen(true);
-                          } else {
-                            setInsertModal(item.type);
-                          }
-                        }}
+                        onClick={() => setIndividualPickerOpen(true)}
                         className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
                       >
-                        <Icon size={16} className={item.color} />
-                        <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
+                        <UserRound size={15} className="text-cyan-600" />
+                        <span className="text-[8px] text-gray-500 font-medium">Person</span>
                       </button>
-                    );
-                  })}
-                  <button
-                    onClick={() => setIndividualPickerOpen(true)}
-                    className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <UserRound size={16} className="text-cyan-600" />
-                    <span className="text-[9px] text-gray-500 font-medium">Person</span>
-                  </button>
-                </>
-              )}
-            </div>
+                    </>
+                  ) : (
+                    /* Meeting mode: show all task type buttons + individual */
+                    <>
+                      {toolbarItems.map(item => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.type}
+                            onClick={() => {
+                              if (item.type === 'spiritual_thought') {
+                                setJournalPickerOpen(true);
+                              } else {
+                                setInsertModal(item.type);
+                              }
+                            }}
+                            className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <Icon size={16} className={item.color} />
+                            <span className="text-[9px] text-gray-500 font-medium">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                      <button
+                        onClick={() => setIndividualPickerOpen(true)}
+                        className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <UserRound size={16} className="text-cyan-600" />
+                        <span className="text-[9px] text-gray-500 font-medium">Person</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
