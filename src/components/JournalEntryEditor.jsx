@@ -357,7 +357,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   return (
     <div className="min-h-screen lined-paper">
       {/* Sticky header */}
-      <div ref={headerRef} className="sticky top-0 z-30 px-4 pt-4 pb-2">
+      <div ref={headerRef} className="sticky top-0 z-30 px-4 pt-4 pb-2" style={{ backgroundColor: '#faf8f2' }}>
         <div className="max-w-lg mx-auto">
         {/* Nav row */}
         <div className="flex items-center justify-between mb-2">

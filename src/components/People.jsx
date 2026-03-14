@@ -137,36 +137,38 @@ export default function People({ onBack }) {
           )}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1">
           {filtered.map(person => (
             <div
               key={person.id}
               onClick={() => openEdit(person)}
-              className="card flex items-center gap-3 cursor-pointer hover:border-primary-200 transition-colors"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 cursor-pointer hover:border-primary-200 hover:bg-primary-50/30 transition-colors"
             >
-              <div className="w-8 h-8 rounded-full bg-primary-50 flex items-center justify-center flex-shrink-0">
-                <span className="text-sm font-medium text-primary-700">
+              <div className="w-6 h-6 rounded-full bg-primary-50 flex items-center justify-center flex-shrink-0">
+                <span className="text-[10px] font-semibold text-primary-700">
                   {person.name.charAt(0).toUpperCase()}
                 </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900">{person.name}</p>
-                <div className="flex items-center gap-3 mt-0.5">
-                  {person.phone && (
-                    <span className="text-[11px] text-gray-400 flex items-center gap-0.5">
-                      <Phone size={9} />
-                      {person.phone}
-                    </span>
-                  )}
-                  {person.email && (
-                    <span className="text-[11px] text-gray-400 flex items-center gap-0.5">
-                      <Mail size={9} />
-                      {person.email}
-                    </span>
-                  )}
-                </div>
+                <p className="text-xs font-medium text-gray-900 truncate">{person.name}</p>
+                {(person.phone || person.email) && (
+                  <div className="flex items-center gap-2">
+                    {person.phone && (
+                      <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                        <Phone size={8} />
+                        {person.phone}
+                      </span>
+                    )}
+                    {person.email && (
+                      <span className="text-[10px] text-gray-400 flex items-center gap-0.5 truncate">
+                        <Mail size={8} />
+                        {person.email}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
-              <Edit3 size={14} className="text-gray-300 flex-shrink-0" />
+              <Edit3 size={12} className="text-gray-300 flex-shrink-0" />
             </div>
           ))}
         </div>

@@ -1298,13 +1298,20 @@ export default function BlockEditor({
       const id = blocks[0]?.id || newBlockId();
       await onSave?.([{ id, type: 'richtext', html }]);
     },
-    onClickTask: (id) => setSelectedTaskId(id),
+    onClickTask: (id) => {
+      const task = taskMap[id];
+      if (task?.status === 'complete') {
+        updateTask(id, { status: 'not_started' });
+      } else {
+        setSelectedTaskId(id);
+      }
+    },
     onMakeTask: () => {
       const text = getSelectedText();
       setMakeTaskTitle(text || '');
       setMakeTaskOpen(true);
     },
-    disabled: disabled || finalized,
+    disabled,
     taskIds,
     autoSaveMs: autoSaveMsProp ?? 60000,
     meetingTaskStatuses: meetingTaskStatusMap,
@@ -1429,7 +1436,7 @@ export default function BlockEditor({
       {/* Document area — paper-like container with formatting toolbar */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm min-h-[200px]">
         {/* Formatting toolbar — sticky below page header */}
-        {!disabled && !finalized && (
+        {!disabled && (
           <div className="sticky z-20 bg-gray-50/95 backdrop-blur-sm rounded-t-xl" style={{ top: stickyTopOffset }}>
             {formattingToolbar}
           </div>
@@ -1457,7 +1464,7 @@ export default function BlockEditor({
       </div>
 
       {/* Bottom toolbar — task insertion (collapsible) */}
-      {!disabled && !finalized && (
+      {!disabled && (
         <div className="sticky bottom-16 z-20 mt-3">
           {/* Tag bar header (from parent) */}
           {toolbarHeader && (
