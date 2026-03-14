@@ -345,98 +345,104 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   }
 
   return (
-    <div className="min-h-screen lined-paper">
-    <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={readOnly ? onBack : handleSaveAndBack} className="flex items-center gap-1 text-sm text-stone-600">
-          <ArrowLeft size={16} />
-          {readOnly ? 'Back' : 'Back to List'}
-        </button>
-        <div className="flex items-center gap-2">
-          {/* Save button */}
+    <div className="min-h-screen lined-paper flex flex-col">
+      {/* Sticky header */}
+      <div className="sticky top-0 z-30 bg-[#faf8f5] border-b border-stone-200 px-4 pt-4 pb-2 max-w-lg mx-auto w-full">
+        {/* Nav row */}
+        <div className="flex items-center justify-between mb-2">
+          <button onClick={readOnly ? onBack : handleSaveAndBack} className="flex items-center gap-1 text-sm text-stone-600">
+            <ArrowLeft size={16} />
+            {readOnly ? 'Back' : 'Back to List'}
+          </button>
+          <div className="flex items-center gap-2">
+            {/* Save button */}
+            {!readOnly && (
+              <button
+                onClick={handleSaveAndBack}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  saveFlash
+                    ? 'bg-green-50 text-green-600 border border-green-200'
+                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200 border border-stone-300'
+                }`}
+              >
+                {saveFlash ? (
+                  <>
+                    <CheckCircle2 size={14} />
+                    Saved
+                  </>
+                ) : (
+                  <>
+                    <Save size={14} />
+                    Save
+                  </>
+                )}
+              </button>
+            )}
+            {entryId && !readOnly && (
+              <button
+                onClick={() => setDeleteConfirm(true)}
+                className="p-1.5 text-gray-400 hover:text-red-500 rounded"
+                title="Delete entry"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* List indicator — multi-list badges */}
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <FolderOpen size={13} className="text-stone-400 flex-shrink-0" />
+          {assignedListIds.length > 0 ? (
+            assignedListIds.map(lid => {
+              const l = lists.find(x => x.id === lid);
+              if (!l) return null;
+              return (
+                <span key={lid} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-xs font-medium">
+                  {l.name}
+                  {!readOnly && assignedListIds.length > 1 && (
+                    <button onClick={() => handleRemoveFromList(lid)} className="text-stone-400 hover:text-stone-600">
+                      <X size={11} />
+                    </button>
+                  )}
+                </span>
+              );
+            })
+          ) : (
+            <span className="text-xs text-stone-400">Uncategorized</span>
+          )}
           {!readOnly && (
             <button
-              onClick={handleSaveAndBack}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                saveFlash
-                  ? 'bg-green-50 text-green-600 border border-green-200'
-                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200 border border-stone-300'
-              }`}
+              onClick={() => setAddListPickerOpen(true)}
+              className="text-[10px] text-stone-400 hover:text-stone-600 font-medium"
+              title="Add to another list"
             >
-              {saveFlash ? (
-                <>
-                  <CheckCircle2 size={14} />
-                  Saved
-                </>
-              ) : (
-                <>
-                  <Save size={14} />
-                  Save
-                </>
-              )}
+              + List
             </button>
           )}
-          {entryId && !readOnly && (
-            <button
-              onClick={() => setDeleteConfirm(true)}
-              className="p-1.5 text-gray-400 hover:text-red-500 rounded"
-              title="Delete entry"
-            >
-              <Trash2 size={16} />
-            </button>
+          {entry?.date && (
+            <span className="text-xs text-stone-400 ml-auto">{formatFull(entry.date)}</span>
           )}
         </div>
-      </div>
 
-      {/* List indicator — multi-list badges */}
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <FolderOpen size={13} className="text-stone-400 flex-shrink-0" />
-        {assignedListIds.length > 0 ? (
-          assignedListIds.map(lid => {
-            const l = lists.find(x => x.id === lid);
-            if (!l) return null;
-            return (
-              <span key={lid} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-xs font-medium">
-                {l.name}
-                {!readOnly && assignedListIds.length > 1 && (
-                  <button onClick={() => handleRemoveFromList(lid)} className="text-stone-400 hover:text-stone-600">
-                    <X size={11} />
-                  </button>
-                )}
-              </span>
-            );
-          })
+        {/* Title */}
+        {!readOnly ? (
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onBlur={handleTitleBlur}
+            placeholder="Untitled"
+            className="w-full text-lg font-bold text-gray-900 placeholder-gray-300 border-none outline-none bg-transparent px-0"
+          />
         ) : (
-          <span className="text-xs text-stone-400">Uncategorized</span>
-        )}
-        {!readOnly && (
-          <button
-            onClick={() => setAddListPickerOpen(true)}
-            className="text-[10px] text-stone-400 hover:text-stone-600 font-medium"
-            title="Add to another list"
-          >
-            + List
-          </button>
-        )}
-        {entry?.date && (
-          <span className="text-xs text-stone-400 ml-auto">{formatFull(entry.date)}</span>
+          <h1 className="text-lg font-bold text-gray-900">{title || 'Untitled'}</h1>
         )}
       </div>
-      {!readOnly ? (
-        <input
-          type="text"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          onBlur={handleTitleBlur}
-          placeholder="Untitled"
-          className="w-full text-lg font-bold text-gray-900 placeholder-gray-300 border-none outline-none bg-transparent mb-3 px-0"
-        />
-      ) : (
-        <h1 className="text-lg font-bold text-gray-900 mb-3">{title || 'Untitled'}</h1>
-      )}
 
+    <div className="px-4 pb-24 max-w-lg mx-auto flex-1">
       {/* Block Editor */}
+      <div className="mt-3">
       <BlockEditor
         blocks={blocks}
         onChange={handleChange}
@@ -454,11 +460,13 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         onTagJournalList={readOnly ? undefined : handleTagToList}
         onTagMeeting={readOnly ? undefined : handleTagToMeeting}
       />
+      </div>
 
-      {/* Topic Tags */}
+      {/* Topic Tags — anchored above the bottom toolbar */}
       {!readOnly && (
-        <div className="mt-4 pt-3 border-t border-stone-200">
-          <div className="flex flex-wrap gap-1.5 mb-2">
+        <div className="sticky bottom-[7.5rem] z-20 bg-[#faf8f5] border border-stone-200 rounded-xl shadow-sm px-3 py-2 mt-3">
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <Tag size={13} className="text-stone-400 flex-shrink-0" />
             {topicTags.map(tag => (
               <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-xs font-medium">
                 {tag}
@@ -467,10 +475,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
                 </button>
               </span>
             ))}
-          </div>
-          <div className="relative">
-            <div className="flex items-center gap-2">
-              <Tag size={13} className="text-stone-400 flex-shrink-0" />
+            <div className="relative flex-1 min-w-[100px]">
               <input
                 type="text"
                 value={topicTagInput}
@@ -480,25 +485,25 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
                 }}
                 onFocus={() => setShowTagSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowTagSuggestions(false), 200)}
-                placeholder="Add a tag..."
-                className="flex-1 text-xs bg-transparent border-none outline-none text-stone-600 placeholder-stone-300"
+                placeholder="Add tag..."
+                className="w-full text-xs bg-transparent border-none outline-none text-stone-600 placeholder-stone-300"
               />
+              {/* Autocomplete dropdown */}
+              {showTagSuggestions && tagSuggestions.length > 0 && (
+                <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-stone-200 rounded-lg shadow-sm z-10 py-1">
+                  {tagSuggestions.map(suggestion => (
+                    <button
+                      key={suggestion}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => handleAddTopicTag(suggestion)}
+                      className="w-full text-left px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            {/* Autocomplete dropdown */}
-            {showTagSuggestions && tagSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-stone-200 rounded-lg shadow-sm z-10 py-1">
-                {tagSuggestions.map(suggestion => (
-                  <button
-                    key={suggestion}
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => handleAddTopicTag(suggestion)}
-                    className="w-full text-left px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}
