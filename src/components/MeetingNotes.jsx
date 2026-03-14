@@ -10,7 +10,7 @@ import Modal from './shared/Modal';
 import SacramentProgram from './SacramentProgram';
 import AiButton, { AiResultCard } from './shared/AiButton';
 import BlockEditor, { migrateAgendaToBlocks, consolidateBlocks } from './BlockEditor';
-import { htmlToPlainText, extractTaskIdsFromHtml } from './shared/RichTextEditor';
+import { htmlToPlainText, extractTaskIdsFromHtml, migrateTextToHtml } from './shared/RichTextEditor';
 import {
   ArrowLeft, Save, CheckCircle2, Users2, Trash2,
   ArrowUpRight, X, Pencil, RotateCcw, Plus, Search, Import, BookOpen,
@@ -98,8 +98,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     setDirty(true);
   }
 
-  // Auto-save handler — called by RichTextEditor's auto-save (every 60s, on unmount, on visibility change)
-  async function handleAutoSave(newBlocks) {
+  // Auto-save handler — called by RichTextEditor's auto-save (every 5s, on unmount, on visibility change)
+  const handleAutoSave = useCallback(async (newBlocks) => {
     try {
       await update(instance.id, { blocks: newBlocks });
       setBlocks(newBlocks);
@@ -107,7 +107,17 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     } catch {
       // Silently fail — will retry on next auto-save
     }
-  }
+  }, [instance.id, update]);
+
+  // Auto-save on unmount (user navigates away via back button, bottom nav, etc.)
+  useEffect(() => {
+    return () => {
+      const currentBlocks = latestBlocksRef.current;
+      if (currentBlocks) {
+        update(instance.id, { blocks: currentBlocks });
+      }
+    };
+  }, [instance.id, update]);
 
   async function handleReopen() {
     await update(instance.id, { status: 'scheduled' });
@@ -338,82 +348,86 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   }
 
   return (
-    <div className="px-4 pt-6 pb-24 max-w-lg mx-auto">
-      {/* Header */}
-      <button onClick={onBack} className="flex items-center gap-1 text-sm text-primary-600 mb-4">
-        <ArrowLeft size={16} />
-        Back to {meetingName}
-      </button>
+    <div className="pb-24 max-w-lg mx-auto">
+      {/* Sticky header */}
+      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-gray-100 px-4 pt-4 pb-3 -mx-0">
+        <button onClick={handleSave} className="flex items-center gap-1 text-sm text-primary-600 mb-2">
+          <ArrowLeft size={16} />
+          Back to {meetingName}
+        </button>
 
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">{meetingName}</h1>
-          {editingDate ? (
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <input
-                type="date"
-                value={editDate}
-                onChange={e => setEditDate(e.target.value)}
-                className="text-sm border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary-300"
-                autoFocus
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">{meetingName}</h1>
+            {editingDate ? (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={e => setEditDate(e.target.value)}
+                  className="text-sm border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary-300"
+                  autoFocus
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      if (editDate && editDate !== instance.date) {
+                        update(instance.id, { date: editDate });
+                        instance.date = editDate;
+                      }
+                      setEditingDate(false);
+                    }
+                    if (e.key === 'Escape') setEditingDate(false);
+                  }}
+                />
+                <button
+                  onClick={() => {
                     if (editDate && editDate !== instance.date) {
                       update(instance.id, { date: editDate });
                       instance.date = editDate;
                     }
                     setEditingDate(false);
-                  }
-                  if (e.key === 'Escape') setEditingDate(false);
-                }}
-              />
+                  }}
+                  className="text-primary-600 hover:text-primary-800"
+                >
+                  <CheckCircle2 size={16} />
+                </button>
+              </div>
+            ) : (
               <button
-                onClick={() => {
-                  if (editDate && editDate !== instance.date) {
-                    update(instance.id, { date: editDate });
-                    instance.date = editDate;
-                  }
-                  setEditingDate(false);
-                }}
-                className="text-primary-600 hover:text-primary-800"
+                onClick={() => setEditingDate(true)}
+                className="text-sm text-gray-500 mt-0.5 hover:text-primary-600 hover:underline flex items-center gap-1 group transition-colors"
+                title="Click to change date"
               >
-                <CheckCircle2 size={16} />
+                {formatFull(instance.date)}
+                <Pencil size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            )}
+          </div>
+          {isCompleted && (
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-xs font-medium text-green-600">
+                <CheckCircle2 size={14} />
+                Finalized
+              </span>
+              <button
+                onClick={handleReopen}
+                className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-primary-600 transition-colors"
+                title="Reopen for editing"
+              >
+                <RotateCcw size={12} /> Edit
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-red-500 transition-colors"
+                title="Delete this meeting instance"
+              >
+                <Trash2 size={12} />
               </button>
             </div>
-          ) : (
-            <button
-              onClick={() => setEditingDate(true)}
-              className="text-sm text-gray-500 mt-0.5 hover:text-primary-600 hover:underline flex items-center gap-1 group transition-colors"
-              title="Click to change date"
-            >
-              {formatFull(instance.date)}
-              <Pencil size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
           )}
         </div>
-        {isCompleted && (
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1 text-xs font-medium text-green-600">
-              <CheckCircle2 size={14} />
-              Finalized
-            </span>
-            <button
-              onClick={handleReopen}
-              className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-primary-600 transition-colors"
-              title="Reopen for editing"
-            >
-              <RotateCcw size={12} /> Edit
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-red-500 transition-colors"
-              title="Delete this meeting instance"
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
-        )}
       </div>
+
+    <div className="px-4">
 
       {/* Delete confirmation */}
       {showDeleteConfirm && (
@@ -519,6 +533,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             meetings={allMeetings}
             onInsertRef={handleInsertRef}
             onGetSelectedTextRef={handleGetSelectedTextRef}
+            autoSaveMs={5000}
           />
         </div>
       )}
@@ -638,6 +653,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
           </button>
         </div>
       )}
+
+    </div>
 
       {/* Meeting tag picker (notes) */}
       <MeetingPicker open={tagPickerOpen} onClose={() => setTagPickerOpen(false)} onSelect={handleTagMeeting} excludeIds={[instance.meetingId]} title="Tag for Meeting" />
@@ -875,7 +892,11 @@ function PriorMeetingNotes({ instance: prevInstance, currentMeetingId, onAddTask
     let cancelled = false;
     (async () => {
       const block = prevInstance.blocks?.[0];
-      let html = block?.html || block?.text || '';
+      let html = block?.html || '';
+      // If no HTML but has plain text, convert to HTML for proper paragraph rendering
+      if (!html && block?.text) {
+        html = migrateTextToHtml(block.text);
+      }
       if (!html.trim()) { setResolvedHtml(null); return; }
 
       const taskIds = extractTaskIdsFromHtml(html);
