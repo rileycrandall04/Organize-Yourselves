@@ -955,7 +955,7 @@ function PriorMeetingNotes({ instance: prevInstance, currentEditorTaskIds, onAdd
   if (!segments) return <p className="text-xs text-gray-400 italic">No notes from previous meeting.</p>;
 
   return (
-    <div className="prose prose-sm max-w-none text-gray-600 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 text-sm leading-relaxed">
+    <div className="prose prose-sm max-w-none text-gray-600 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 text-sm leading-relaxed [&_button]:cursor-pointer">
       {segments.map((seg, i) => {
         if (seg.type === 'html') {
           return <span key={i} dangerouslySetInnerHTML={{ __html: seg.content }} />;
