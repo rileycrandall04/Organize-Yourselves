@@ -91,6 +91,12 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   // Copy minutes
   const [copied, setCopied] = useState(false);
 
+  // Track task IDs currently in the editor (for prior meeting chip "already in note" check)
+  const currentEditorTaskIds = useMemo(() => {
+    const html = blocks[0]?.html || '';
+    return new Set(extractTaskIdsFromHtml(html));
+  }, [blocks]);
+
   // Derive text content for AI
   const hasContent = blocks.some(b => (b.text || b.html || '').replace(/<[^>]*>/g, '').trim());
 
@@ -500,7 +506,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             <div className="px-3 py-2 border-t border-gray-100 bg-gray-50/30 max-h-72 overflow-y-auto">
               <PriorMeetingNotes
                 instance={previousInstance}
-                currentMeetingId={meetingId || instance.meetingId}
+                currentEditorTaskIds={currentEditorTaskIds}
                 onAddTask={handleAddFromPrior}
                 addedIds={addedFromPriorIds}
               />
@@ -895,7 +901,7 @@ function MeetingImportPicker({ meetingId, meetings, onImport, onClose }) {
 
 /* ── Prior Meeting Notes Viewer ────────────────────────────────── */
 
-function PriorMeetingNotes({ instance: prevInstance, currentMeetingId, onAddTask, addedIds }) {
+function PriorMeetingNotes({ instance: prevInstance, currentEditorTaskIds, onAddTask, addedIds }) {
   const [resolvedHtml, setResolvedHtml] = useState(null);
   const [taskMap, setTaskMap] = useState({});
 
@@ -940,9 +946,9 @@ function PriorMeetingNotes({ instance: prevInstance, currentMeetingId, onAddTask
         const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
         const sc = STATUS_CHAR[task.status] || '\u25CB';
         const done = task.status === 'complete';
-        const alreadyLinked = (task.meetingIds || []).includes(currentMeetingId);
+        const alreadyInEditor = currentEditorTaskIds?.has(id);
         const justAdded = addedIds.has(id);
-        const isAdded = alreadyLinked || justAdded;
+        const isAdded = alreadyInEditor || justAdded;
 
         if (isAdded) {
           return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:12px;font-weight:500;vertical-align:baseline;line-height:1.4;margin:0 2px;opacity:0.7;">\u2713\u00a0${task.title.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
@@ -951,7 +957,7 @@ function PriorMeetingNotes({ instance: prevInstance, currentMeetingId, onAddTask
         return `<span data-task-id="${id}" style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:${c.bg};color:${c.fg};border:1px solid ${c.bg};font-size:12px;font-weight:500;vertical-align:baseline;line-height:1.4;margin:0 2px;cursor:pointer;${done ? 'opacity:0.5;text-decoration:line-through;' : ''}" title="Click to add to this meeting">${sc}\u00a0${task.title.replace(/</g, '&lt;').replace(/>/g, '&gt;')}<span style="margin-left:4px;font-size:10px;opacity:0.6;">+</span></span>`;
       }
     );
-  }, [resolvedHtml, taskMap, currentMeetingId, addedIds]);
+  }, [resolvedHtml, taskMap, currentEditorTaskIds, addedIds]);
 
   function handleClick(e) {
     const target = e.target.closest('[data-task-id]');
