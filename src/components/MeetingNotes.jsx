@@ -506,7 +506,6 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             <div className="px-3 py-2 border-t border-gray-100 bg-gray-50/30 max-h-72 overflow-y-auto">
               <PriorMeetingNotes
                 instance={previousInstance}
-                currentEditorTaskIds={currentEditorTaskIds}
                 onAddTask={handleAddFromPrior}
                 addedIds={addedFromPriorIds}
               />
@@ -901,7 +900,7 @@ function MeetingImportPicker({ meetingId, meetings, onImport, onClose }) {
 
 /* ── Prior Meeting Notes Viewer ────────────────────────────────── */
 
-function PriorMeetingNotes({ instance: prevInstance, currentEditorTaskIds, onAddTask, addedIds }) {
+function PriorMeetingNotes({ instance: prevInstance, onAddTask, addedIds }) {
   const [resolvedHtml, setResolvedHtml] = useState(null);
   const [taskMap, setTaskMap] = useState({});
 
@@ -932,70 +931,60 @@ function PriorMeetingNotes({ instance: prevInstance, currentEditorTaskIds, onAdd
     return () => { cancelled = true; };
   }, [prevInstance]);
 
-  // Split HTML into segments: alternating text chunks and task chip references
-  const segments = useMemo(() => {
+  // Build display HTML — all chips are clickable buttons (keeps DOM structure intact)
+  const displayHtml = useMemo(() => {
     if (!resolvedHtml) return null;
-    const chipRe = /<task-chip[^>]*data-task-id="(\d+)"[^>]*>(?:<\/task-chip>)?/g;
-    const parts = [];
-    let lastIndex = 0;
-    let match;
-    while ((match = chipRe.exec(resolvedHtml)) !== null) {
-      if (match.index > lastIndex) {
-        parts.push({ type: 'html', content: resolvedHtml.slice(lastIndex, match.index) });
-      }
-      parts.push({ type: 'chip', taskId: Number(match[1]) });
-      lastIndex = match.index + match[0].length;
-    }
-    if (lastIndex < resolvedHtml.length) {
-      parts.push({ type: 'html', content: resolvedHtml.slice(lastIndex) });
-    }
-    return parts;
-  }, [resolvedHtml]);
 
-  if (!segments) return <p className="text-xs text-gray-400 italic">No notes from previous meeting.</p>;
+    return resolvedHtml.replace(
+      /<task-chip[^>]*data-task-id="(\d+)"[^>]*>(?:<\/task-chip>)?/g,
+      (_, idStr) => {
+        const id = Number(idStr);
+        const task = taskMap[id];
+        if (!task) return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:#f3f4f6;color:#9ca3af;font-size:12px;vertical-align:baseline;line-height:1.4;margin:0 2px;">Task #${id}</span>`;
 
-  return (
-    <div className="prose prose-sm max-w-none text-gray-600 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 text-sm leading-relaxed [&_button]:cursor-pointer">
-      {segments.map((seg, i) => {
-        if (seg.type === 'html') {
-          return <span key={i} dangerouslySetInnerHTML={{ __html: seg.content }} />;
-        }
-        const task = taskMap[seg.taskId];
-        if (!task) {
-          return (
-            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 6, background: '#f3f4f6', color: '#9ca3af', fontSize: 12, verticalAlign: 'baseline', lineHeight: 1.4, margin: '0 2px' }}>
-              Task #{seg.taskId}
-            </span>
-          );
-        }
         const c = CHIP_COLORS[task.type] || CHIP_COLORS.action_item;
         const sc = STATUS_CHAR[task.status] || '\u25CB';
         const done = task.status === 'complete';
-        const alreadyInEditor = currentEditorTaskIds?.has(seg.taskId);
-        const justAdded = addedIds.has(seg.taskId);
-        const isAdded = alreadyInEditor || justAdded;
+        const justAdded = addedIds.has(id);
 
-        if (isAdded) {
-          return (
-            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 6, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', fontSize: 12, fontWeight: 500, verticalAlign: 'baseline', lineHeight: 1.4, margin: '0 2px', opacity: 0.7 }}>
-              {'\u2713'}&nbsp;{task.title}
-            </span>
-          );
-        }
+        // After adding, show green check but keep clickable
+        const bg = justAdded ? '#f0fdf4' : c.bg;
+        const fg = justAdded ? '#16a34a' : c.fg;
+        const bd = justAdded ? '#bbf7d0' : c.bg;
+        const prefix = justAdded ? '\u2713' : sc;
+        const suffix = justAdded ? '' : '<span style="margin-left:4px;font-size:10px;opacity:0.6;">+</span>';
+        const title = task.title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-        return (
-          <button
-            key={i}
-            type="button"
-            onClick={() => onAddTask(seg.taskId)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 6, background: c.bg, color: c.fg, border: `1px solid ${c.bg}`, fontSize: 12, fontWeight: 500, verticalAlign: 'baseline', lineHeight: 1.4, margin: '0 2px', cursor: 'pointer', ...(done ? { opacity: 0.5, textDecoration: 'line-through' } : {}) }}
-            title="Tap to add to this meeting"
-          >
-            {sc}&nbsp;{task.title}
-            <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.6 }}>+</span>
-          </button>
-        );
-      })}
-    </div>
+        return `<button type="button" data-prior-task-id="${id}" style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:${bg};color:${fg};border:1px solid ${bd};font-size:12px;font-weight:500;vertical-align:baseline;line-height:1.4;margin:0 2px;cursor:pointer;${done && !justAdded ? 'opacity:0.5;text-decoration:line-through;' : justAdded ? 'opacity:0.7;' : ''}" title="Tap to add to this meeting">${prefix}&nbsp;${title}${suffix}</button>`;
+      }
+    );
+  }, [resolvedHtml, taskMap, addedIds]);
+
+  // Attach click handlers to buttons via ref (avoids DOM structure issues)
+  const containerRef = useRef(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    function handleClick(e) {
+      const btn = e.target.closest('[data-prior-task-id]');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const taskId = Number(btn.getAttribute('data-prior-task-id'));
+      if (taskId) onAddTask(taskId);
+    }
+    el.addEventListener('click', handleClick);
+    return () => el.removeEventListener('click', handleClick);
+  }, [onAddTask]);
+
+  if (!displayHtml) return <p className="text-xs text-gray-400 italic">No notes from previous meeting.</p>;
+
+  return (
+    <div
+      ref={containerRef}
+      className="prose prose-sm max-w-none text-gray-600 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 text-sm leading-relaxed"
+      style={{ cursor: 'default' }}
+      dangerouslySetInnerHTML={{ __html: displayHtml }}
+    />
   );
 }
