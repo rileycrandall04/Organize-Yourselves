@@ -360,7 +360,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   return (
     <div className="pb-24 max-w-lg mx-auto">
       {/* Sticky header */}
-      <div ref={headerRef} className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-gray-100 px-4 pt-4 pb-3 -mx-0">
+      <div ref={headerRef} className="sticky top-0 z-30 bg-gray-50/95 backdrop-blur-sm px-4 pt-4 pb-3 -mx-0">
         <button onClick={handleSave} className="flex items-center gap-1 text-sm text-primary-600 mb-2">
           <ArrowLeft size={16} />
           Back to {meetingName}

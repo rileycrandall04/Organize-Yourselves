@@ -238,9 +238,24 @@ export default function IndividualDetail({ individual, onBack, onUpdated }) {
                     >
                       <StatusIcon size={14} className={statusColor} />
                     </button>
-                    <span className={`flex-1 text-xs truncate ${task.status === 'complete' ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                      {task.title}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className={`text-xs truncate block ${task.status === 'complete' ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                        {task.title}
+                      </span>
+                      {task.followUpNotes?.length > 0 && (
+                        <p className="text-[10px] text-gray-400 truncate mt-0.5">
+                          {task.followUpNotes[task.followUpNotes.length - 1].text}
+                          {task.followUpNotes[task.followUpNotes.length - 1].date && (
+                            <span className="text-gray-300 ml-1">
+                              · {formatRelativeDate(task.followUpNotes[task.followUpNotes.length - 1].date)}
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      {!task.followUpNotes?.length && task.updatedAt && (
+                        <p className="text-[10px] text-gray-300 mt-0.5">Updated {formatRelativeDate(task.updatedAt)}</p>
+                      )}
+                    </div>
                     {task.starred && <Star size={10} className="text-amber-400 fill-amber-400 flex-shrink-0" />}
                     {task.dueDate && (
                       <span className="text-[10px] text-gray-400 flex-shrink-0">{task.dueDate}</span>

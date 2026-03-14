@@ -6,7 +6,7 @@ import {
   ArrowLeft, ChevronDown, ChevronRight, Play, SkipForward, Plus, Search, Import, X,
   CheckCircle2, RotateCw, Clock, ArrowRightLeft, FileText,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
-  ArrowUpRight, BookOpen,
+  ArrowUpRight, BookOpen, UserRound,
 } from 'lucide-react';
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -400,8 +400,9 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
   const actionItems = (meetingTasks || []).filter(t => t.type === 'action_item' && !followUps.some(f => f.id === t.id));
   const discussions = (meetingTasks || []).filter(t => t.type === 'discussion' && !followUps.some(f => f.id === t.id));
   const ongoingItems = (meetingTasks || []).filter(t => t.type === 'ongoing' && !followUps.some(f => f.id === t.id));
+  const individuals = (meetingTasks || []).filter(t => t.type === 'individual' && !followUps.some(f => f.id === t.id));
   const otherTasks = (meetingTasks || []).filter(t =>
-    !['action_item', 'discussion', 'ongoing'].includes(t.type) && !followUps.some(f => f.id === t.id)
+    !['action_item', 'discussion', 'ongoing', 'individual'].includes(t.type) && !followUps.some(f => f.id === t.id)
   );
   const tags = pendingTags || [];
 
@@ -409,7 +410,7 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
   const allTasks = useMemo(() => {
     const seen = new Set();
     const all = [];
-    for (const t of [...followUps, ...actionItems, ...discussions, ...ongoingItems, ...otherTasks]) {
+    for (const t of [...followUps, ...actionItems, ...discussions, ...ongoingItems, ...individuals, ...otherTasks]) {
       if (!seen.has(t.id)) { seen.add(t.id); all.push(t); }
     }
     return all;
@@ -533,6 +534,25 @@ export default function PreMeetingReview({ meetingId, meetingName, onStartMeetin
         color="text-amber-600"
       >
         {ongoingItems.map(task => (
+          <TaskReviewRow
+            key={task.id}
+            task={task}
+            meetingId={meetingId}
+            meetingStatus={statusMap[task.id]}
+            onStatusChange={handleStatusChange}
+          />
+        ))}
+      </ReviewSection>
+
+      {/* Individuals */}
+      <ReviewSection
+        title="Individuals"
+        icon={UserRound}
+        count={individuals.length}
+        color="text-cyan-600"
+        defaultOpen={true}
+      >
+        {individuals.map(task => (
           <TaskReviewRow
             key={task.id}
             task={task}
