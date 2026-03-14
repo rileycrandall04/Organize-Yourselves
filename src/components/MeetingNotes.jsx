@@ -36,6 +36,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const [blocks, setBlocks] = useState(initialBlocks);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const latestBlocksRef = useRef(initialBlocks);
 
   // Date editing
   const [editingDate, setEditingDate] = useState(false);
@@ -92,6 +93,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const hasContent = blocks.some(b => (b.text || b.html || '').replace(/<[^>]*>/g, '').trim());
 
   function handleBlocksChange(newBlocks) {
+    latestBlocksRef.current = newBlocks;
     setBlocks(newBlocks);
     setDirty(true);
   }
@@ -122,8 +124,10 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
     if (saving) return;
     setSaving(true);
     try {
+      // Always use the ref for the latest blocks to avoid stale React state
+      const currentBlocks = latestBlocksRef.current;
       if (dirty) {
-        await update(instance.id, { blocks });
+        await update(instance.id, { blocks: currentBlocks });
         setDirty(false);
       }
       onBack(); // Return to meeting home page
@@ -135,12 +139,13 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   async function handleFinalize() {
     setSaving(true);
     try {
-      await update(instance.id, { blocks, status: 'completed' });
+      const currentBlocks = latestBlocksRef.current;
+      await update(instance.id, { blocks: currentBlocks, status: 'completed' });
       instance.status = 'completed';
       setInstanceStatus('completed');
 
       // Sync calling notes from text lines that match calling pipeline
-      const content = blocks[0]?.text || '';
+      const content = currentBlocks[0]?.text || '';
       const callingAgendaItems = content.split('\n')
         .filter(line => line.includes('[Calling]'))
         .map(line => ({ label: line.trim(), notes: '', source: 'calling_pipeline' }));

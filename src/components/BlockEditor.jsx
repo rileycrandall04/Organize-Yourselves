@@ -1295,6 +1295,28 @@ export default function BlockEditor({
     insertTaskChip(taskId);
   }
 
+  // Handle person button click — skip picker if text is highlighted
+  async function handlePersonClick() {
+    const selected = getSelectedText();
+    if (selected && selected.trim()) {
+      // Auto-create individual with highlighted text as name
+      const data = {
+        type: 'individual',
+        types: ['individual'],
+        title: selected.trim(),
+        status: 'in_progress',
+        priority: 'medium',
+        isArchived: false,
+        checkInCadence: 'monthly',
+        meetingIds: meetingId ? [meetingId] : [],
+      };
+      const id = await addTask(data);
+      replaceSelectionWithChip(id);
+    } else {
+      setIndividualPickerOpen(true);
+    }
+  }
+
   // Handle converting a journal_entry task chip to inline text
   function handleConvertToText(taskId) {
     if (!editor) return;
@@ -1431,7 +1453,7 @@ export default function BlockEditor({
                         </button>
                       )}
                       <button
-                        onClick={() => setIndividualPickerOpen(true)}
+                        onClick={handlePersonClick}
                         className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         <UserRound size={15} className="text-cyan-600" />
@@ -1461,7 +1483,7 @@ export default function BlockEditor({
                         );
                       })}
                       <button
-                        onClick={() => setIndividualPickerOpen(true)}
+                        onClick={handlePersonClick}
                         className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         <UserRound size={16} className="text-cyan-600" />
