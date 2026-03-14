@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getTasksByIds, getTasks, addTask, updateTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings, getIndividuals } from '../db';
+import { getTasksByIds, getTasks, addTask, updateTask, deleteTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings, getIndividuals } from '../db';
 import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST, JOURNAL_SECTIONS } from '../utils/constants';
 import { useMeetingTaskStatuses, useJournalBySection } from '../hooks/useDb';
 import useRichTextEditor, { migrateTextToHtml, extractTaskIdsFromHtml, htmlToPlainText } from './shared/RichTextEditor';
 import {
   Plus, Star, Share2, X, Search, Import, Cloud, CloudOff, ArrowRightLeft,
-  CheckCircle2, Circle, Clock, Pause, ChevronUp, ChevronDown,
+  CheckCircle2, Circle, Clock, Pause, ChevronUp, ChevronDown, Trash2,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart, RotateCw,
   PhoneForwarded, Sparkles, BookOpen, Tag, UserRound,
 } from 'lucide-react';
@@ -147,8 +147,9 @@ export function migrateAgendaToBlocks(agendaItems, notes) {
 
 /* ── TaskPanel (bottom sheet for viewing/editing a task) ────── */
 
-function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, meetings, currentMeetingId, meetingStatus, onSetMeetingStatus }) {
+function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, onDeleteTask, meetings, currentMeetingId, meetingStatus, onSetMeetingStatus }) {
   const [noteText, setNoteText] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!task) return null;
 
@@ -394,10 +395,40 @@ function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, meetin
         {!disabled && onConvertToText && task.type === 'journal_entry' && task.journalText && (
           <button
             onClick={() => { onConvertToText(task.id); onClose(); }}
-            className="flex items-center gap-1.5 text-xs text-sky-500 hover:text-sky-700 font-medium"
+            className="flex items-center gap-1.5 text-xs text-sky-500 hover:text-sky-700 font-medium mb-2"
           >
             <BookOpen size={12} /> Convert to inline text
           </button>
+        )}
+
+        {/* Delete task */}
+        {!disabled && onDeleteTask && (
+          <div className="pt-2 border-t border-gray-100 mt-2">
+            {confirmDelete ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Delete this task?</span>
+                <button
+                  onClick={() => { onDeleteTask(task.id); onClose(); }}
+                  className="text-xs font-medium text-red-600 hover:text-red-800 px-2 py-1 rounded bg-red-50"
+                >
+                  Yes, delete
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 font-medium"
+              >
+                <Trash2 size={12} /> Remove task
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -1317,6 +1348,31 @@ export default function BlockEditor({
     }
   }
 
+  // Handle deleting a task — removes chip from editor and deletes from DB
+  async function handleDeleteTask(taskId) {
+    // Remove the chip from the editor
+    if (editor) {
+      const { doc } = editor.state;
+      let chipPos = null;
+      let chipNode = null;
+      doc.descendants((node, pos) => {
+        if (node.type.name === 'taskChip' && Number(node.attrs.taskId) === taskId) {
+          chipPos = pos;
+          chipNode = node;
+          return false;
+        }
+      });
+      if (chipPos !== null && chipNode) {
+        const { tr } = editor.state;
+        tr.delete(chipPos, chipPos + chipNode.nodeSize);
+        editor.view.dispatch(tr);
+      }
+    }
+    // Delete from database
+    await deleteTask(taskId);
+    setSelectedTaskId(null);
+  }
+
   // Handle converting a journal_entry task chip to inline text
   function handleConvertToText(taskId) {
     if (!editor) return;
@@ -1506,6 +1562,7 @@ export default function BlockEditor({
           disabled={disabled}
           onTagTask={onTagTask}
           onConvertToText={handleConvertToText}
+          onDeleteTask={handleDeleteTask}
           meetings={meetings}
           currentMeetingId={meetingId}
           meetingStatus={selectedTaskMeetingStatus}
