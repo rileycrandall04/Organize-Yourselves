@@ -37,6 +37,8 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const latestBlocksRef = useRef(initialBlocks);
+  const headerRef = useRef(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
 
   // Date editing
   const [editingDate, setEditingDate] = useState(false);
@@ -118,6 +120,14 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
       }
     };
   }, [instance.id, update]);
+
+  // Measure sticky header height for formatting toolbar offset
+  useEffect(() => {
+    if (!headerRef.current) return;
+    const ro = new ResizeObserver(() => setHeaderHeight(headerRef.current.offsetHeight));
+    ro.observe(headerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   async function handleReopen() {
     await update(instance.id, { status: 'scheduled' });
@@ -350,7 +360,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
   return (
     <div className="pb-24 max-w-lg mx-auto">
       {/* Sticky header */}
-      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-gray-100 px-4 pt-4 pb-3 -mx-0">
+      <div ref={headerRef} className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-gray-100 px-4 pt-4 pb-3 -mx-0">
         <button onClick={handleSave} className="flex items-center gap-1 text-sm text-primary-600 mb-2">
           <ArrowLeft size={16} />
           Back to {meetingName}
@@ -534,6 +544,7 @@ export default function MeetingNotes({ instance, meetingName, meetingId, partici
             onInsertRef={handleInsertRef}
             onGetSelectedTextRef={handleGetSelectedTextRef}
             autoSaveMs={5000}
+            stickyTopOffset={headerHeight}
           />
         </div>
       )}

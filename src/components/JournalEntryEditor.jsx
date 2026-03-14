@@ -75,6 +75,8 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   const handleGetSelectedTextRef = useCallback((fn) => { getSelectedTextRef.current = fn; }, []);
   const insertChipRef = useRef(null);
   const handleInsertRef = useCallback((fn) => { insertChipRef.current = fn; }, []);
+  const headerRef = useRef(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
 
   // Display list — tracks moves within this session
   const displayList = overrideListId !== null
@@ -90,6 +92,14 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   useEffect(() => {
     entryIdRef.current = entryId;
   }, [entryId]);
+
+  // Measure sticky header height for formatting toolbar offset
+  useEffect(() => {
+    if (!headerRef.current) return;
+    const ro = new ResizeObserver(() => setHeaderHeight(headerRef.current.offsetHeight));
+    ro.observe(headerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   // Load all previously used tags for autocomplete
   useEffect(() => {
@@ -347,7 +357,7 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
   return (
     <div className="min-h-screen lined-paper">
       {/* Sticky header */}
-      <div className="sticky top-0 z-30 px-4 pt-4 pb-2">
+      <div ref={headerRef} className="sticky top-0 z-30 px-4 pt-4 pb-2">
         <div className="max-w-lg mx-auto">
         {/* Nav row */}
         <div className="flex items-center justify-between mb-2">
@@ -461,12 +471,8 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
         onInsertRef={handleInsertRef}
         onTagJournalList={readOnly ? undefined : handleTagToList}
         onTagMeeting={readOnly ? undefined : handleTagToMeeting}
-      />
-      </div>
-
-      {/* Topic Tags — attached to top of toolbar */}
-      {!readOnly && (
-        <div className="sticky bottom-[6.25rem] z-20 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-t-lg px-2.5 py-1 mt-3 -mb-[3px]">
+        stickyTopOffset={headerHeight}
+        toolbarHeader={!readOnly ? (
           <div className="flex flex-wrap gap-1 items-center">
             <Tag size={11} className="text-stone-400 flex-shrink-0" />
             {topicTags.map(tag => (
@@ -490,7 +496,6 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
                 placeholder="Add tag..."
                 className="w-full text-xs bg-transparent border-none outline-none text-stone-600 placeholder-stone-300"
               />
-              {/* Autocomplete dropdown */}
               {showTagSuggestions && tagSuggestions.length > 0 && (
                 <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-stone-200 rounded-lg shadow-sm z-10 py-1">
                   {tagSuggestions.map(suggestion => (
@@ -507,8 +512,9 @@ export default function JournalEntryEditor({ entry, list, lists = [], onBack, on
               )}
             </div>
           </div>
-        </div>
-      )}
+        ) : undefined}
+      />
+      </div>
 
       {/* Read-only tag display */}
       {readOnly && topicTags.length > 0 && (

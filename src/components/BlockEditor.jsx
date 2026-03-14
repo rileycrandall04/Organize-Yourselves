@@ -1230,6 +1230,9 @@ export default function BlockEditor({
   autoSaveMs: autoSaveMsProp,
   // Individual context
   individualId,
+  // Layout helpers
+  toolbarHeader,
+  stickyTopOffset = 0,
 }) {
   const [insertModal, setInsertModal] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
@@ -1424,9 +1427,13 @@ export default function BlockEditor({
   return (
     <div className="relative">
       {/* Document area — paper-like container with formatting toolbar */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[200px]">
-        {/* Formatting toolbar */}
-        {!disabled && !finalized && formattingToolbar}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm min-h-[200px]">
+        {/* Formatting toolbar — sticky below page header */}
+        {!disabled && !finalized && (
+          <div className="sticky z-20 bg-gray-50/95 backdrop-blur-sm rounded-t-xl" style={{ top: stickyTopOffset }}>
+            {formattingToolbar}
+          </div>
+        )}
 
         {/* Editor content */}
         {editorView}
@@ -1452,7 +1459,13 @@ export default function BlockEditor({
       {/* Bottom toolbar — task insertion (collapsible) */}
       {!disabled && !finalized && (
         <div className="sticky bottom-16 z-20 mt-3">
-          <div className="bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+          {/* Tag bar header (from parent) */}
+          {toolbarHeader && (
+            <div className="bg-white/90 backdrop-blur-sm border border-gray-200 border-b-0 rounded-t-lg px-2.5 py-1">
+              {toolbarHeader}
+            </div>
+          )}
+          <div className={`bg-white border border-gray-200 shadow-lg overflow-hidden ${toolbarHeader ? 'rounded-b-xl' : 'rounded-xl'}`}>
             {/* Toggle handle */}
             <button
               onClick={() => setToolbarCollapsed(prev => !prev)}
