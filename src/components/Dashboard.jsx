@@ -8,7 +8,7 @@ import {
   AlertTriangle, Clock, CheckSquare, Inbox, Plus, Send, Star,
   Calendar, ChevronRight, ChevronDown, ShieldCheck, X, Heart, Play,
   Circle, CheckCircle2, Pause, AlarmClockOff, Filter,
-  UserRound, Target,
+  UserRound,
 } from 'lucide-react';
 import { useLastExportDate } from '../hooks/useDataPortability';
 import { useAuth } from '../hooks/useAuth';
@@ -293,43 +293,42 @@ export default function Dashboard() {
 
       {/* Focus — Individuals */}
       {individuals.length > 0 && (
-        <div className="mb-4">
-          <SectionHeader
-            icon={UserRound}
-            color="text-cyan-500"
-            label="Focus"
-            onAdd={() => { setEditingIndividual(null); setIndividualFormOpen(true); }}
-          />
-          <div className="space-y-1.5">
+        <div className="mb-4 bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+              <UserRound size={12} className="text-cyan-500" />
+              Focus
+              <span className="text-gray-300 normal-case tracking-normal font-normal">
+                ({individuals.length})
+              </span>
+            </h2>
+            <button
+              onClick={() => { setEditingIndividual(null); setIndividualFormOpen(true); }}
+              className="text-[11px] text-cyan-600 flex items-center gap-0.5 hover:text-cyan-700"
+            >
+              <Plus size={12} /> Add
+            </button>
+          </div>
+          <div className="space-y-0">
             {individuals.map(ind => {
               const overdue = isCheckInOverdue(ind.lastCheckIn, ind.checkInCadence);
               return (
                 <div
                   key={ind.id}
                   onClick={() => setFocusDetailItem(ind)}
-                  className="flex items-center gap-2.5 p-2 rounded-xl border border-gray-100 bg-white cursor-pointer hover:border-cyan-200 transition-colors"
+                  className="flex items-center gap-2 py-1.5 cursor-pointer group"
                 >
-                  <div className="p-1.5 rounded-lg bg-cyan-50">
-                    <UserRound size={14} className="text-cyan-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{ind.title}</p>
-                    {ind.nextOrdinance && (
-                      <p className="text-[10px] text-cyan-600 flex items-center gap-1">
-                        <Target size={8} />
-                        {ind.nextOrdinance}
-                      </p>
-                    )}
-                    {ind.fellowshippers && (
-                      <p className="text-[10px] text-gray-400 truncate">{ind.fellowshippers}</p>
-                    )}
-                  </div>
+                  <UserRound size={14} className="text-cyan-400 flex-shrink-0" />
+                  <span className="flex-1 text-xs text-gray-800 truncate">{ind.title}</span>
+                  {ind.nextOrdinance && (
+                    <span className="text-[10px] text-cyan-600 flex-shrink-0 truncate max-w-[80px]">{ind.nextOrdinance}</span>
+                  )}
                   {overdue && (
-                    <span className="text-[9px] font-medium bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full border border-red-100">
+                    <span className="text-[9px] font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full flex-shrink-0">
                       Overdue
                     </span>
                   )}
-                  <ChevronRight size={12} className="text-gray-300 flex-shrink-0" />
+                  <ChevronRight size={10} className="text-gray-300 flex-shrink-0" />
                 </div>
               );
             })}
