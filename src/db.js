@@ -1189,6 +1189,7 @@ export async function buildAutoAgendaBlocks(meetingId) {
     ongoing: [],
     follow_up: [],
     spiritual_thought: [],
+    individual: [],
   };
   const resolvedTasks = []; // Tracked separately for "Completed" section
 
@@ -1244,6 +1245,7 @@ export async function buildAutoAgendaBlocks(meetingId) {
     { key: 'ongoing', label: 'Ongoing Follow Up' },
     { key: 'follow_up', label: 'Follow Up Contacts' },
     { key: 'spiritual_thought', label: 'Spiritual Thoughts' },
+    { key: 'individual', label: 'Individuals' },
   ];
 
   // Build set of section labels that have tasks (case-insensitive)
