@@ -1179,14 +1179,22 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
               .filter(n => n.date && new Date(n.date).getTime() >= twoMonthsAgo)
               .map(n => ({ text: n.text, date: n.date }));
 
-            // Source 2: individualNotes table
-            let indNotes = [];
-            try {
-              const allIndNotes = await getIndividualNotes(ind.id);
-              indNotes = allIndNotes
-                .filter(n => n.createdAt && new Date(n.createdAt).getTime() >= twoMonthsAgo)
-                .map(n => ({ text: n.text || '', date: n.createdAt }));
-            } catch (e) { /* ignore */ }
+            // Source 2: individualNotes — use pre-loaded map, fall back to re-fetch
+            let allIndNotes = indNotesMap[ind.id];
+            if (!allIndNotes) {
+              try {
+                allIndNotes = await getIndividualNotes(ind.id);
+              } catch (e) {
+                console.warn('Failed to fetch individualNotes for', ind.id, e);
+                allIndNotes = [];
+              }
+            }
+            const indNotes = allIndNotes
+              .filter(n => n.createdAt && new Date(n.createdAt).getTime() >= twoMonthsAgo)
+              .map(n => ({
+                text: n.text || htmlToPlainText(n.html) || '',
+                date: n.createdAt,
+              }));
 
             // Merge, sort newest first, sanitize text (newlines break TipTap text nodes)
             afterLines = [...followUps, ...indNotes]
