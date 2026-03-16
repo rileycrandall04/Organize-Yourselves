@@ -597,7 +597,7 @@ export default function RichTextEditor({
 
   // ── Insert task chip on its own line ────────────────────────
 
-  const insertTaskChip = useCallback((taskId, afterText) => {
+  const insertTaskChip = useCallback((taskId, afterLines) => {
     if (!editor) return;
 
     const { $from } = editor.state.selection;
@@ -616,9 +616,15 @@ export default function RichTextEditor({
       attrs: { taskId },
     });
 
-    // If there's after text (e.g. recent updates for individuals), add on next line
-    if (afterText) {
-      chain.splitBlock().insertContent(afterText);
+    // If there are after lines (e.g. recent updates for individuals), add each as a bullet paragraph
+    // Uses plain paragraphs with • prefix to avoid TipTap list-context issues on multi-insert
+    if (afterLines && afterLines.length > 0) {
+      for (const entry of afterLines) {
+        chain.splitBlock().insertContent([
+          { type: 'text', marks: [{ type: 'bold' }], text: `• ${entry.dateStr}: ` },
+          { type: 'text', text: entry.text },
+        ]);
+      }
     }
 
     // Move to a new empty paragraph for continued typing

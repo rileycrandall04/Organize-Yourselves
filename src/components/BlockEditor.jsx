@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getTasksByIds, getTasks, addTask, updateTask, deleteTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings, getIndividuals, getTask } from '../db';
+import { getTasksByIds, getTasks, addTask, updateTask, deleteTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings, getIndividuals, getTask, getIndividualNotes } from '../db';
 import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST, JOURNAL_SECTIONS } from '../utils/constants';
 import { useMeetingTaskStatuses, useJournalBySection } from '../hooks/useDb';
 import useRichTextEditor, { migrateTextToHtml, extractTaskIdsFromHtml, htmlToPlainText } from './shared/RichTextEditor';
@@ -1117,6 +1117,7 @@ function JournalPickerModal({ meetingId, instanceId, onInsert, onClose }) {
 
 function IndividualPickerModal({ meetingId, onInsert, onClose }) {
   const [individuals, setIndividuals] = useState([]);
+  const [indNotesMap, setIndNotesMap] = useState({}); // id → individualNotes[]
   const [search, setSearch] = useState('');
   const [createFormOpen, setCreateFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1124,8 +1125,16 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
   const [inserting, setInserting] = useState(false);
 
   useEffect(() => {
-    getIndividuals(false).then(list => {
+    getIndividuals(false).then(async list => {
       setIndividuals(list);
+      // Pre-load individualNotes for all individuals
+      const notesMap = {};
+      await Promise.all(list.map(async ind => {
+        try {
+          notesMap[ind.id] = await getIndividualNotes(ind.id);
+        } catch { notesMap[ind.id] = []; }
+      }));
+      setIndNotesMap(notesMap);
       setLoading(false);
     });
   }, []);
@@ -1151,32 +1160,53 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
     setInserting(true);
     try {
       for (const id of selectedIds) {
-        const ind = individuals.find(i => i.id === id);
-        if (ind && meetingId && !(ind.meetingIds || []).includes(meetingId)) {
-          await updateTask(ind.id, {
-            meetingIds: [...(ind.meetingIds || []), meetingId],
-          });
-        }
-        // Compute recent updates text to insert after the chip
-        let afterText = '';
-        if (ind) {
-          const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-          const recentNotes = (ind.followUpNotes || [])
-            .filter(n => n.date && new Date(n.date).getTime() >= thirtyDaysAgo)
-            .sort((a, b) => new Date(b.date) - new Date(a.date))
-            .slice(0, 2);
-          if (recentNotes.length > 0) {
-            afterText = recentNotes.map(n => {
-              const dateStr = new Date(n.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              return `${dateStr}: ${n.text}`;
-            }).join(' · ');
+        try {
+          const ind = individuals.find(i => i.id === id);
+          if (ind && meetingId && !(ind.meetingIds || []).includes(meetingId)) {
+            await updateTask(ind.id, {
+              meetingIds: [...(ind.meetingIds || []), meetingId],
+            });
           }
+          // Gather recent notes & updates (last 2 months) from BOTH sources:
+          // 1) followUpNotes on the task object
+          // 2) individualNotes table (the "Notes & Updates" from IndividualDetail)
+          let afterLines = [];
+          if (ind) {
+            const twoMonthsAgo = Date.now() - 60 * 24 * 60 * 60 * 1000;
+
+            // Source 1: followUpNotes on the task
+            const followUps = (ind.followUpNotes || [])
+              .filter(n => n.date && new Date(n.date).getTime() >= twoMonthsAgo)
+              .map(n => ({ text: n.text, date: n.date }));
+
+            // Source 2: individualNotes table
+            let indNotes = [];
+            try {
+              const allIndNotes = await getIndividualNotes(ind.id);
+              indNotes = allIndNotes
+                .filter(n => n.createdAt && new Date(n.createdAt).getTime() >= twoMonthsAgo)
+                .map(n => ({ text: n.text || '', date: n.createdAt }));
+            } catch (e) { /* ignore */ }
+
+            // Merge, sort newest first, sanitize text (newlines break TipTap text nodes)
+            afterLines = [...followUps, ...indNotes]
+              .filter(n => n.text && n.text.trim())
+              .sort((a, b) => new Date(b.date) - new Date(a.date))
+              .map(n => ({
+                dateStr: new Date(n.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                text: n.text.replace(/\n+/g, ' ').trim(),
+              }));
+          }
+          onInsert(id, afterLines.length > 0 ? afterLines : null);
+        } catch (err) {
+          console.error('Failed to insert individual', id, err);
+          // Still try to insert just the chip without notes
+          try { onInsert(id); } catch (e) { /* skip */ }
         }
-        onInsert(id, afterText || undefined);
       }
-      onClose();
     } finally {
       setInserting(false);
+      onClose();
     }
   }
 
@@ -1231,12 +1261,18 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
             )}
             {filtered.map(ind => {
               const isSelected = selectedIds.has(ind.id);
-              // Compute recent notes (last 30 days)
-              const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-              const recentNotes = (ind.followUpNotes || [])
-                .filter(n => n.date && new Date(n.date).getTime() >= thirtyDaysAgo)
+              // Compute recent notes (last 2 months) from both sources
+              const twoMonthsAgo = Date.now() - 60 * 24 * 60 * 60 * 1000;
+              const followUps = (ind.followUpNotes || [])
+                .filter(n => n.date && new Date(n.date).getTime() >= twoMonthsAgo)
+                .map(n => ({ text: n.text, date: n.date }));
+              const indNotes = (indNotesMap[ind.id] || [])
+                .filter(n => n.createdAt && new Date(n.createdAt).getTime() >= twoMonthsAgo)
+                .map(n => ({ text: n.text || '', date: n.createdAt }));
+              const recentNotes = [...followUps, ...indNotes]
+                .filter(n => n.text && n.text.trim())
                 .sort((a, b) => new Date(b.date) - new Date(a.date))
-                .slice(0, 2);
+                .slice(0, 3);
               return (
                 <button
                   key={ind.id}
@@ -1261,7 +1297,7 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
                     {ind.nextOrdinance && (
                       <p className="text-[10px] text-cyan-600">Next: {ind.nextOrdinance}</p>
                     )}
-                    {/* Recent updates (last 30 days) */}
+                    {/* Recent updates (last 2 months) */}
                     {recentNotes.length > 0 && (
                       <div className="mt-1 space-y-0.5">
                         {recentNotes.map((note, i) => (
@@ -1504,9 +1540,9 @@ export default function BlockEditor({
   const selectedTask = selectedTaskId ? taskMap[selectedTaskId] : null;
   const selectedTaskMeetingStatus = selectedTaskId ? meetingTaskStatusMap[selectedTaskId] : null;
 
-  // Handle task insertion from modal (with optional afterText for individuals)
-  function handleTaskInsert(taskId, afterText) {
-    insertTaskChip(taskId, afterText);
+  // Handle task insertion from modal (with optional afterContent for individuals)
+  function handleTaskInsert(taskId, afterContent) {
+    insertTaskChip(taskId, afterContent);
   }
 
   // Handle person button click — skip picker if text is highlighted
