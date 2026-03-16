@@ -5,6 +5,7 @@ import { isCheckInOverdue, getDaysUntilCheckIn, CADENCES } from '../utils/consta
 import IndividualForm from './IndividualForm';
 import IndividualNoteEditor from './IndividualNoteEditor';
 import ActionItemForm from './ActionItemForm';
+import MeetingPicker from './shared/MeetingPicker';
 import {
   ArrowLeft, Edit3, UserRound, Target, Clock, AlertTriangle,
   Plus, CheckCircle2, Circle, Archive, ArchiveRestore,
@@ -24,6 +25,7 @@ export default function IndividualDetail({ individual, onBack, onUpdated }) {
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [addTaskFormOpen, setAddTaskFormOpen] = useState(false);
   const [editTaskItem, setEditTaskItem] = useState(null);
+  const [addToMeetingOpen, setAddToMeetingOpen] = useState(false);
 
   const { notes, remove: removeNote } = useIndividualNotes(individual?.id);
   const { tasks: linkedTasks } = useTasksForIndividual(individual?.id);
@@ -357,12 +359,20 @@ export default function IndividualDetail({ individual, onBack, onUpdated }) {
         </div>
 
         {/* Linked Meetings */}
-        {linkedMeetings.length > 0 && (
-          <div className="mb-4">
-            <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
               <Calendar size={12} className="text-indigo-500" />
               Linked Meetings
             </h2>
+            <button
+              onClick={() => setAddToMeetingOpen(true)}
+              className="text-[11px] text-indigo-600 flex items-center gap-0.5 hover:text-indigo-700"
+            >
+              <Plus size={12} /> Add to Meeting
+            </button>
+          </div>
+          {linkedMeetings.length > 0 ? (
             <div className="space-y-1.5">
               {linkedMeetings.map(m => (
                 <div
@@ -379,8 +389,27 @@ export default function IndividualDetail({ individual, onBack, onUpdated }) {
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p className="text-xs text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-xl">
+              Not linked to any meetings yet
+            </p>
+          )}
+        </div>
+
+        {/* Add to Meeting picker */}
+        <MeetingPicker
+          open={addToMeetingOpen}
+          onClose={() => setAddToMeetingOpen(false)}
+          onSelect={async (mtg) => {
+            const currentIds = individual.meetingIds || [];
+            if (!currentIds.includes(mtg.id)) {
+              await updateTask(individual.id, { meetingIds: [...currentIds, mtg.id] });
+              if (onUpdated) onUpdated();
+            }
+          }}
+          excludeIds={individual.meetingIds || []}
+          title="Add to Meeting"
+        />
 
         {/* Archive/Unarchive button */}
         {!individual.isArchived && (

@@ -579,11 +579,20 @@ export default function RichTextEditor({
   }, [editor, tasksData, meetingTaskStatuses, styleAllChips]);
 
   // Re-style chips after every editor transaction (handles Enter, paste, undo, etc.)
+  // Use requestAnimationFrame to defer DOM manipulation until AFTER TipTap finishes
+  // processing the transaction — prevents conflicts during rapid key-repeat (e.g. held backspace)
   useEffect(() => {
     if (!editor) return;
-    const onTransaction = () => styleAllChips();
+    let rafId = null;
+    const onTransaction = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => styleAllChips());
+    };
     editor.on('transaction', onTransaction);
-    return () => editor.off('transaction', onTransaction);
+    return () => {
+      editor.off('transaction', onTransaction);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [editor, styleAllChips]);
 
   // ── Insert task chip at current position ───────────────────

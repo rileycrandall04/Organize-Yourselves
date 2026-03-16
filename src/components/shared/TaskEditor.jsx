@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { updateTask, addTaskFollowUpNote, setMeetingTaskStatus, getTask, deleteTask } from '../../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMeetings } from '../../hooks/useDb';
-import { TASK_TYPES, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../../utils/constants';
+import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST } from '../../utils/constants';
 import MeetingPicker from './MeetingPicker';
+import IndividualDetail from '../IndividualDetail';
 import {
   Star, Share2, X, RotateCw, ArrowRightLeft, Trash2,
   CheckCircle2, Circle, Clock, Pause,
   CheckSquare, MessageSquare, CalendarDays, Briefcase, Heart,
-  PhoneForwarded, Sparkles, BookOpen, ChevronDown, ChevronUp, UserRound,
+  PhoneForwarded, Sparkles, BookOpen, ChevronDown, ChevronUp, UserRound, Tag,
 } from 'lucide-react';
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -124,6 +125,8 @@ export default function TaskEditor({
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
   const [reassignPickerOpen, setReassignPickerOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [showAllNotes, setShowAllNotes] = useState(false);
+  const [editingTypes, setEditingTypes] = useState(false);
 
   // Live-query the task so updates (e.g. meeting assignment) reflect immediately
   const liveTask = useLiveQuery(() => taskProp?.id ? getTask(taskProp.id) : null, [taskProp?.id]);
@@ -134,6 +137,19 @@ export default function TaskEditor({
   const resolvedMeetings = meetings || hookMeetings || [];
 
   if (!task) return null;
+
+  // Route individual-type tasks to the full IndividualDetail page
+  if (task.type === 'individual') {
+    return (
+      <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+        <IndividualDetail
+          individual={task}
+          onBack={onClose}
+          onUpdated={() => {}}
+        />
+      </div>
+    );
+  }
 
   const StatusIcon = STATUS_ICONS[task.status] || Circle;
   const TypeIcon = TYPE_ICONS[task.type] || CheckSquare;
@@ -211,8 +227,8 @@ export default function TaskEditor({
               <h3 className={`text-sm font-semibold text-gray-900 ${isComplete ? 'line-through opacity-50' : ''}`}>
                 {task.title}
               </h3>
-              {/* Multi-type badges */}
-              <div className="flex items-center gap-1 mt-0.5">
+              {/* Multi-type badges (tap to edit) */}
+              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                 {types.map(t => {
                   const c = CHIP_COLORS[t] || CHIP_COLORS.action_item;
                   return (
@@ -225,6 +241,15 @@ export default function TaskEditor({
                     </span>
                   );
                 })}
+                {!disabled && (
+                  <button
+                    onClick={() => setEditingTypes(!editingTypes)}
+                    className="text-[9px] text-gray-400 hover:text-gray-600 p-0.5"
+                    title="Edit types"
+                  >
+                    <Tag size={10} />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -232,6 +257,50 @@ export default function TaskEditor({
             <X size={16} />
           </button>
         </div>
+
+        {/* Type editing panel (expandable multi-select) */}
+        {editingTypes && !disabled && (
+          <div className="mb-3 pb-3 border-b border-gray-100">
+            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Edit Task Types</h4>
+            <div className="flex flex-wrap gap-1.5">
+              {TASK_TYPE_LIST.map(typeConfig => {
+                const typeKey = typeConfig.key;
+                const isSelected = types.includes(typeKey);
+                const Icon = TYPE_ICONS[typeKey] || CheckSquare;
+                const c = CHIP_COLORS[typeKey] || CHIP_COLORS.action_item;
+                return (
+                  <button
+                    key={typeKey}
+                    type="button"
+                    onClick={async () => {
+                      let newTypes;
+                      if (isSelected) {
+                        if (types.length <= 1) return; // Don't deselect the last type
+                        newTypes = types.filter(t => t !== typeKey);
+                      } else {
+                        newTypes = [...types, typeKey];
+                      }
+                      await updateTask(task.id, { types: newTypes, type: newTypes[0] });
+                    }}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all ${
+                      isSelected
+                        ? 'ring-2 ring-offset-1 shadow-sm'
+                        : 'opacity-40 hover:opacity-70'
+                    }`}
+                    style={{
+                      background: c.bg,
+                      color: c.fg,
+                      border: `1px solid ${c.bd}`,
+                    }}
+                  >
+                    <Icon size={11} />
+                    {typeConfig.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Next Ordinance (individual type) */}
         {task.type === 'individual' && task.nextOrdinance && (
@@ -363,24 +432,36 @@ export default function TaskEditor({
           </div>
         )}
 
-        {/* Follow-up notes */}
-        {task.followUpNotes?.length > 0 && (
-          <div className="mb-3">
-            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</h4>
-            <div className="space-y-1">
-              {task.followUpNotes.slice(-3).map((note, i) => (
-                <div key={i} className="text-[11px] text-gray-600 bg-gray-50 rounded px-2 py-1">
-                  {note.text}
-                  {note.date && (
-                    <span className="text-gray-300 ml-1 text-[10px]">
-                      ({new Date(note.date).toLocaleDateString()})
-                    </span>
-                  )}
-                </div>
-              ))}
+        {/* Follow-up notes — newest first, expandable */}
+        {task.followUpNotes?.length > 0 && (() => {
+          const sortedNotes = [...task.followUpNotes].reverse();
+          const visibleNotes = showAllNotes ? sortedNotes : sortedNotes.slice(0, 5);
+          return (
+            <div className="mb-3">
+              <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</h4>
+              <div className="space-y-1">
+                {visibleNotes.map((note, i) => (
+                  <div key={i} className="text-[11px] text-gray-600 bg-gray-50 rounded px-2 py-1">
+                    {note.text}
+                    {note.date && (
+                      <span className="text-gray-300 ml-1 text-[10px]">
+                        ({new Date(note.date).toLocaleDateString()})
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {sortedNotes.length > 5 && (
+                <button
+                  onClick={() => setShowAllNotes(!showAllNotes)}
+                  className="text-[10px] text-primary-600 hover:text-primary-800 font-medium mt-1"
+                >
+                  {showAllNotes ? 'Show less' : `Show all ${sortedNotes.length} notes`}
+                </button>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Add note */}
         {!disabled && (

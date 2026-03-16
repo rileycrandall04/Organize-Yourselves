@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getTasksByIds, getTasks, addTask, updateTask, deleteTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings, getIndividuals } from '../db';
+import { getTasksByIds, getTasks, addTask, updateTask, deleteTask, addTaskFollowUpNote, setMeetingTaskStatus, getMeetings, getIndividuals, getTask } from '../db';
 import { TASK_TYPES, TASK_TYPE_LIST, MEETING_TASK_STATUSES, MEETING_TASK_STATUS_LIST, JOURNAL_SECTIONS } from '../utils/constants';
 import { useMeetingTaskStatuses, useJournalBySection } from '../hooks/useDb';
 import useRichTextEditor, { migrateTextToHtml, extractTaskIdsFromHtml, htmlToPlainText } from './shared/RichTextEditor';
+import IndividualDetail from './IndividualDetail';
 import {
   Plus, Star, Share2, X, Search, Import, Cloud, CloudOff, ArrowRightLeft,
   CheckCircle2, Circle, Clock, Pause, ChevronUp, ChevronDown, Trash2,
@@ -150,6 +151,8 @@ export function migrateAgendaToBlocks(agendaItems, notes) {
 function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, onDeleteTask, meetings, currentMeetingId, meetingStatus, onSetMeetingStatus }) {
   const [noteText, setNoteText] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showAllNotes, setShowAllNotes] = useState(false);
+  const [editingTypes, setEditingTypes] = useState(false);
 
   if (!task) return null;
 
@@ -157,6 +160,7 @@ function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, onDele
   const TypeIcon = TYPE_ICONS[task.type] || CheckSquare;
   const typeLabel = TASK_TYPES[task.type]?.label || 'Task';
   const isComplete = task.status === 'complete';
+  const types = task.types || [task.type];
 
   // Meeting status icons map
   const MEETING_STATUS_ICONS = {
@@ -213,13 +217,80 @@ function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, onDele
               <h3 className={`text-sm font-semibold text-gray-900 ${isComplete ? 'line-through opacity-50' : ''}`}>
                 {task.title}
               </h3>
-              <span className="text-[10px] text-gray-400">{typeLabel}</span>
+              {/* Multi-type badges (tap to edit) */}
+              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                {types.map(t => {
+                  const c = CHIP_COLORS[t] || CHIP_COLORS.action_item;
+                  return (
+                    <span
+                      key={t}
+                      className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                      style={{ background: c.bg, color: c.fg, border: `1px solid ${c.bd}` }}
+                    >
+                      {TASK_TYPES[t]?.label || t}
+                    </span>
+                  );
+                })}
+                {!disabled && (
+                  <button
+                    onClick={() => setEditingTypes(!editingTypes)}
+                    className="text-[9px] text-gray-400 hover:text-gray-600 p-0.5"
+                    title="Edit types"
+                  >
+                    <Tag size={10} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600">
             <X size={16} />
           </button>
         </div>
+
+        {/* Type editing panel (expandable multi-select) */}
+        {editingTypes && !disabled && (
+          <div className="mb-3 pb-3 border-b border-gray-100">
+            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Edit Task Types</h4>
+            <div className="flex flex-wrap gap-1.5">
+              {TASK_TYPE_LIST.map(typeConfig => {
+                const typeKey = typeConfig.key;
+                const isSelected = types.includes(typeKey);
+                const Icon = TYPE_ICONS[typeKey] || CheckSquare;
+                const c = CHIP_COLORS[typeKey] || CHIP_COLORS.action_item;
+                return (
+                  <button
+                    key={typeKey}
+                    type="button"
+                    onClick={async () => {
+                      let newTypes;
+                      if (isSelected) {
+                        if (types.length <= 1) return;
+                        newTypes = types.filter(t => t !== typeKey);
+                      } else {
+                        newTypes = [...types, typeKey];
+                      }
+                      await updateTask(task.id, { types: newTypes, type: newTypes[0] });
+                    }}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all ${
+                      isSelected
+                        ? 'ring-2 ring-offset-1 shadow-sm'
+                        : 'opacity-40 hover:opacity-70'
+                    }`}
+                    style={{
+                      background: c.bg,
+                      color: c.fg,
+                      border: `1px solid ${c.bd}`,
+                    }}
+                  >
+                    <Icon size={11} />
+                    {typeConfig.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Status / Star / Follow-up */}
         <div className="flex items-center gap-4 mb-3 pb-3 border-b border-gray-100">
@@ -305,24 +376,36 @@ function TaskPanel({ task, onClose, disabled, onTagTask, onConvertToText, onDele
           </div>
         )}
 
-        {/* Follow-up notes */}
-        {task.followUpNotes?.length > 0 && (
-          <div className="mb-3">
-            <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</h4>
-            <div className="space-y-1">
-              {task.followUpNotes.slice(-3).map((note, i) => (
-                <div key={i} className="text-[11px] text-gray-600 bg-gray-50 rounded px-2 py-1">
-                  {note.text}
-                  {note.date && (
-                    <span className="text-gray-300 ml-1 text-[10px]">
-                      ({new Date(note.date).toLocaleDateString()})
-                    </span>
-                  )}
-                </div>
-              ))}
+        {/* Follow-up notes — newest first, expandable */}
+        {task.followUpNotes?.length > 0 && (() => {
+          const sortedNotes = [...task.followUpNotes].reverse();
+          const visibleNotes = showAllNotes ? sortedNotes : sortedNotes.slice(0, 5);
+          return (
+            <div className="mb-3">
+              <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</h4>
+              <div className="space-y-1">
+                {visibleNotes.map((note, i) => (
+                  <div key={i} className="text-[11px] text-gray-600 bg-gray-50 rounded px-2 py-1">
+                    {note.text}
+                    {note.date && (
+                      <span className="text-gray-300 ml-1 text-[10px]">
+                        ({new Date(note.date).toLocaleDateString()})
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {sortedNotes.length > 5 && (
+                <button
+                  onClick={() => setShowAllNotes(!showAllNotes)}
+                  className="text-[10px] text-primary-600 hover:text-primary-800 font-medium mt-1"
+                >
+                  {showAllNotes ? 'Show less' : `Show all ${sortedNotes.length} notes`}
+                </button>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Add note */}
         {!disabled && (
@@ -1037,6 +1120,8 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
   const [search, setSearch] = useState('');
   const [createFormOpen, setCreateFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [inserting, setInserting] = useState(false);
 
   useEffect(() => {
     getIndividuals(false).then(list => {
@@ -1049,15 +1134,35 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
     !search || (ind.title || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  async function handlePickExisting(individual) {
-    // If in a meeting context and the individual isn't already linked, auto-link
-    if (meetingId && !(individual.meetingIds || []).includes(meetingId)) {
-      await updateTask(individual.id, {
-        meetingIds: [...(individual.meetingIds || []), meetingId],
-      });
+  function toggleSelection(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function handleInsertSelected() {
+    if (selectedIds.size === 0) return;
+    setInserting(true);
+    try {
+      for (const id of selectedIds) {
+        const ind = individuals.find(i => i.id === id);
+        if (ind && meetingId && !(ind.meetingIds || []).includes(meetingId)) {
+          await updateTask(ind.id, {
+            meetingIds: [...(ind.meetingIds || []), meetingId],
+          });
+        }
+        onInsert(id);
+      }
+      onClose();
+    } finally {
+      setInserting(false);
     }
-    onInsert(individual.id);
-    onClose();
   }
 
   async function handleCreateNew(data) {
@@ -1080,7 +1185,12 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
         >
           <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
             <UserRound size={16} className="text-cyan-600" />
-            Insert Individual
+            Insert Individuals
+            {selectedIds.size > 0 && (
+              <span className="text-[10px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-full font-medium">
+                {selectedIds.size} selected
+              </span>
+            )}
           </h3>
 
           {/* Search */}
@@ -1096,7 +1206,7 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
             />
           </div>
 
-          {/* List */}
+          {/* List — multi-select with checkmarks */}
           <div className="flex-1 overflow-y-auto space-y-1 mb-3 min-h-0">
             {loading && <p className="text-xs text-gray-400 text-center py-4">Loading...</p>}
             {!loading && filtered.length === 0 && (
@@ -1104,32 +1214,76 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
                 {search ? 'No matches' : 'No individuals on focus list yet'}
               </p>
             )}
-            {filtered.map(ind => (
-              <button
-                key={ind.id}
-                onClick={() => handlePickExisting(ind)}
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border border-gray-100 hover:border-cyan-200 hover:bg-cyan-50/50 transition-colors text-left"
-              >
-                <UserRound size={14} className="text-cyan-600 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{ind.title}</p>
-                  {ind.nextOrdinance && (
-                    <p className="text-[10px] text-cyan-600">Next: {ind.nextOrdinance}</p>
-                  )}
-                </div>
-              </button>
-            ))}
+            {filtered.map(ind => {
+              const isSelected = selectedIds.has(ind.id);
+              // Compute recent notes (last 30 days)
+              const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+              const recentNotes = (ind.followUpNotes || [])
+                .filter(n => n.date && new Date(n.date).getTime() >= thirtyDaysAgo)
+                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                .slice(0, 2);
+              return (
+                <button
+                  key={ind.id}
+                  onClick={() => toggleSelection(ind.id)}
+                  className={`w-full flex items-start gap-2.5 px-3 py-2 rounded-lg border transition-colors text-left ${
+                    isSelected
+                      ? 'border-cyan-300 bg-cyan-50'
+                      : 'border-gray-100 hover:border-cyan-200 hover:bg-cyan-50/50'
+                  }`}
+                >
+                  {/* Checkbox indicator */}
+                  <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                    isSelected
+                      ? 'bg-cyan-600 border-cyan-600 text-white'
+                      : 'border-gray-300'
+                  }`}>
+                    {isSelected && <CheckCircle2 size={12} />}
+                  </div>
+                  <UserRound size={14} className="text-cyan-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{ind.title}</p>
+                    {ind.nextOrdinance && (
+                      <p className="text-[10px] text-cyan-600">Next: {ind.nextOrdinance}</p>
+                    )}
+                    {/* Recent updates (last 30 days) */}
+                    {recentNotes.length > 0 && (
+                      <div className="mt-1 space-y-0.5">
+                        {recentNotes.map((note, i) => (
+                          <p key={i} className="text-[10px] text-gray-500 truncate">
+                            <span className="text-gray-300">
+                              {new Date(note.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}:
+                            </span>{' '}
+                            {note.text}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
           {/* Actions */}
           <div className="flex gap-2">
-            <button
-              onClick={() => setCreateFormOpen(true)}
-              className="btn-primary flex-1 flex items-center justify-center gap-1.5"
-            >
-              <Plus size={14} />
-              Create New
-            </button>
+            {selectedIds.size > 0 ? (
+              <button
+                onClick={handleInsertSelected}
+                disabled={inserting}
+                className="btn-primary flex-1 flex items-center justify-center gap-1.5"
+              >
+                {inserting ? 'Inserting...' : `Insert ${selectedIds.size} Individual${selectedIds.size > 1 ? 's' : ''}`}
+              </button>
+            ) : (
+              <button
+                onClick={() => setCreateFormOpen(true)}
+                className="btn-primary flex-1 flex items-center justify-center gap-1.5"
+              >
+                <Plus size={14} />
+                Create New
+              </button>
+            )}
             <button onClick={onClose} className="btn-secondary">Cancel</button>
           </div>
         </div>
@@ -1242,6 +1396,7 @@ export default function BlockEditor({
   const [journalPickerOpen, setJournalPickerOpen] = useState(false);
   const [individualPickerOpen, setIndividualPickerOpen] = useState(false);
   const [toolbarCollapsed, setToolbarCollapsed] = useState(true);
+  const [individualDetailTask, setIndividualDetailTask] = useState(null);
 
   // Load all meetings for journal mode task creation (meeting picker)
   const allMeetings = useLiveQuery(
@@ -1302,6 +1457,9 @@ export default function BlockEditor({
       const task = taskMap[id];
       if (task?.status === 'complete') {
         updateTask(id, { status: 'not_started' });
+      } else if (task?.type === 'individual') {
+        // Open full IndividualDetail for individual-type tasks
+        setIndividualDetailTask(task);
       } else {
         setSelectedTaskId(id);
       }
@@ -1645,6 +1803,21 @@ export default function BlockEditor({
           onInsert={handleTaskInsert}
           onClose={() => setIndividualPickerOpen(false)}
         />
+      )}
+
+      {/* Full Individual Detail overlay */}
+      {individualDetailTask && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
+          <IndividualDetail
+            individual={individualDetailTask}
+            onBack={() => setIndividualDetailTask(null)}
+            onUpdated={async () => {
+              // Refresh the task data
+              const updated = await getTask(individualDetailTask.id);
+              if (updated) setIndividualDetailTask(updated);
+            }}
+          />
+        </div>
       )}
     </div>
   );

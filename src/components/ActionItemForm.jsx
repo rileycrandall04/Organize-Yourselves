@@ -3,7 +3,8 @@ import Modal from './shared/Modal';
 import MeetingPicker from './shared/MeetingPicker';
 import { PRIORITY_LIST, CONTEXT_LIST, CADENCE_LIST, TASK_TYPE_LIST } from '../utils/constants';
 import { useMeetings, usePeople } from '../hooks/useDb';
-import { Star, Trash2, RotateCw, Calendar, UserCircle, X } from 'lucide-react';
+import { getIndividuals } from '../db';
+import { Star, Trash2, RotateCw, Calendar, UserCircle, X, UserRound, Search } from 'lucide-react';
 
 const EMPTY_FORM = {
   title: '',
@@ -30,6 +31,10 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
   const [assignedTo, setAssignedTo] = useState(null);
   const [assigneeInput, setAssigneeInput] = useState('');
   const [showAssigneePicker, setShowAssigneePicker] = useState(false);
+  const [individualMode, setIndividualMode] = useState('new'); // 'new' | 'existing'
+  const [existingIndividuals, setExistingIndividuals] = useState([]);
+  const [selectedIndividual, setSelectedIndividual] = useState(null);
+  const [individualSearch, setIndividualSearch] = useState('');
   const { meetings: allMeetings } = useMeetings();
   const { people } = usePeople();
 
@@ -42,8 +47,19 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
       setAssignedTo(item?.assignedTo || null);
       setAssigneeInput('');
       setConfirmDelete(false);
+      setIndividualMode('new');
+      setSelectedIndividual(null);
+      setIndividualSearch('');
     }
   }, [open, item]);
+
+  // Load existing individuals when individual type is selected
+  const showIndividualFields = selectedTypes.includes('individual');
+  useEffect(() => {
+    if (showIndividualFields) {
+      getIndividuals(false).then(setExistingIndividuals);
+    }
+  }, [showIndividualFields]);
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -51,7 +67,25 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.title.trim() || saving) return;
+    if (saving) return;
+
+    // When individual type is selected and user picked an existing one
+    if (showIndividualFields && individualMode === 'existing' && selectedIndividual) {
+      setSaving(true);
+      try {
+        // Link existing individual to selected meetings
+        const { updateTask } = await import('../db');
+        const currentIds = selectedIndividual.meetingIds || [];
+        const newMeetingIds = [...new Set([...currentIds, ...meetingIds])];
+        await updateTask(selectedIndividual.id, { meetingIds: newMeetingIds });
+        onClose();
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (!form.title.trim()) return;
     setSaving(true);
     try {
       const primaryType = selectedTypes[0] || 'action_item';
@@ -74,6 +108,13 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
       if (selectedTypes.includes('event')) {
         data.eventDate = form.eventDate || form.dueDate || undefined;
         data.organization = form.organization || undefined;
+      }
+
+      // Individual-specific fields
+      if (showIndividualFields && individualMode === 'new') {
+        data.status = 'in_progress';
+        data.isArchived = false;
+        data.checkInCadence = 'monthly';
       }
 
       await onSave(data, item?.id);
@@ -129,18 +170,105 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
           </div>
         </div>
 
-        {/* Title */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-          <input
-            type="text"
-            value={form.title}
-            onChange={e => set('title', e.target.value)}
-            placeholder="What needs to be done?"
-            className="input-field"
-            autoFocus
-          />
-        </div>
+        {/* Individual: new or existing toggle */}
+        {showIndividualFields && !isEdit && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Individual</label>
+            {/* Toggle: Create New / Select Existing */}
+            <div className="flex gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => { setIndividualMode('new'); setSelectedIndividual(null); }}
+                className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  individualMode === 'new'
+                    ? 'bg-cyan-50 text-cyan-700 border-cyan-300'
+                    : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                Create New
+              </button>
+              <button
+                type="button"
+                onClick={() => setIndividualMode('existing')}
+                className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  individualMode === 'existing'
+                    ? 'bg-cyan-50 text-cyan-700 border-cyan-300'
+                    : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                Select Existing
+              </button>
+            </div>
+
+            {individualMode === 'existing' && (
+              <div>
+                {/* Search field */}
+                <div className="relative mb-2">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={individualSearch}
+                    onChange={e => setIndividualSearch(e.target.value)}
+                    placeholder="Search individuals..."
+                    className="input-field pl-8 text-sm"
+                  />
+                </div>
+                {/* Existing individuals list */}
+                <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg">
+                  {existingIndividuals
+                    .filter(ind => !individualSearch || (ind.title || '').toLowerCase().includes(individualSearch.toLowerCase()))
+                    .map(ind => (
+                      <button
+                        key={ind.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedIndividual(ind);
+                          set('title', ind.title);
+                        }}
+                        className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-cyan-50 transition-colors border-b border-gray-100 last:border-0 ${
+                          selectedIndividual?.id === ind.id ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700'
+                        }`}
+                      >
+                        <UserRound size={14} className={`flex-shrink-0 ${selectedIndividual?.id === ind.id ? 'text-cyan-600' : 'text-gray-400'}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{ind.title}</p>
+                          {ind.nextOrdinance && (
+                            <p className="text-[10px] text-cyan-600">Next: {ind.nextOrdinance}</p>
+                          )}
+                        </div>
+                        {selectedIndividual?.id === ind.id && (
+                          <span className="text-cyan-600 text-xs">✓</span>
+                        )}
+                      </button>
+                    ))
+                  }
+                  {existingIndividuals.filter(ind => !individualSearch || (ind.title || '').toLowerCase().includes(individualSearch.toLowerCase())).length === 0 && (
+                    <p className="text-xs text-gray-400 text-center py-3">
+                      {individualSearch ? 'No matches found' : 'No individuals on focus list yet'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Title (hidden when selecting existing individual) */}
+        {!(showIndividualFields && !isEdit && individualMode === 'existing') && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {showIndividualFields && !isEdit ? "Person's Name" : 'Title'}
+            </label>
+            <input
+              type="text"
+              value={form.title}
+              onChange={e => set('title', e.target.value)}
+              placeholder={showIndividualFields && !isEdit ? "Person's name..." : "What needs to be done?"}
+              className="input-field"
+              autoFocus
+            />
+          </div>
+        )}
 
         {/* Description */}
         <div>
@@ -346,8 +474,25 @@ export default function ActionItemForm({ open, onClose, onSave, onDelete, item }
 
         {/* Actions */}
         <div className="flex items-center gap-3 pt-2">
-          <button type="submit" disabled={!form.title.trim() || saving} className="btn-primary flex-1">
-            {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
+          <button
+            type="submit"
+            disabled={
+              saving || (
+                showIndividualFields && !isEdit && individualMode === 'existing'
+                  ? !selectedIndividual
+                  : !form.title.trim()
+              )
+            }
+            className="btn-primary flex-1"
+          >
+            {saving
+              ? 'Saving...'
+              : isEdit
+                ? 'Update'
+                : showIndividualFields && individualMode === 'existing'
+                  ? 'Link Individual'
+                  : 'Create'
+            }
           </button>
           <button type="button" onClick={onClose} className="btn-secondary flex-1">
             Cancel

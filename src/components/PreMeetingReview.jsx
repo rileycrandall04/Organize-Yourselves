@@ -18,6 +18,7 @@ const TYPE_ICONS = {
   calling_plan: Briefcase,
   ministering_plan: Heart,
   ongoing: RotateCw,
+  individual: UserRound,
 };
 
 const CHIP_COLORS = {
@@ -27,6 +28,7 @@ const CHIP_COLORS = {
   calling_plan:     { bg: '#faf5ff', fg: '#7e22ce', bd: '#e9d5ff' },
   ministering_plan: { bg: '#fff1f2', fg: '#be123c', bd: '#fecdd3' },
   ongoing:          { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' },
+  individual:       { bg: '#ecfeff', fg: '#0e7490', bd: '#a5f3fc' },
 };
 
 const STATUS_CHAR = {
