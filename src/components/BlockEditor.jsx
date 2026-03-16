@@ -1157,7 +1157,22 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
             meetingIds: [...(ind.meetingIds || []), meetingId],
           });
         }
-        onInsert(id);
+        // Compute recent updates text to insert after the chip
+        let afterText = '';
+        if (ind) {
+          const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+          const recentNotes = (ind.followUpNotes || [])
+            .filter(n => n.date && new Date(n.date).getTime() >= thirtyDaysAgo)
+            .sort((a, b) => new Date(b.date) - new Date(a.date))
+            .slice(0, 2);
+          if (recentNotes.length > 0) {
+            afterText = recentNotes.map(n => {
+              const dateStr = new Date(n.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              return `${dateStr}: ${n.text}`;
+            }).join(' · ');
+          }
+        }
+        onInsert(id, afterText || undefined);
       }
       onClose();
     } finally {
@@ -1489,9 +1504,9 @@ export default function BlockEditor({
   const selectedTask = selectedTaskId ? taskMap[selectedTaskId] : null;
   const selectedTaskMeetingStatus = selectedTaskId ? meetingTaskStatusMap[selectedTaskId] : null;
 
-  // Handle task insertion from modal
-  function handleTaskInsert(taskId) {
-    insertTaskChip(taskId);
+  // Handle task insertion from modal (with optional afterText for individuals)
+  function handleTaskInsert(taskId, afterText) {
+    insertTaskChip(taskId, afterText);
   }
 
   // Handle person button click — skip picker if text is highlighted

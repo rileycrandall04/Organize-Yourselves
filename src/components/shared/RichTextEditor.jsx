@@ -595,18 +595,34 @@ export default function RichTextEditor({
     };
   }, [editor, styleAllChips]);
 
-  // ── Insert task chip at current position ───────────────────
+  // ── Insert task chip on its own line ────────────────────────
 
-  const insertTaskChip = useCallback((taskId) => {
+  const insertTaskChip = useCallback((taskId, afterText) => {
     if (!editor) return;
-    editor.chain()
-      .focus()
-      .insertContent({
-        type: 'taskChip',
-        attrs: { taskId },
-      })
-      .insertContent(' ')
-      .run();
+
+    const { $from } = editor.state.selection;
+    const isEmptyBlock = $from.parentOffset === 0 && $from.parent.content.size === 0;
+
+    const chain = editor.chain().focus();
+
+    // If we're not on an empty line, split to a new paragraph first
+    if (!isEmptyBlock) {
+      chain.splitBlock();
+    }
+
+    // Insert the chip
+    chain.insertContent({
+      type: 'taskChip',
+      attrs: { taskId },
+    });
+
+    // If there's after text (e.g. recent updates for individuals), add on next line
+    if (afterText) {
+      chain.splitBlock().insertContent(afterText);
+    }
+
+    // Move to a new empty paragraph for continued typing
+    chain.splitBlock().run();
   }, [editor]);
 
   // ── Get selected text (for "Make Task") ────────────────────
