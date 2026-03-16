@@ -9,7 +9,7 @@ import MeetingPicker from './shared/MeetingPicker';
 import {
   ArrowLeft, Edit3, UserRound, Target, Clock, AlertTriangle,
   Plus, CheckCircle2, Circle, Archive, ArchiveRestore,
-  Calendar, ChevronRight, Star, Trash2, Users,
+  Calendar, ChevronRight, Star, Trash2, Users, X,
 } from 'lucide-react';
 
 const STATUS_ICONS = {
@@ -385,7 +385,19 @@ export default function IndividualDetail({ individual, onBack, onUpdated }) {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{m.name}</p>
                   </div>
-                  <ChevronRight size={12} className="text-gray-300 flex-shrink-0" />
+                  <button
+                    onClick={async () => {
+                      const currentIds = individual.meetingIds || [];
+                      await updateTask(individual.id, {
+                        meetingIds: currentIds.filter(id => id !== m.id),
+                      });
+                      if (onUpdated) onUpdated();
+                    }}
+                    className="p-1 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                    title="Remove from meeting"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               ))}
             </div>
