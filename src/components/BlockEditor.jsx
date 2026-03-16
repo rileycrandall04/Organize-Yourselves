@@ -1196,13 +1196,6 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
                 date: n.createdAt,
               }));
 
-            // DEBUG — remove after fix verified
-            console.log(`[IndInsert] "${ind.title}" (id=${ind.id}):`,
-              { followUps: followUps.length, indNotesMapHit: !!indNotesMap[ind.id],
-                allIndNotesRaw: allIndNotes.length, indNotesFiltered: indNotes.length,
-                rawNotes: allIndNotes.map(n => ({ id: n.id, hasText: !!n.text, hasHtml: !!n.html, createdAt: n.createdAt })),
-                followUpNotesRaw: ind.followUpNotes });
-
             // Merge, sort newest first, sanitize text (newlines break TipTap text nodes)
             afterLines = [...followUps, ...indNotes]
               .filter(n => n.text && n.text.trim())
@@ -1211,7 +1204,6 @@ function IndividualPickerModal({ meetingId, onInsert, onClose }) {
                 dateStr: new Date(n.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
                 text: n.text.replace(/\n+/g, ' ').trim(),
               }));
-            console.log(`[IndInsert] "${ind.title}" final afterLines:`, afterLines);
           }
           onInsert(id, afterLines.length > 0 ? afterLines : null);
         } catch (err) {

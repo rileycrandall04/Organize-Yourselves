@@ -603,6 +603,33 @@ export default function RichTextEditor({
     const { $from } = editor.state.selection;
     const isEmptyBlock = $from.parentOffset === 0 && $from.parent.content.size === 0;
 
+    // Build the full content as structured paragraphs for a single insertContent
+    // call.  Chaining many splitBlock→insertContent steps causes ProseMirror
+    // "Position out of range" errors when the chain grows long.
+    const paragraphs = [];
+
+    // Chip paragraph
+    paragraphs.push({
+      type: 'paragraph',
+      content: [{ type: 'taskChip', attrs: { taskId } }],
+    });
+
+    // Note/update lines (e.g. recent updates for individuals)
+    if (afterLines && afterLines.length > 0) {
+      for (const entry of afterLines) {
+        paragraphs.push({
+          type: 'paragraph',
+          content: [
+            { type: 'text', marks: [{ type: 'bold' }], text: `• ${entry.dateStr}: ` },
+            { type: 'text', text: entry.text },
+          ],
+        });
+      }
+    }
+
+    // Empty paragraph for continued typing
+    paragraphs.push({ type: 'paragraph' });
+
     const chain = editor.chain().focus();
 
     // If we're not on an empty line, split to a new paragraph first
@@ -610,25 +637,7 @@ export default function RichTextEditor({
       chain.splitBlock();
     }
 
-    // Insert the chip
-    chain.insertContent({
-      type: 'taskChip',
-      attrs: { taskId },
-    });
-
-    // If there are after lines (e.g. recent updates for individuals), add each as a bullet paragraph
-    // Uses plain paragraphs with • prefix to avoid TipTap list-context issues on multi-insert
-    if (afterLines && afterLines.length > 0) {
-      for (const entry of afterLines) {
-        chain.splitBlock().insertContent([
-          { type: 'text', marks: [{ type: 'bold' }], text: `• ${entry.dateStr}: ` },
-          { type: 'text', text: entry.text },
-        ]);
-      }
-    }
-
-    // Move to a new empty paragraph for continued typing
-    chain.splitBlock().run();
+    chain.insertContent(paragraphs).run();
   }, [editor]);
 
   // ── Get selected text (for "Make Task") ────────────────────
